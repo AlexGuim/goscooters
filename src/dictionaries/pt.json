@@ -149,5 +149,13 @@
         "texto": "Para exercer os seus direitos ou esclarecer qualquer dúvida, contacte-nos através dos meios indicados no site."
       }
     ]
+  },
+  "galeria": {
+    "abrir": "Ampliar fotografia",
+    "fechar": "Fechar",
+    "anterior": "Fotografia anterior",
+    "seguinte": "Fotografia seguinte",
+    "contador": "Fotografia {atual} de {total}",
+    "verTodas": "Ver todas as {n} fotografias"
   }
 }

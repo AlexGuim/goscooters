@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
+import GaleriaMota from "@/components/GaleriaMota";
 import { getDicionario } from "@/lib/dictionaries";
 import { isLocale, preencher, type Locale } from "@/lib/i18n";
 import type { Moto } from "@/types/db";
@@ -49,33 +50,11 @@ export default async function MotoPage({ params }: PageProps) {
         <section className="rounded-3xl bg-white p-5 shadow-sm sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
             <div className="flex-1">
-              <div className="overflow-hidden rounded-[2rem] bg-slate-100">
-                {moto.foto_urls?.[0] ? (
-                  <img
-                    className="h-80 w-full object-cover"
-                    src={moto.foto_urls[0]}
-                    alt={moto.modelo}
-                  />
-                ) : (
-                  <div className="flex h-80 items-center justify-center text-slate-500">
-                    {dic.detalhe.semImagem}
-                  </div>
-                )}
-              </div>
-
-              {(moto.foto_urls?.length ?? 0) > 1 ? (
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  {moto.foto_urls?.map((url, index) => (
-                    <div key={index} className="overflow-hidden rounded-3xl bg-slate-100">
-                      <img
-                        className="h-24 w-full object-cover"
-                        src={url}
-                        alt={`${moto.modelo} ${index + 1}`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <GaleriaMota
+                fotos={moto.foto_urls ?? []}
+                modelo={moto.modelo}
+                dic={dic}
+              />
             </div>
 
             <div className="space-y-6 rounded-3xl border border-slate-200 bg-slate-50 p-5 lg:w-96 lg:flex-none lg:p-6">

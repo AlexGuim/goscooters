@@ -149,5 +149,13 @@
         "texto": "To exercise your rights or ask any question, please contact us using the details shown on this site."
       }
     ]
+  },
+  "galeria": {
+    "abrir": "Enlarge photo",
+    "fechar": "Close",
+    "anterior": "Previous photo",
+    "seguinte": "Next photo",
+    "contador": "Photo {atual} of {total}",
+    "verTodas": "View all {n} photos"
   }
 }
