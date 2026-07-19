@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { precosDisponiveis, formatarPreco, PERIODOS } from "@/lib/precos";
 import FiltrosCatalogo, { type FiltrosAtivos } from "@/components/FiltrosCatalogo";
+import { getHeroImagem } from "@/lib/heroImagem";
 import type { Moto, Periodo } from "@/types/db";
 
 interface PageProps {
@@ -101,6 +102,7 @@ export default async function Home({ searchParams }: PageProps) {
 
   const todas = await getMotas();
   const motas = filtrar(todas, filtros);
+  const heroImagem = getHeroImagem();
   const whatsappNumber =
     process.env.WHATSAPP_NUMERO?.replace(/\D/g, "") || "351912345678";
 
@@ -108,9 +110,25 @@ export default async function Home({ searchParams }: PageProps) {
     <main>
       {/* ── Hero ─────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden bg-slate-950">
+        {/* Foto opcional: basta largar hero.jpg em public/. Sem ela fica o
+            gradiente, exactamente como antes. */}
+        {heroImagem && (
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url(${heroImagem})` }}
+          />
+        )}
+
+        {/* A cortina escura garante contraste do texto sobre qualquer foto —
+            sem ela, uma imagem clara tornaria o título ilegível. */}
         <div
           aria-hidden
-          className="absolute inset-0 bg-gradient-to-br from-emerald-600/25 via-slate-950 to-slate-950"
+          className={
+            heroImagem
+              ? "absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/85 to-slate-950/40"
+              : "absolute inset-0 bg-gradient-to-br from-emerald-600/25 via-slate-950 to-slate-950"
+          }
         />
         <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
           <div className="max-w-2xl">
