@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function MotoNotFound() {
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-16 sm:px-6 lg:px-8">
+    <main className="px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm">
         <div className="text-center">
           <p className="text-5xl font-semibold text-slate-950">404</p>

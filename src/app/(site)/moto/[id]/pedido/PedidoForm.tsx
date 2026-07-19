@@ -60,7 +60,7 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
 
   if (state?.success) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl rounded-3xl bg-white p-8 shadow-sm">
           <div className="space-y-6 text-center">
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
@@ -98,7 +98,7 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <main className="px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-2xl rounded-3xl bg-white p-6 shadow-sm sm:p-8">
         <div className="space-y-8">
           <div>
