@@ -62,7 +62,16 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
     setAGravar(true);
 
     const dados = new FormData(e.currentTarget);
-    const precoBruto = String(dados.get("preco_mes") ?? "").replace(",", ".");
+
+    // Campo vazio significa "período não oferecido", por isso vira null e não 0.
+    const preco = (nome: string): string | null => {
+      const bruto = String(dados.get(nome) ?? "").trim().replace(",", ".");
+      return bruto === "" ? null : bruto;
+    };
+
+    const precoDia = preco("preco_dia");
+    const precoSemana = preco("preco_semana");
+    const precoMes = preco("preco_mes");
 
     const valores = {
       modelo: String(dados.get("modelo") ?? "").trim(),
@@ -70,7 +79,9 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
         ? Number(dados.get("cilindrada"))
         : null,
       matricula: String(dados.get("matricula") ?? "").trim() || null,
-      preco_mes: precoBruto,
+      preco_dia: precoDia,
+      preco_semana: precoSemana,
+      preco_mes: precoMes,
       estado: String(dados.get("estado") ?? "disponivel") as MotoEstado,
       disponivel_em: String(dados.get("disponivel_em") ?? "") || null,
       descricao: String(dados.get("descricao") ?? "").trim() || null,
@@ -84,8 +95,16 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
       return;
     }
 
-    if (!precoBruto || Number.isNaN(Number(precoBruto))) {
-      setErro("Indica um preço mensal válido.");
+    const precos = [precoDia, precoSemana, precoMes].filter(Boolean) as string[];
+
+    if (precos.length === 0) {
+      setErro("Define pelo menos um preço (diário, semanal ou mensal).");
+      setAGravar(false);
+      return;
+    }
+
+    if (precos.some((p) => Number.isNaN(Number(p)) || Number(p) <= 0)) {
+      setErro("Os preços preenchidos têm de ser números maiores que zero.");
       setAGravar(false);
       return;
     }
@@ -146,7 +165,7 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
             />
           </label>
 
-          <div className="grid gap-5 sm:grid-cols-3">
+          <div className="grid gap-5 sm:grid-cols-2">
             <label className={etiqueta}>
               <span>Cilindrada (cc)</span>
               <input
@@ -159,21 +178,6 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
               />
             </label>
             <label className={etiqueta}>
-              <span>
-                Preço / mês (€) <span className="text-red-600">*</span>
-              </span>
-              <input
-                className={campo}
-                name="preco_mes"
-                type="number"
-                step="0.01"
-                min="0"
-                defaultValue={moto?.preco_mes ?? ""}
-                placeholder="220"
-                required
-              />
-            </label>
-            <label className={etiqueta}>
               <span>Matrícula</span>
               <input
                 className={campo}
@@ -182,6 +186,44 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
                 placeholder="12-AB-34"
               />
             </label>
+          </div>
+
+          {/* ── Preços ──────────────────────────────────────────────────
+              Deixar em branco = período não oferecido. É a ausência de preço
+              que decide o que o cliente vê, sem interruptores separados. */}
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <span className="text-sm font-medium text-slate-700">
+                Preços <span className="text-red-600">*</span>
+              </span>
+              <p className="mt-1 text-xs text-slate-500">
+                Preenche apenas os períodos que queres oferecer nesta mota. Os que
+                deixares em branco não aparecem no site. Pelo menos um é obrigatório.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              {(
+                [
+                  { nome: "preco_dia", rotulo: "Diária (€)", exemplo: "15" },
+                  { nome: "preco_semana", rotulo: "Semanal (€)", exemplo: "70" },
+                  { nome: "preco_mes", rotulo: "Mensal (€)", exemplo: "220" },
+                ] as const
+              ).map((p) => (
+                <label key={p.nome} className={etiqueta}>
+                  <span className="text-xs">{p.rotulo}</span>
+                  <input
+                    className={campo}
+                    name={p.nome}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={moto?.[p.nome] ?? ""}
+                    placeholder={p.exemplo}
+                  />
+                </label>
+              ))}
+            </div>
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">

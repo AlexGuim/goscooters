@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import type { Moto } from "@/types/db";
 
 const cilindradaOptions = [
@@ -15,7 +16,9 @@ async function getMotas(): Promise<Moto[]> {
     .select("*")
     .eq("ativo", true)
     .neq("estado", "manutencao")
-    .order("preco_mes", { ascending: true });
+    // Já não se ordena por preço: com vários períodos, "mais barato" deixou de
+    // ter um significado único. Mais recentes primeiro.
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.error(error);
@@ -102,6 +105,7 @@ export default async function Home() {
           ) : (
             motas.map((moto) => {
               const estado = formatEstado(moto);
+              const precos = precosDisponiveis(moto);
 
               return (
                 <Link
@@ -125,17 +129,31 @@ export default async function Home() {
                   <div className="p-5 flex-1 flex flex-col justify-between">
                     <div>
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm text-slate-500">{moto.modelo}</p>
-                          <h3 className="mt-2 text-xl font-semibold text-slate-950">{moto.modelo}</h3>
-                        </div>
-                        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${estado.color}`}>
+                        <h3 className="text-xl font-semibold text-slate-950">{moto.modelo}</h3>
+                        <span
+                          className={`flex-none rounded-full px-3 py-1 text-xs font-semibold ${estado.color}`}
+                        >
                           {estado.label}
                         </span>
                       </div>
-                      <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-600">
-                        <span className="rounded-2xl bg-slate-100 px-3 py-2">{moto.cilindrada ?? "—"} cc</span>
-                        <span className="rounded-2xl bg-slate-100 px-3 py-2">€{moto.preco_mes} / mês</span>
+
+                      {moto.cilindrada && (
+                        <p className="mt-2 text-sm text-slate-500">{moto.cilindrada} cc</p>
+                      )}
+
+                      {/* Só aparecem os períodos com preço definido. */}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {precos.map((preco) => (
+                          <span
+                            key={preco.periodo}
+                            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-700"
+                          >
+                            <span className="font-semibold text-slate-950">
+                              {formatarPreco(preco.valor)}
+                            </span>
+                            <span className="text-slate-500"> / {preco.rotulos.unidade}</span>
+                          </span>
+                        ))}
                       </div>
                     </div>
                   </div>

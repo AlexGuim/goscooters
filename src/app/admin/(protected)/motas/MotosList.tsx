@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Moto, MotoEstado } from "@/types/db";
 import { updateMoto, deleteMoto } from "@/actions/motoActions";
+import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import MotoForm from "./MotoForm";
 
 interface MotosListProps {
@@ -97,7 +98,7 @@ export default function MotosList({ initialMotas }: MotosListProps) {
               <tr>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Mota</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Cilindrada</th>
-                <th className="px-6 py-4 text-left font-semibold text-slate-950">Preço/mês</th>
+                <th className="px-6 py-4 text-left font-semibold text-slate-950">Preços</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Estado</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Disponível em</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Ativo</th>
@@ -132,7 +133,18 @@ export default function MotosList({ initialMotas }: MotosListProps) {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-slate-600">{moto.cilindrada ?? "—"} cc</td>
-                  <td className="px-6 py-4 text-slate-600">€{moto.preco_mes}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col gap-1">
+                      {precosDisponiveis(moto).map((preco) => (
+                        <span key={preco.periodo} className="text-xs text-slate-600">
+                          <span className="font-semibold text-slate-950">
+                            {formatarPreco(preco.valor)}
+                          </span>{" "}
+                          / {preco.rotulos.unidade}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
                   <td className="px-6 py-4">
                     <select
                       className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"

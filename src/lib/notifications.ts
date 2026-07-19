@@ -8,7 +8,8 @@ export interface NovoPedidoNotificacao {
   motoModelo: string;
   plataforma: string;
   dataInicio?: string | null;
-  duracaoMeses?: number | null;
+  /** Já formatado com a unidade certa, ex.: "3 semanas". */
+  duracaoTexto?: string | null;
   mensagem?: string | null;
 }
 
@@ -35,7 +36,7 @@ function corpoTexto(p: NovoPedidoNotificacao): string {
     linha("Mota", p.motoModelo),
     linha("Plataforma", p.plataforma),
     linha("Data de início", p.dataInicio),
-    linha("Duração", p.duracaoMeses ? `${p.duracaoMeses} meses` : null),
+    linha("Duração", p.duracaoTexto),
     linha("Mensagem", p.mensagem),
   ].join("\n");
 }

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import type { Moto } from "@/types/db";
 
 interface PageProps {
@@ -31,6 +32,8 @@ export default async function MotoPage({ params }: PageProps) {
   if (!moto) {
     notFound();
   }
+
+  const precos = precosDisponiveis(moto);
 
   const whatsappText = encodeURIComponent(
     `Olá, tenho interesse na moto ${moto.modelo}. Está disponível para aluguer mensal?`,
@@ -77,15 +80,40 @@ export default async function MotoPage({ params }: PageProps) {
                 <h1 className="mt-3 text-3xl font-semibold text-slate-950">{moto.modelo}</h1>
               </div>
 
-              <div className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-slate-500">Cilindrada</p>
-                    <p className="mt-2 text-xl font-semibold text-slate-950">{moto.cilindrada ?? "—"} cc</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500">Preço / mês</p>
-                    <p className="mt-2 text-xl font-semibold text-slate-950">€{moto.preco_mes}</p>
+              <div className="space-y-4 rounded-3xl bg-white p-5 shadow-sm">
+                <div>
+                  <p className="text-sm text-slate-500">Cilindrada</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                    {moto.cilindrada ? `${moto.cilindrada} cc` : "—"}
+                  </p>
+                </div>
+
+                {/* A grelha ajusta-se ao número de períodos oferecidos. */}
+                <div>
+                  <p className="text-sm text-slate-500">
+                    {precos.length === 1 ? "Preço" : "Preços"}
+                  </p>
+                  <div
+                    className={`mt-2 grid gap-2 ${
+                      precos.length === 1 ? "grid-cols-1" : "grid-cols-2"
+                    }`}
+                  >
+                    {precos.map((preco) => (
+                      <div
+                        key={preco.periodo}
+                        className="rounded-2xl bg-slate-50 px-4 py-3"
+                      >
+                        <p className="text-xs uppercase tracking-wide text-slate-500">
+                          {preco.rotulos.nome}
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-950">
+                          {formatarPreco(preco.valor)}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          por {preco.rotulos.unidade}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
 

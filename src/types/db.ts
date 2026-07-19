@@ -4,12 +4,18 @@ export type PedidoEstado = "novo" | "contactado" | "fechado" | "perdido";
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
 // GenericTable do supabase-js exige — e o schema todo colapsa para `never`.
+/** Períodos de aluguer oferecidos. */
+export type Periodo = "dia" | "semana" | "mes";
+
 export type Moto = {
   id: string;
   modelo: string;
   cilindrada: number | null;
   matricula: string | null;
-  preco_mes: string;
+  /** Preço por período. Null significa que a mota não é oferecida nesse período. */
+  preco_dia: string | null;
+  preco_semana: string | null;
+  preco_mes: string | null;
   estado: MotoEstado;
   disponivel_em: string | null;
   foto_urls: string[] | null;
@@ -26,7 +32,9 @@ export type PedidoAluguer = {
   email: string | null;
   plataforma: string | null;
   data_inicio: string | null;
-  duracao_meses: number | null;
+  /** Número de unidades do período escolhido (3 + periodo "semana" = 3 semanas). */
+  duracao: number | null;
+  periodo: Periodo | null;
   mensagem: string | null;
   estado: PedidoEstado;
   created_at: string;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PedidoAluguer, PedidoEstado } from "@/types/db";
 import { updatePedidoEstado } from "@/actions/pedidoActions";
+import { duracaoPorExtenso } from "@/lib/precos";
 
 interface PedidosListProps {
   initialPedidos: PedidoAluguer[];
@@ -88,7 +89,9 @@ export default function PedidosList({ initialPedidos }: PedidosListProps) {
                 <div>
                   <p className="text-xs uppercase tracking-[0.1em] text-slate-500">Duração</p>
                   <p className="mt-1 text-sm text-slate-900">
-                    {pedido.duracao_meses ? `${pedido.duracao_meses} meses` : "—"}
+                    {pedido.duracao && pedido.periodo
+                      ? duracaoPorExtenso(pedido.duracao, pedido.periodo)
+                      : "—"}
                   </p>
                 </div>
                 {pedido.mensagem && (
