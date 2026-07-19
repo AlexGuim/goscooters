@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useActionState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseClient";
+import ErroDoCallback from "./ErroDoCallback";
 
 type State = {
   error?: string;
@@ -50,8 +50,10 @@ async function handlePasswordRecovery(
     return { error: "Email é obrigatório para recuperar senha." };
   }
 
-  const { data, error } = await supabaseBrowser.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/admin/login`,
+  // O link tem de passar pelo /auth/callback: é lá que o código PKCE é trocado
+  // por sessão, sem o que a página de redefinição não teria autorização.
+  const { error } = await supabaseBrowser.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/auth/callback?next=/admin/redefinir-password`,
   });
 
   if (error) {
@@ -70,8 +72,6 @@ export default function AdminLoginPage() {
     handlePasswordRecovery,
     undefined,
   );
-  const router = useRouter();
-
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-xl rounded-3xl bg-white p-8 shadow-sm">
@@ -80,6 +80,10 @@ export default function AdminLoginPage() {
             <h1 className="text-3xl font-semibold text-slate-950">Administração</h1>
             <p className="mt-2 text-slate-600">Acesso restrito</p>
           </div>
+
+          <Suspense fallback={null}>
+            <ErroDoCallback />
+          </Suspense>
 
           <form action={formAction} className="space-y-6">
             <label className="block space-y-2">
