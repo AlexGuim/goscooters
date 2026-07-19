@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
 export default function AdminPage() {
-  redirect("/admin/login");
+  // O proxy trata de mandar para o login quem não tiver sessão.
+  redirect("/admin/motas");
 }

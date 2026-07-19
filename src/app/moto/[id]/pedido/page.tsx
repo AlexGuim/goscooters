@@ -39,6 +39,7 @@ export default function PedidoPage({ params: paramsPromise }: PedidoPageProps) {
           ? parseInt(formData.get("duracaoMeses") as string, 10)
           : undefined,
         mensagem: (formData.get("mensagem") as string) || undefined,
+        consentimento: formData.get("consentimento") === "on",
       });
 
       return {
@@ -190,6 +191,27 @@ export default function PedidoPage({ params: paramsPromise }: PedidoPageProps) {
                 name="mensagem"
                 placeholder="Deixa-nos uma mensagem (opcional)"
               />
+            </label>
+
+            <label className="flex items-start gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <input
+                className="mt-1 h-4 w-4 flex-none accent-emerald-600"
+                type="checkbox"
+                name="consentimento"
+                required
+              />
+              <span className="text-sm text-slate-700">
+                Autorizo o tratamento dos meus dados para efeitos de resposta a este
+                pedido de aluguer, nos termos da{" "}
+                <Link
+                  className="font-medium text-emerald-600 underline hover:text-emerald-700"
+                  href="/privacidade"
+                  target="_blank"
+                >
+                  Política de Privacidade
+                </Link>
+                . <span className="text-red-600">*</span>
+              </span>
             </label>
 
             {state?.error && (

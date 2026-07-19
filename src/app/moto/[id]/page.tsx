@@ -20,16 +20,11 @@ async function getMoto(id: string): Promise<Moto | null> {
     return null;
   }
 
-  if (!data) {
-    console.warn("Supabase detail query returned no data for id=", id);
-  }
-
   return data;
 }
 
 export default async function MotoPage({ params }: PageProps) {
   const resolvedParams = await params;
-  console.log("MotoPage opened with id:", resolvedParams.id);
   const moto = await getMoto(resolvedParams.id);
   const whatsappNumber = process.env.WHATSAPP_NUMERO?.replace(/\D/g, "") || "351912345678";
 

@@ -15,6 +15,7 @@ export interface CreatePedidoInput {
   dataInicio?: string;
   duracaoMeses?: number;
   mensagem?: string;
+  consentimento?: boolean;
 }
 
 export interface CreatePedidoResult {
@@ -36,6 +37,15 @@ export async function createPedido(input: CreatePedidoInput): Promise<CreatePedi
 
   if (!input.plataforma?.trim()) {
     return { success: false, error: "Plataforma é obrigatória." };
+  }
+
+  // O `required` do checkbox é do lado do cliente e contorna-se com facilidade;
+  // sem consentimento não há base legal para guardar dados pessoais.
+  if (!input.consentimento) {
+    return {
+      success: false,
+      error: "É necessário autorizar o tratamento dos dados para continuar.",
+    };
   }
 
   try {

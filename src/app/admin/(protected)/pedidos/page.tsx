@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireAdmin } from "@/lib/dal";
 import type { PedidoAluguer } from "@/types/db";
 import PedidosList from "./PedidosList";
 
@@ -17,6 +18,10 @@ async function getPedidos(): Promise<PedidoAluguer[]> {
 }
 
 export default async function PedidosAdminPage() {
+  // Verificação antes de qualquer leitura: estes dados são pessoais e o
+  // supabaseAdmin usa a service_role, que ignora o RLS.
+  await requireAdmin();
+
   const pedidos = await getPedidos();
 
   return (

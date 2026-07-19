@@ -13,8 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Plataforma de aluguer de motas",
-  description: "Esqueleto Next.js com Tailwind e Supabase para a plataforma.",
+  title: {
+    default: "GoScooters | Aluguer mensal de motas para motoristas",
+    template: "%s | GoScooters",
+  },
+  description:
+    "Aluguer de motas por mês para motoristas de Uber, Bolt e Glovo. Escolha o modelo, peça o aluguer e comece a trabalhar.",
 };
 
 export default function RootLayout({
@@ -24,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="pt-PT"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>

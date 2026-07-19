@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireAdmin } from "@/lib/dal";
 import type { Moto } from "@/types/db";
 import MotosList from "./MotosList";
 
@@ -17,6 +18,8 @@ async function getMotas(): Promise<Moto[]> {
 }
 
 export default async function MotosAdminPage() {
+  await requireAdmin();
+
   const motas = await getMotas();
 
   return (
