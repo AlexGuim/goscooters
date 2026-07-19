@@ -61,9 +61,9 @@ export default async function MotoPage({ params }: PageProps) {
                 )}
               </div>
 
-              {moto.foto_urls?.length > 1 ? (
+              {(moto.foto_urls?.length ?? 0) > 1 ? (
                 <div className="mt-4 grid grid-cols-3 gap-3">
-                  {moto.foto_urls.map((url, index) => (
+                  {moto.foto_urls?.map((url, index) => (
                     <div key={index} className="overflow-hidden rounded-3xl bg-slate-100">
                       <img
                         className="h-24 w-full object-cover"

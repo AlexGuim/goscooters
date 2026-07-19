@@ -53,7 +53,7 @@ export async function createPedido(input: CreatePedidoInput): Promise<CreatePedi
     };
 
     const { data, error } = await supabaseAdmin
-      .from<"pedido_aluguer", PedidoAluguerInsert>("pedido_aluguer")
+      .from("pedido_aluguer")
       .insert(pedidoInsert)
       .select("id")
       .single();

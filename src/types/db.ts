@@ -1,7 +1,10 @@
 export type MotoEstado = "disponivel" | "alugada" | "manutencao";
 export type PedidoEstado = "novo" | "contactado" | "fechado" | "perdido";
 
-export interface Moto {
+// Declarados como `type` e não `interface` de propósito: interfaces não recebem
+// index signature implícita, por isso falham o `Record<string, unknown>` que o
+// GenericTable do supabase-js exige — e o schema todo colapsa para `never`.
+export type Moto = {
   id: string;
   modelo: string;
   cilindrada: number | null;
@@ -15,7 +18,7 @@ export interface Moto {
   created_at: string;
 }
 
-export interface PedidoAluguer {
+export type PedidoAluguer = {
   id: string;
   moto_id: string | null;
   nome: string;
@@ -42,6 +45,9 @@ export interface Database {
           id?: string;
           created_at?: string;
         };
+        // O supabase-js exige esta chave para inferir os tipos das queries.
+        // Sem ela, as operações resolvem para `never` e o build falha.
+        Relationships: [];
       };
       pedido_aluguer: {
         Row: PedidoAluguer;
@@ -53,13 +59,25 @@ export interface Database {
           id?: string;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: "pedido_aluguer_moto_id_fkey";
+            columns: ["moto_id"];
+            isOneToOne: false;
+            referencedRelation: "moto";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
+    // Forma canónica gerada pelo Supabase. `Record<string, never>` não satisfaz
+    // o GenericSchema do supabase-js e faz o schema inteiro colapsar para `never`.
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
     Enums: {
       estado_moto: MotoEstado;
       estado_pedido: PedidoEstado;
     };
+    CompositeTypes: { [_ in never]: never };
   };
 }
