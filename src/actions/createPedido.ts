@@ -1,7 +1,9 @@
 "use server";
 
+import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { Database, PedidoAluguer } from "@/types/db";
+import { notificarNovoPedido } from "@/lib/notifications";
+import type { Database } from "@/types/db";
 
 type PedidoAluguerInsert = Database["public"]["Tables"]["pedido_aluguer"]["Insert"];
 
@@ -72,6 +74,22 @@ export async function createPedido(input: CreatePedidoInput): Promise<CreatePedi
       console.error("Supabase insert error:", error);
       return { success: false, error: "Erro ao gravar pedido. Tenta novamente." };
     }
+
+    // Avisa a equipa depois de a resposta seguir para o cliente: o lead já está
+    // gravado, portanto não vale a pena fazer o utilizador esperar pelo email.
+    after(async () => {
+      await notificarNovoPedido({
+        pedidoId: data.id,
+        nome: input.nome.trim(),
+        telefone: input.telefone.trim(),
+        email: input.email?.trim() || null,
+        motoModelo: input.motoModelo,
+        plataforma: input.plataforma.trim(),
+        dataInicio: input.dataInicio || null,
+        duracaoMeses: input.duracaoMeses || null,
+        mensagem: input.mensagem?.trim() || null,
+      });
+    });
 
     // Gera mensagem WhatsApp para o admin
     const whatsappNumber = process.env.WHATSAPP_NUMERO?.replace(/\D/g, "") || "351912345678";
