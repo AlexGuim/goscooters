@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Paleta GoScooters — migrada de tailwind.config.cjs (Tailwind v4 já não lê ficheiros
+   de config JS; o tema vive aqui). Os nomes "emerald" e "slate" são mantidos porque os
+   componentes já os usam por todo o lado; os valores é que passam a ser os da marca. */
+@theme {
+  /* Verde-lima da marca (substitui o emerald por omissão) */
+  --color-emerald-50: #f7fbe8;
+  --color-emerald-100: #f0f7d0;
+  --color-emerald-200: #e0f09f;
+  --color-emerald-500: #84cc16;
+  --color-emerald-600: #6fb012;
+  --color-emerald-700: #5a900e;
+
+  /* Neutros adaptados ao charcoal da marca */
+  --color-slate-50: #f5f7fa;
+  --color-slate-100: #eef2f6;
+  --color-slate-200: #e6ebef;
+  --color-slate-300: #cfd8df;
+  --color-slate-500: #8b98a1;
+  --color-slate-600: #52606d;
+  --color-slate-700: #3b4650;
+  --color-slate-900: #1f2933;
+  --color-slate-950: #1f2933;
+
+  /* Aliases explícitos da marca */
+  --color-brand-lime: #84cc16;
+  --color-charcoal: #1f2933;
+  --color-dark-green: #1a2e05;
+  --color-mid-gray: #52606d;
+
+  /* Tipografia — ligada às fontes carregadas em layout.tsx */
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: #ffffff;
+    color: var(--color-charcoal);
+    font-family: var(--font-sans);
+  }
+}

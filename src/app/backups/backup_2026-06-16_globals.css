@@ -1,0 +1,69 @@
+/* Backup copy of globals.css on 2026-06-16 */
+/* Original content preserved below. */
+
+/* ORIGINAL START */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	--background: #ffffff;
+	--foreground: #1f2933; /* charcoal */
+	--brand-lime: #84cc16;
+	--charcoal: #1f2933;
+	--mid-gray: #52606d;
+	--bg-light: #f5f7fa;
+}
+
+@layer base {
+	html, body {
+		background-color: var(--background);
+		color: var(--foreground);
+		font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+	}
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--background: #0a0a0a;
+		--foreground: #ededed;
+	}
+}
+
+/* Fallback utility rules to ensure layout and colors render even if some Tailwind utilities
+	 are missing during generation. These mirror the project's palette. */
+
+@layer utilities {
+	.bg-white { background-color: #ffffff !important; }
+	.bg-slate-50 { background-color: #f5f7fa !important; }
+	.bg-slate-100 { background-color: #eef2f6 !important; }
+	.bg-amber-100 { background-color: #fff7ed !important; }
+
+	.bg-emerald-600 { background-color: #84cc16 !important; }
+	.bg-emerald-700 { background-color: #6fb012 !important; }
+	.bg-emerald-100 { background-color: #f0f7d0 !important; }
+
+	.text-slate-950 { color: #1f2933 !important; }
+	.text-slate-900 { color: #1f2933 !important; }
+	.text-slate-700 { color: #3b4650 !important; }
+	.text-slate-600 { color: #52606d !important; }
+	.text-slate-500 { color: #8b98a1 !important; }
+	.text-emerald-700 { color: #6fb012 !important; }
+
+	.border-slate-200 { border-color: #e6ebef !important; }
+	.border-slate-300 { border-color: #cfd8df !important; }
+
+	.rounded-3xl { border-radius: 1.5rem !important; }
+	.h-60 { height: 15rem !important; }
+	.w-full { width: 100% !important; }
+	.px-5 { padding-left: 1.25rem !important; padding-right: 1.25rem !important; }
+	.py-3 { padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; }
+	.px-4 { padding-left: 1rem !important; padding-right: 1rem !important; }
+	.py-6 { padding-top: 1.5rem !important; padding-bottom: 1.5rem !important; }
+
+	.shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }
+	.shadow-lg { box-shadow: 0 10px 15px rgba(0,0,0,0.1) !important; }
+}
+
+/* ORIGINAL END */
+

@@ -1,0 +1,164 @@
+"use client";
+
+import { useActionState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabaseBrowser } from "@/lib/supabaseClient";
+
+type State = {
+  error?: string;
+  success?: string;
+};
+
+async function handleLogin(
+  _prevState: State | undefined,
+  formData: FormData,
+): Promise<State> {
+  const email = (formData.get("email") as string)?.trim();
+  const password = formData.get("password") as string;
+
+  if (!email || !password) {
+    return { error: "Email e password são obrigatórios." };
+  }
+
+  const { error } = await supabaseBrowser.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    console.error("Auth error:", error);
+    return {
+      error:
+        error.message === "Invalid login credentials"
+          ? "Email ou password incorretos."
+          : error.message,
+    };
+  }
+
+  window.location.href = "/admin/motas";
+  return {};
+}
+
+async function handlePasswordRecovery(
+  _prevState: State | undefined,
+  formData: FormData,
+): Promise<State> {
+  const email = (formData.get("recoveryEmail") as string)?.trim();
+
+  if (!email) {
+    return { error: "Email é obrigatório para recuperar senha." };
+  }
+
+  const { data, error } = await supabaseBrowser.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/admin/login`,
+  });
+
+  if (error) {
+    console.error("Recovery error:", error);
+    return { error: error.message };
+  }
+
+  return {
+    success: `Email de recuperação enviado para ${email}. Verifique sua caixa de entrada.`,
+  };
+}
+
+export default function AdminLoginPage() {
+  const [state, formAction, isPending] = useActionState(handleLogin, undefined);
+  const [recoveryState, recoveryAction, isRecoveryPending] = useActionState(
+    handlePasswordRecovery,
+    undefined,
+  );
+  const router = useRouter();
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl rounded-3xl bg-white p-8 shadow-sm">
+        <div className="space-y-8">
+          <div className="text-center">
+            <h1 className="text-3xl font-semibold text-slate-950">Administração</h1>
+            <p className="mt-2 text-slate-600">Acesso restrito</p>
+          </div>
+
+          <form action={formAction} className="space-y-6">
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-slate-700">Email</span>
+              <input
+                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+                type="email"
+                name="email"
+                required
+                placeholder="admin@example.com"
+              />
+            </label>
+
+            <label className="block space-y-2">
+              <span className="text-sm font-medium text-slate-700">Password</span>
+              <input
+                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+                type="password"
+                name="password"
+                required
+                placeholder="••••••••"
+              />
+            </label>
+
+            {state?.error && (
+              <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
+                <p className="text-sm text-red-700">{state.error}</p>
+              </div>
+            )}
+
+            <button
+              className="w-full rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+              type="submit"
+              disabled={isPending}
+            >
+              {isPending ? "A entrar..." : "Entrar"}
+            </button>
+          </form>
+
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+            <h2 className="text-lg font-semibold text-slate-950">Esqueci a senha</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Receba um link de redefinição diretamente no seu email.
+            </p>
+            <form action={recoveryAction} className="mt-4 space-y-4">
+              <input
+                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+                type="email"
+                name="recoveryEmail"
+                required
+                placeholder="seu@email.com"
+              />
+              {recoveryState?.error && (
+                <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-sm text-red-700">{recoveryState.error}</p>
+                </div>
+              )}
+              {recoveryState?.success && (
+                <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm text-emerald-700">{recoveryState.success}</p>
+                </div>
+              )}
+              <button
+                className="w-full rounded-3xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                type="submit"
+                disabled={isRecoveryPending}
+              >
+                {isRecoveryPending ? "Enviando..." : "Enviar link"}
+              </button>
+            </form>
+          </div>
+
+          <div className="text-center text-sm text-slate-500">
+            <Link className="font-medium text-emerald-600 hover:text-emerald-700" href="/">
+              Voltar ao site
+            </Link>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
