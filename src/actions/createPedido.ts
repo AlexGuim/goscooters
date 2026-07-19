@@ -62,6 +62,9 @@ export async function createPedido(input: CreatePedidoInput): Promise<CreatePedi
       duracao_meses: input.duracaoMeses || null,
       mensagem: input.mensagem?.trim() || null,
       estado: "novo",
+      // Prova de consentimento: acima já se garantiu que foi dado, aqui regista-se
+      // quando. O RGPD exige poder demonstrá-lo, não só recolhê-lo.
+      consentimento_em: new Date().toISOString(),
     };
 
     const { data, error } = await supabaseAdmin

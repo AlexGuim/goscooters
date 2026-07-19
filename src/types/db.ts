@@ -30,6 +30,8 @@ export type PedidoAluguer = {
   mensagem: string | null;
   estado: PedidoEstado;
   created_at: string;
+  /** Momento do consentimento RGPD. Null nos pedidos anteriores à sua introdução. */
+  consentimento_em: string | null;
 }
 
 export interface Database {
