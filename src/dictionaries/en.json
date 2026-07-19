@@ -1,0 +1,153 @@
+{
+  "meta": {
+    "title": "GoScooters | Scooter rental for delivery and ride-hailing riders",
+    "description": "Daily, weekly and monthly scooter rental in Lisbon for Uber, Bolt and Glovo riders. Pick your model, request it, and start working."
+  },
+  "nav": {
+    "motas": "Scooters",
+    "reservar": "Book now",
+    "idioma": "Language"
+  },
+  "hero": {
+    "sobretitulo": "Scooter rental in Lisbon",
+    "titulo1": "Your scooter,",
+    "titulo2": "for as long as you need",
+    "subtitulo": "Daily, weekly or monthly rental for Uber, Bolt and Glovo riders. Pick your model, send a request, and start working.",
+    "verMotas": "Browse scooters",
+    "whatsapp": "Chat on WhatsApp"
+  },
+  "catalogo": {
+    "titulo": "Choose your scooter",
+    "verDetalhes": "View details",
+    "semImagem": "No image",
+    "vazioComFiltros": "No scooters match your search",
+    "vazioComFiltrosAjuda": "Try widening the filters or get in touch with us.",
+    "vazioSemMotas": "No scooters available",
+    "vazioSemMotasAjuda": "Check back later or contact us on WhatsApp.",
+    "limparFiltros": "Clear filters"
+  },
+  "filtros": {
+    "periodo": "Rental period",
+    "periodoQualquer": "Any",
+    "cilindrada": "Engine size",
+    "cilindradaTodas": "All",
+    "ate125": "Up to 125 cc",
+    "de126a250": "126 – 250 cc",
+    "mais250": "Over 250 cc",
+    "precoMax": "Max price (€)",
+    "semLimite": "No limit",
+    "filtrar": "Apply filters",
+    "limpar": "Clear",
+    "umaEncontrada": "1 scooter found",
+    "varias": "{n} scooters found",
+    "notaPrecoSemPeriodo": "With no period selected, the maximum price applies to any of the offered periods."
+  },
+  "periodos": {
+    "dia": {
+      "unidade": "day",
+      "plural": "days",
+      "nome": "Daily"
+    },
+    "semana": {
+      "unidade": "week",
+      "plural": "weeks",
+      "nome": "Weekly"
+    },
+    "mes": {
+      "unidade": "month",
+      "plural": "months",
+      "nome": "Monthly"
+    }
+  },
+  "detalhe": {
+    "modelo": "Model",
+    "cilindrada": "Engine size",
+    "preco": "Price",
+    "precos": "Prices",
+    "por": "per",
+    "disponivel": "Available",
+    "disponivelA partir": "Available from",
+    "pedirAluguer": "Request rental",
+    "whatsapp": "Chat on WhatsApp",
+    "descricao": "Description",
+    "semDescricao": "No description available.",
+    "semImagem": "No image available",
+    "mensagemWhatsapp": "Hi, I'm interested in the {modelo}. Is it available to rent?"
+  },
+  "pedido": {
+    "titulo": "Request rental",
+    "mota": "Scooter",
+    "nome": "Full name",
+    "nomePlaceholder": "John Smith",
+    "telefone": "Phone",
+    "email": "Email (optional)",
+    "plataforma": "Platform",
+    "plataformaPlaceholder": "Select a platform",
+    "outro": "Other",
+    "periodoAluguer": "Rental period",
+    "dataInicio": "Start date",
+    "duracao": "Duration",
+    "escolhePeriodo": "select a period",
+    "mensagem": "Message",
+    "mensagemPlaceholder": "Leave us a message (optional)",
+    "consentimento": "I agree to the processing of my personal data in order to respond to this rental request, as described in the",
+    "politicaPrivacidade": "Privacy Policy",
+    "submeter": "Send request",
+    "aGravar": "Sending...",
+    "cancelar": "Cancel",
+    "sucessoTitulo": "Request received!",
+    "sucessoTexto": "Thanks for your interest. We'll be in touch shortly to confirm the details.",
+    "voltarCatalogo": "Back to catalogue",
+    "mensagemWhatsapp": "Hi! I've just sent a rental request for the {modelo}{duracao}. My name is {nome}."
+  },
+  "erros": {
+    "nomeObrigatorio": "Name is required.",
+    "telefoneObrigatorio": "Phone number is required.",
+    "plataformaObrigatoria": "Platform is required.",
+    "consentimentoObrigatorio": "You must agree to the processing of your data to continue.",
+    "periodoInvalido": "Invalid rental period.",
+    "gravarPedido": "Could not save your request. Please try again.",
+    "inesperado": "Something went wrong. Please try again."
+  },
+  "naoEncontrado": {
+    "titulo": "Scooter not found",
+    "texto": "The scooter you're looking for is no longer available, or the address is incorrect.",
+    "voltar": "Back to catalogue"
+  },
+  "footer": {
+    "descricao": "Scooter rental in Lisbon for delivery and ride-hailing riders. Daily, weekly or monthly.",
+    "contactos": "Contact",
+    "privacidade": "Privacy Policy",
+    "direitos": "All rights reserved."
+  },
+  "privacidade": {
+    "titulo": "Privacy Policy",
+    "voltar": "← Back to catalogue",
+    "seccoes": [
+      {
+        "titulo": "What data we collect",
+        "texto": "When you submit a rental request, we collect your name and phone number and, optionally, your email address, the platform you work for, your intended start date, the rental duration and any message you leave us."
+      },
+      {
+        "titulo": "How we use it",
+        "texto": "Solely to respond to your rental request and to manage any resulting contract. We do not use your data for advertising, nor do we sell or share it with third parties for commercial purposes."
+      },
+      {
+        "titulo": "Legal basis and retention",
+        "texto": "Processing is based on the consent you give when submitting the form, and on the pre-contractual steps you request. We keep your data for as long as the business relationship lasts and thereafter for any legally required period. If your request does not lead to a contract, we delete it within 12 months at most."
+      },
+      {
+        "titulo": "Who we share it with",
+        "texto": "Your data is hosted on Supabase's infrastructure, our processor for database services. If you choose to contact us via WhatsApp, that communication is subject to Meta's privacy policy."
+      },
+      {
+        "titulo": "Your rights",
+        "texto": "Under the GDPR you may request access to, rectification of, erasure of, restriction of or portability of your data, and you may withdraw your consent at any time — without affecting the lawfulness of processing carried out beforehand. You also have the right to lodge a complaint with the CNPD, the Portuguese data protection authority."
+      },
+      {
+        "titulo": "Contact",
+        "texto": "To exercise your rights or ask any question, please contact us using the details shown on this site."
+      }
+    ]
+  }
+}

@@ -1,8 +1,13 @@
 import Link from "next/link";
+import type { Dicionario, Locale } from "@/lib/i18n";
 
 export default function Footer({
+  locale,
+  dic,
   whatsappNumber,
 }: {
+  locale: Locale;
+  dic: Dicionario;
   whatsappNumber: string;
 }) {
   const ano = new Date().getFullYear();
@@ -15,15 +20,12 @@ export default function Footer({
             <p className="text-xl font-extrabold uppercase italic tracking-tight text-white">
               <span className="text-emerald-500">Go</span>Scooters
             </p>
-            <p className="text-sm">
-              Aluguer de motas em Lisboa para motoristas de plataformas. Diário,
-              semanal ou mensal.
-            </p>
+            <p className="text-sm">{dic.footer.descricao}</p>
           </div>
 
           <div className="space-y-3 text-sm">
             <p className="font-semibold uppercase tracking-widest text-white/50">
-              Contactos
+              {dic.footer.contactos}
             </p>
             <a
               className="block transition hover:text-white"
@@ -33,14 +35,19 @@ export default function Footer({
             >
               WhatsApp
             </a>
-            <Link className="block transition hover:text-white" href="/privacidade">
-              Política de Privacidade
+            <Link
+              className="block transition hover:text-white"
+              href={`/${locale}/privacidade`}
+            >
+              {dic.footer.privacidade}
             </Link>
           </div>
         </div>
 
         <div className="mt-10 border-t border-white/10 pt-6 text-xs">
-          <p>© {ano} GoScooters. Todos os direitos reservados.</p>
+          <p>
+            © {ano} GoScooters. {dic.footer.direitos}
+          </p>
         </div>
       </div>
     </footer>

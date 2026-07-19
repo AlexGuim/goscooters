@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { precosDisponiveis, formatarPreco } from "@/lib/precos";
+import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
+import { getDicionario } from "@/lib/dictionaries";
+import { isLocale, preencher, type Locale } from "@/lib/i18n";
 import type { Moto } from "@/types/db";
 
 interface PageProps {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string; lang: string }>;
 }
 
 async function getMoto(id: string): Promise<Moto | null> {
@@ -25,18 +27,20 @@ async function getMoto(id: string): Promise<Moto | null> {
 }
 
 export default async function MotoPage({ params }: PageProps) {
-  const resolvedParams = await params;
-  const moto = await getMoto(resolvedParams.id);
+  const { id, lang } = await params;
+  const locale = (isLocale(lang) ? lang : "pt") as Locale;
+  const dic = await getDicionario(locale);
+  const moto = await getMoto(id);
   const whatsappNumber = process.env.WHATSAPP_NUMERO?.replace(/\D/g, "") || "351912345678";
 
   if (!moto) {
     notFound();
   }
 
-  const precos = precosDisponiveis(moto);
+  const precos = precosDisponiveis(moto, rotulosDe(dic));
 
   const whatsappText = encodeURIComponent(
-    `Olá, tenho interesse na moto ${moto.modelo}. Está disponível para aluguer mensal?`,
+    preencher(dic.detalhe.mensagemWhatsapp, { modelo: moto.modelo }),
   );
 
   return (
@@ -54,7 +58,7 @@ export default async function MotoPage({ params }: PageProps) {
                   />
                 ) : (
                   <div className="flex h-80 items-center justify-center text-slate-500">
-                    Sem imagem disponível
+                    {dic.detalhe.semImagem}
                   </div>
                 )}
               </div>
@@ -76,13 +80,15 @@ export default async function MotoPage({ params }: PageProps) {
 
             <div className="space-y-6 rounded-3xl border border-slate-200 bg-slate-50 p-5 lg:w-96 lg:flex-none lg:p-6">
               <div>
-                <p className="text-sm uppercase tracking-[0.3em] text-slate-500">Modelo</p>
+                <p className="text-sm uppercase tracking-[0.3em] text-slate-500">
+                  {dic.detalhe.modelo}
+                </p>
                 <h1 className="mt-3 text-3xl font-semibold text-slate-950">{moto.modelo}</h1>
               </div>
 
               <div className="space-y-4 rounded-3xl bg-white p-5 shadow-sm">
                 <div>
-                  <p className="text-sm text-slate-500">Cilindrada</p>
+                  <p className="text-sm text-slate-500">{dic.detalhe.cilindrada}</p>
                   <p className="mt-1 text-xl font-semibold text-slate-950">
                     {moto.cilindrada ? `${moto.cilindrada} cc` : "—"}
                   </p>
@@ -91,7 +97,7 @@ export default async function MotoPage({ params }: PageProps) {
                 {/* A grelha ajusta-se ao número de períodos oferecidos. */}
                 <div>
                   <p className="text-sm text-slate-500">
-                    {precos.length === 1 ? "Preço" : "Preços"}
+                    {precos.length === 1 ? dic.detalhe.preco : dic.detalhe.precos}
                   </p>
                   <div
                     className={`mt-2 grid gap-2 ${
@@ -107,10 +113,10 @@ export default async function MotoPage({ params }: PageProps) {
                           {preco.rotulos.nome}
                         </p>
                         <p className="mt-1 text-lg font-semibold text-slate-950">
-                          {formatarPreco(preco.valor)}
+                          {formatarPreco(preco.valor, locale)}
                         </p>
                         <p className="text-xs text-slate-500">
-                          por {preco.rotulos.unidade}
+                          {dic.detalhe.por} {preco.rotulos.unidade}
                         </p>
                       </div>
                     ))}
@@ -119,10 +125,10 @@ export default async function MotoPage({ params }: PageProps) {
 
                 <div className="rounded-3xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
                   {moto.estado === "disponivel" ? (
-                    <p className="font-semibold text-emerald-700">Disponível</p>
+                    <p className="font-semibold text-emerald-700">{dic.detalhe.disponivel}</p>
                   ) : moto.estado === "alugada" && moto.disponivel_em ? (
                     <p className="font-semibold text-amber-700">
-                      Disponível a partir de {moto.disponivel_em}
+                      {dic.detalhe["disponivelA partir"]} {moto.disponivel_em}
                     </p>
                   ) : (
                     <p className="font-semibold text-slate-700">{moto.estado}</p>
@@ -133,9 +139,9 @@ export default async function MotoPage({ params }: PageProps) {
               <div className="space-y-4">
                 <a
                   className="inline-flex w-full items-center justify-center rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  href={`/moto/${moto.id}/pedido?modelo=${encodeURIComponent(moto.modelo)}`}
+                  href={`/${locale}/moto/${moto.id}/pedido`}
                 >
-                  Pedir aluguer
+                  {dic.detalhe.pedirAluguer}
                 </a>
                 <a
                   className="inline-flex w-full items-center justify-center rounded-3xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:border-slate-400 hover:bg-slate-50"
@@ -143,7 +149,7 @@ export default async function MotoPage({ params }: PageProps) {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Falar no WhatsApp
+                  {dic.detalhe.whatsapp}
                 </a>
               </div>
             </div>
@@ -152,8 +158,8 @@ export default async function MotoPage({ params }: PageProps) {
 
         <section className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold text-slate-950">Descrição</h2>
-            <p className="text-slate-700">{moto.descricao ?? "Sem descrição disponível."}</p>
+            <h2 className="text-xl font-semibold text-slate-950">{dic.detalhe.descricao}</h2>
+            <p className="text-slate-700">{moto.descricao ?? dic.detalhe.semDescricao}</p>
           </div>
         </section>
       </div>

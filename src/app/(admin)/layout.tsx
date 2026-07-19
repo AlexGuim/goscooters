@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
+import "../globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,15 +13,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: {
-    default: "GoScooters | Aluguer mensal de motas para motoristas",
-    template: "%s | GoScooters",
-  },
-  description:
-    "Aluguer de motas por mês para motoristas de Uber, Bolt e Glovo. Escolha o modelo, peça o aluguer e comece a trabalhar.",
+  title: "Administração | GoScooters",
+  // A administração nunca deve aparecer em resultados de pesquisa.
+  robots: { index: false, follow: false },
 };
 
-export default function RootLayout({
+/**
+ * Layout raiz da administração.
+ *
+ * Vive separado do site público porque este fica sempre em português — é usado
+ * só por quem gere a plataforma — enquanto o público muda de idioma. Cada um
+ * precisa do seu próprio <html lang>, e só um layout raiz o pode definir.
+ */
+export default function AdminRootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;

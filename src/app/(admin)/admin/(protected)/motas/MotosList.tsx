@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Moto, MotoEstado } from "@/types/db";
 import { updateMoto, deleteMoto } from "@/actions/motoActions";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
+import pt from "@/dictionaries/pt.json";
 import MotoForm from "./MotoForm";
 
 interface MotosListProps {
@@ -135,7 +136,7 @@ export default function MotosList({ initialMotas }: MotosListProps) {
                   <td className="px-6 py-4 text-slate-600">{moto.cilindrada ?? "—"} cc</td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-1">
-                      {precosDisponiveis(moto).map((preco) => (
+                      {precosDisponiveis(moto, pt.periodos).map((preco) => (
                         <span key={preco.periodo} className="text-xs text-slate-600">
                           <span className="font-semibold text-slate-950">
                             {formatarPreco(preco.valor)}

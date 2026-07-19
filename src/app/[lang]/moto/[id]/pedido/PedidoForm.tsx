@@ -3,11 +3,14 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { createPedido } from "@/actions/createPedido";
-import { precosDisponiveis, formatarPreco } from "@/lib/precos";
+import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
+import type { Dicionario, Locale } from "@/lib/i18n";
 import type { Moto, Periodo } from "@/types/db";
 
 interface PedidoFormProps {
   moto: Moto;
+  locale: Locale;
+  dic: Dicionario;
 }
 
 type State = {
@@ -20,8 +23,8 @@ type State = {
 const campo =
   "w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 
-export default function PedidoForm({ moto }: PedidoFormProps) {
-  const precos = precosDisponiveis(moto);
+export default function PedidoForm({ moto, locale, dic }: PedidoFormProps) {
+  const precos = precosDisponiveis(moto, rotulosDe(dic));
 
   // Pré-selecciona o único período quando só há um — não faz sentido pedir uma
   // escolha que não existe.
@@ -46,6 +49,7 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
         duracao: duracaoBruta ? parseInt(duracaoBruta, 10) : undefined,
         mensagem: (formData.get("mensagem") as string) || undefined,
         consentimento: formData.get("consentimento") === "on",
+        locale,
       });
 
       return {
@@ -67,10 +71,11 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
               <span className="text-2xl">✓</span>
             </div>
             <div>
-              <h1 className="text-3xl font-semibold text-slate-950">Pedido recebido!</h1>
+              <h1 className="text-3xl font-semibold text-slate-950">
+                {dic.pedido.sucessoTitulo}
+              </h1>
               <p className="mt-3 text-slate-600">
-                Obrigado pelo teu interesse. Entraremos em contacto em breve para
-                confirmar os detalhes.
+                {dic.pedido.sucessoTexto}
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
@@ -81,14 +86,14 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Falar no WhatsApp
+                  {dic.detalhe.whatsapp}
                 </a>
               )}
               <Link
                 className="inline-flex items-center justify-center rounded-3xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-950 transition hover:border-slate-400 hover:bg-slate-50"
-                href="/"
+                href={`/${locale}`}
               >
-                Voltar ao catálogo
+                {dic.pedido.voltarCatalogo}
               </Link>
             </div>
           </div>
@@ -102,21 +107,23 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
       <div className="mx-auto max-w-2xl rounded-3xl bg-white p-6 shadow-sm sm:p-8">
         <div className="space-y-8">
           <div>
-            <h1 className="text-3xl font-semibold text-slate-950">Pedir aluguer</h1>
-            <p className="mt-2 text-slate-600">Mota: {moto.modelo}</p>
+            <h1 className="text-3xl font-semibold text-slate-950">{dic.pedido.titulo}</h1>
+            <p className="mt-2 text-slate-600">
+              {dic.pedido.mota}: {moto.modelo}
+            </p>
           </div>
 
           <form action={formAction} className="space-y-6">
             <div className="grid gap-6 sm:grid-cols-2">
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">
-                  Nome <span className="text-red-600">*</span>
+                  {dic.pedido.nome} <span className="text-red-600">*</span>
                 </span>
-                <input className={campo} type="text" name="nome" required placeholder="João Silva" />
+                <input className={campo} type="text" name="nome" required placeholder={dic.pedido.nomePlaceholder} />
               </label>
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">
-                  Telefone <span className="text-red-600">*</span>
+                  {dic.pedido.telefone} <span className="text-red-600">*</span>
                 </span>
                 <input
                   className={campo}
@@ -129,20 +136,20 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
             </div>
 
             <label className="block space-y-2">
-              <span className="text-sm font-medium text-slate-700">Email (opcional)</span>
+              <span className="text-sm font-medium text-slate-700">{dic.pedido.email}</span>
               <input className={campo} type="email" name="email" placeholder="joao@email.com" />
             </label>
 
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">
-                Plataforma <span className="text-red-600">*</span>
+                {dic.pedido.plataforma} <span className="text-red-600">*</span>
               </span>
               <select className={campo} name="plataforma" required defaultValue="">
-                <option value="">Selecciona uma plataforma</option>
+                <option value="">{dic.pedido.plataformaPlaceholder}</option>
                 <option value="Uber">Uber</option>
                 <option value="Glovo">Glovo</option>
                 <option value="Bolt">Bolt</option>
-                <option value="outro">Outro</option>
+                <option value="outro">{dic.pedido.outro}</option>
               </select>
             </label>
 
@@ -151,7 +158,7 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
                 período, mostra-se apenas a informação, sem escolha a fazer. */}
             <div className="space-y-3">
               <span className="text-sm font-medium text-slate-700">
-                Período de aluguer <span className="text-red-600">*</span>
+                {dic.pedido.periodoAluguer} <span className="text-red-600">*</span>
               </span>
 
               {precos.length === 1 ? (
@@ -161,7 +168,8 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
                     <span className="font-semibold text-slate-950">
                       {precos[0].rotulos.nome}
                     </span>{" "}
-                    — {formatarPreco(precos[0].valor)} por {precos[0].rotulos.unidade}
+                    — {formatarPreco(precos[0].valor, locale)} {dic.detalhe.por}{" "}
+                    {precos[0].rotulos.unidade}
                   </p>
                 </div>
               ) : (
@@ -191,10 +199,10 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
                           {preco.rotulos.nome}
                         </span>
                         <span className="mt-1 block text-lg font-semibold text-slate-950">
-                          {formatarPreco(preco.valor)}
+                          {formatarPreco(preco.valor, locale)}
                         </span>
                         <span className="block text-xs text-slate-500">
-                          por {preco.rotulos.unidade}
+                          {dic.detalhe.por} {preco.rotulos.unidade}
                         </span>
                       </label>
                     );
@@ -205,14 +213,18 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
 
             <div className="grid gap-6 sm:grid-cols-2">
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-700">Data de início</span>
+                <span className="text-sm font-medium text-slate-700">{dic.pedido.dataInicio}</span>
                 <input className={campo} type="date" name="dataInicio" />
               </label>
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-700">
-                  Duração{" "}
+                  {dic.pedido.duracao}{" "}
                   <span className="text-slate-500">
-                    ({precoEscolhido ? precoEscolhido.rotulos.plural : "escolhe o período"})
+                    (
+                    {precoEscolhido
+                      ? precoEscolhido.rotulos.plural
+                      : dic.pedido.escolhePeriodo}
+                    )
                   </span>
                 </span>
                 <input
@@ -227,11 +239,11 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
             </div>
 
             <label className="block space-y-2">
-              <span className="text-sm font-medium text-slate-700">Mensagem</span>
+              <span className="text-sm font-medium text-slate-700">{dic.pedido.mensagem}</span>
               <textarea
                 className={`${campo} h-24`}
                 name="mensagem"
-                placeholder="Deixa-nos uma mensagem (opcional)"
+                placeholder={dic.pedido.mensagemPlaceholder}
               />
             </label>
 
@@ -243,14 +255,13 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
                 required
               />
               <span className="text-sm text-slate-700">
-                Autorizo o tratamento dos meus dados para efeitos de resposta a este
-                pedido de aluguer, nos termos da{" "}
+                {dic.pedido.consentimento}{" "}
                 <Link
                   className="font-medium text-emerald-600 underline hover:text-emerald-700"
-                  href="/privacidade"
+                  href={`/${locale}/privacidade`}
                   target="_blank"
                 >
-                  Política de Privacidade
+                  {dic.pedido.politicaPrivacidade}
                 </Link>
                 . <span className="text-red-600">*</span>
               </span>
@@ -268,13 +279,13 @@ export default function PedidoForm({ moto }: PedidoFormProps) {
                 type="submit"
                 disabled={isPending}
               >
-                {isPending ? "A gravar..." : "Pedir aluguer"}
+                {isPending ? dic.pedido.aGravar : dic.pedido.submeter}
               </button>
               <Link
                 className="flex-1 rounded-3xl border border-slate-300 bg-white px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:border-slate-400 hover:bg-slate-50"
-                href={`/moto/${moto.id}`}
+                href={`/${locale}/moto/${moto.id}`}
               >
-                Cancelar
+                {dic.pedido.cancelar}
               </Link>
             </div>
           </form>

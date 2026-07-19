@@ -1,0 +1,153 @@
+{
+  "meta": {
+    "title": "GoScooters | Aluguer mensal de motas para motoristas",
+    "description": "Aluguer de motas por dia, semana ou mês em Lisboa para motoristas de Uber, Bolt e Glovo. Escolhe o modelo, pede o aluguer e começa a trabalhar."
+  },
+  "nav": {
+    "motas": "Motas",
+    "reservar": "Reservar",
+    "idioma": "Idioma"
+  },
+  "hero": {
+    "sobretitulo": "Aluguer de motas em Lisboa",
+    "titulo1": "A tua mota,",
+    "titulo2": "pelo tempo que precisares",
+    "subtitulo": "Aluguer diário, semanal ou mensal para motoristas da Uber, Bolt e Glovo. Escolhe o modelo, faz o pedido e começa a trabalhar.",
+    "verMotas": "Ver motas",
+    "whatsapp": "Falar no WhatsApp"
+  },
+  "catalogo": {
+    "titulo": "Escolhe a tua mota",
+    "verDetalhes": "Ver detalhes",
+    "semImagem": "Sem imagem",
+    "vazioComFiltros": "Nenhuma mota corresponde à procura",
+    "vazioComFiltrosAjuda": "Tenta alargar os filtros ou fala connosco.",
+    "vazioSemMotas": "Nenhuma mota disponível",
+    "vazioSemMotasAjuda": "Volta mais tarde ou contacta-nos via WhatsApp.",
+    "limparFiltros": "Limpar filtros"
+  },
+  "filtros": {
+    "periodo": "Período",
+    "periodoQualquer": "Qualquer",
+    "cilindrada": "Cilindrada",
+    "cilindradaTodas": "Todas",
+    "ate125": "Até 125 cc",
+    "de126a250": "126 – 250 cc",
+    "mais250": "Mais de 250 cc",
+    "precoMax": "Preço máximo (€)",
+    "semLimite": "Sem limite",
+    "filtrar": "Filtrar",
+    "limpar": "Limpar",
+    "umaEncontrada": "1 mota encontrada",
+    "varias": "{n} motas encontradas",
+    "notaPrecoSemPeriodo": "Sem período escolhido, o preço máximo aplica-se a qualquer um dos períodos oferecidos."
+  },
+  "periodos": {
+    "dia": {
+      "unidade": "dia",
+      "plural": "dias",
+      "nome": "Diária"
+    },
+    "semana": {
+      "unidade": "semana",
+      "plural": "semanas",
+      "nome": "Semanal"
+    },
+    "mes": {
+      "unidade": "mês",
+      "plural": "meses",
+      "nome": "Mensal"
+    }
+  },
+  "detalhe": {
+    "modelo": "Modelo",
+    "cilindrada": "Cilindrada",
+    "preco": "Preço",
+    "precos": "Preços",
+    "por": "por",
+    "disponivel": "Disponível",
+    "disponivelA partir": "Disponível a partir de",
+    "pedirAluguer": "Pedir aluguer",
+    "whatsapp": "Falar no WhatsApp",
+    "descricao": "Descrição",
+    "semDescricao": "Sem descrição disponível.",
+    "semImagem": "Sem imagem disponível",
+    "mensagemWhatsapp": "Olá, tenho interesse na moto {modelo}. Está disponível para aluguer?"
+  },
+  "pedido": {
+    "titulo": "Pedir aluguer",
+    "mota": "Mota",
+    "nome": "Nome",
+    "nomePlaceholder": "João Silva",
+    "telefone": "Telefone",
+    "email": "Email (opcional)",
+    "plataforma": "Plataforma",
+    "plataformaPlaceholder": "Selecciona uma plataforma",
+    "outro": "Outro",
+    "periodoAluguer": "Período de aluguer",
+    "dataInicio": "Data de início",
+    "duracao": "Duração",
+    "escolhePeriodo": "escolhe o período",
+    "mensagem": "Mensagem",
+    "mensagemPlaceholder": "Deixa-nos uma mensagem (opcional)",
+    "consentimento": "Autorizo o tratamento dos meus dados para efeitos de resposta a este pedido de aluguer, nos termos da",
+    "politicaPrivacidade": "Política de Privacidade",
+    "submeter": "Pedir aluguer",
+    "aGravar": "A gravar...",
+    "cancelar": "Cancelar",
+    "sucessoTitulo": "Pedido recebido!",
+    "sucessoTexto": "Obrigado pelo teu interesse. Entraremos em contacto em breve para confirmar os detalhes.",
+    "voltarCatalogo": "Voltar ao catálogo",
+    "mensagemWhatsapp": "Olá! Acabei de submeter um pedido de aluguer para a {modelo}{duracao}. O meu nome é {nome}."
+  },
+  "erros": {
+    "nomeObrigatorio": "Nome é obrigatório.",
+    "telefoneObrigatorio": "Telefone é obrigatório.",
+    "plataformaObrigatoria": "Plataforma é obrigatória.",
+    "consentimentoObrigatorio": "É necessário autorizar o tratamento dos dados para continuar.",
+    "periodoInvalido": "Período de aluguer inválido.",
+    "gravarPedido": "Erro ao gravar pedido. Tenta novamente.",
+    "inesperado": "Erro inesperado. Tenta novamente."
+  },
+  "naoEncontrado": {
+    "titulo": "Mota não encontrada",
+    "texto": "A mota que procuras já não está disponível ou o endereço está incorrecto.",
+    "voltar": "Voltar ao catálogo"
+  },
+  "footer": {
+    "descricao": "Aluguer de motas em Lisboa para motoristas de plataformas. Diário, semanal ou mensal.",
+    "contactos": "Contactos",
+    "privacidade": "Política de Privacidade",
+    "direitos": "Todos os direitos reservados."
+  },
+  "privacidade": {
+    "titulo": "Política de Privacidade",
+    "voltar": "← Voltar ao catálogo",
+    "seccoes": [
+      {
+        "titulo": "Que dados recolhemos",
+        "texto": "Quando submete um pedido de aluguer, recolhemos o seu nome, telefone e, opcionalmente, o email, a plataforma em que trabalha, a data de início pretendida, a duração e a mensagem que nos deixar."
+      },
+      {
+        "titulo": "Para que os usamos",
+        "texto": "Exclusivamente para responder ao seu pedido de aluguer e gerir o contrato daí resultante. Não usamos os seus dados para publicidade nem os vendemos ou partilhamos com terceiros para fins comerciais."
+      },
+      {
+        "titulo": "Fundamento e prazo de conservação",
+        "texto": "O tratamento assenta no seu consentimento, dado ao submeter o formulário, e nas diligências pré-contratuais que solicita. Conservamos os dados enquanto durar a relação comercial e, depois, pelo prazo legalmente exigido. Se o pedido não resultar em contrato, eliminamo-los no prazo máximo de 12 meses."
+      },
+      {
+        "titulo": "Com quem são partilhados",
+        "texto": "Os dados são alojados na infraestrutura da Supabase, nosso subcontratante para serviços de base de dados. Se optar por nos contactar via WhatsApp, essa comunicação fica sujeita à política de privacidade da Meta."
+      },
+      {
+        "titulo": "Os seus direitos",
+        "texto": "Ao abrigo do RGPD, pode solicitar o acesso, a retificação, o apagamento, a limitação ou a portabilidade dos seus dados, bem como retirar o consentimento a qualquer momento — sem que isso afete a licitude do tratamento anterior. Tem também o direito de apresentar reclamação junto da CNPD."
+      },
+      {
+        "titulo": "Contacto",
+        "texto": "Para exercer os seus direitos ou esclarecer qualquer dúvida, contacte-nos através dos meios indicados no site."
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import type { Moto, Periodo } from "@/types/db";
+import type { Dicionario, Locale } from "@/lib/i18n";
 
 /**
  * Ponto único de verdade sobre períodos e preços.
@@ -10,8 +11,8 @@ import type { Moto, Periodo } from "@/types/db";
 
 export const PERIODOS: Periodo[] = ["dia", "semana", "mes"];
 
-interface RotulosPeriodo {
-  /** "dia" — como aparece a seguir ao preço: €30 / dia */
+export interface RotulosPeriodo {
+  /** "dia" — como aparece a seguir ao preço: 30 € / dia */
   unidade: string;
   /** "2 dias" — plural para durações */
   plural: string;
@@ -19,11 +20,7 @@ interface RotulosPeriodo {
   nome: string;
 }
 
-export const ROTULOS: Record<Periodo, RotulosPeriodo> = {
-  dia: { unidade: "dia", plural: "dias", nome: "Diária" },
-  semana: { unidade: "semana", plural: "semanas", nome: "Semanal" },
-  mes: { unidade: "mês", plural: "meses", nome: "Mensal" },
-};
+export type RotulosPorPeriodo = Record<Periodo, RotulosPeriodo>;
 
 export interface PrecoDisponivel {
   periodo: Periodo;
@@ -38,11 +35,19 @@ const COLUNAS: Record<Periodo, keyof Moto> = {
   mes: "preco_mes",
 };
 
+/** Rótulos traduzidos, extraídos do dicionário do idioma activo. */
+export function rotulosDe(dic: Dicionario): RotulosPorPeriodo {
+  return dic.periodos;
+}
+
 /**
  * Preços efectivamente oferecidos, sempre pela mesma ordem (dia → semana → mês),
  * para o catálogo não trocar a apresentação de mota para mota.
  */
-export function precosDisponiveis(moto: Moto): PrecoDisponivel[] {
+export function precosDisponiveis(
+  moto: Moto,
+  rotulos: RotulosPorPeriodo,
+): PrecoDisponivel[] {
   return PERIODOS.flatMap((periodo) => {
     const valor = moto[COLUNAS[periodo]];
 
@@ -50,19 +55,19 @@ export function precosDisponiveis(moto: Moto): PrecoDisponivel[] {
       return [];
     }
 
-    return [{ periodo, valor: String(valor), rotulos: ROTULOS[periodo] }];
+    return [{ periodo, valor: String(valor), rotulos: rotulos[periodo] }];
   });
 }
 
-/** Formata um valor como €220 ou €27,50 — sem cêntimos quando são zero. */
-export function formatarPreco(valor: string | number): string {
+/** Formata um valor como 220 € ou 27,50 € — sem cêntimos quando são zero. */
+export function formatarPreco(valor: string | number, locale: Locale = "pt"): string {
   const numero = typeof valor === "number" ? valor : Number(valor);
 
   if (Number.isNaN(numero)) {
-    return `€${valor}`;
+    return `${valor} €`;
   }
 
-  return new Intl.NumberFormat("pt-PT", {
+  return new Intl.NumberFormat(locale === "en" ? "en-IE" : "pt-PT", {
     style: "currency",
     currency: "EUR",
     minimumFractionDigits: Number.isInteger(numero) ? 0 : 2,
@@ -70,13 +75,12 @@ export function formatarPreco(valor: string | number): string {
   }).format(numero);
 }
 
-/** "€150 / semana" */
-export function precoComUnidade(preco: PrecoDisponivel): string {
-  return `${formatarPreco(preco.valor)} / ${preco.rotulos.unidade}`;
-}
-
 /** "3 semanas" / "1 semana" */
-export function duracaoPorExtenso(duracao: number, periodo: Periodo): string {
-  const { unidade, plural } = ROTULOS[periodo];
+export function duracaoPorExtenso(
+  duracao: number,
+  periodo: Periodo,
+  rotulos: RotulosPorPeriodo,
+): string {
+  const { unidade, plural } = rotulos[periodo];
   return `${duracao} ${duracao === 1 ? unidade : plural}`;
 }

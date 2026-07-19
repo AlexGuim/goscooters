@@ -1,5 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { LOCALES, negociarLocale } from "@/lib/i18n";
+
+/** Caminhos que não pertencem ao site traduzido e não levam prefixo de idioma. */
+const SEM_IDIOMA = ["/admin", "/auth"];
 
 /**
  * Proxy (o antigo `middleware` — renomeado no Next 16).
@@ -14,6 +18,26 @@ import { NextResponse, type NextRequest } from "next/server";
  * página e cada Server Action verificam de facto quem está a chamar.
  */
 export async function proxy(request: NextRequest) {
+  const { pathname: caminho } = request.nextUrl;
+
+  // Redirecciona para o idioma certo antes de qualquer trabalho de autenticação:
+  // as páginas públicas não precisam de sessão e assim poupa-se a chamada.
+  if (!SEM_IDIOMA.some((p) => caminho === p || caminho.startsWith(`${p}/`))) {
+    const temIdioma = LOCALES.some(
+      (l) => caminho === `/${l}` || caminho.startsWith(`/${l}/`),
+    );
+
+    if (!temIdioma) {
+      const locale = negociarLocale(request.headers.get("accept-language"));
+      const destino = new URL(
+        `/${locale}${caminho === "/" ? "" : caminho}`,
+        request.url,
+      );
+      destino.search = request.nextUrl.search;
+      return NextResponse.redirect(destino);
+    }
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -44,9 +68,8 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-  const isAdminArea = pathname.startsWith("/admin");
-  const isLoginPage = pathname === "/admin/login";
+  const isAdminArea = caminho.startsWith("/admin");
+  const isLoginPage = caminho === "/admin/login";
 
   if (isAdminArea && !isLoginPage && !user) {
     const loginUrl = new URL("/admin/login", request.url);

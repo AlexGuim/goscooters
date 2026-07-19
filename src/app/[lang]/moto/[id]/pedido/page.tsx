@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { getDicionario } from "@/lib/dictionaries";
+import { isLocale, type Locale } from "@/lib/i18n";
 import type { Moto } from "@/types/db";
 import PedidoForm from "./PedidoForm";
 
 interface PageProps {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string; lang: string }>;
 }
 
 /**
@@ -33,12 +35,14 @@ async function getMoto(id: string): Promise<Moto | null> {
 }
 
 export default async function PedidoPage({ params }: PageProps) {
-  const { id } = await params;
+  const { id, lang } = await params;
+  const locale = (isLocale(lang) ? lang : "pt") as Locale;
+  const dic = await getDicionario(locale);
   const moto = await getMoto(id);
 
   if (!moto) {
     notFound();
   }
 
-  return <PedidoForm moto={moto} />;
+  return <PedidoForm moto={moto} locale={locale} dic={dic} />;
 }
