@@ -1,9 +1,16 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
 import GaleriaMota from "@/components/GaleriaMota";
 import { getDicionario } from "@/lib/dictionaries";
-import { isLocale, preencher, type Locale } from "@/lib/i18n";
+import {
+  isLocale,
+  preencher,
+  LOCALES,
+  TAGS_HTML,
+  type Locale,
+} from "@/lib/i18n";
 import type { Moto } from "@/types/db";
 
 interface PageProps {
@@ -25,6 +32,47 @@ async function getMoto(id: string): Promise<Moto | null> {
   }
 
   return data;
+}
+
+/**
+ * Cada mota passa a ter título, descrição e imagem próprios — sem isto, todas
+ * apareceriam no Google e nas partilhas com o título genérico do site.
+ */
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id, lang } = await params;
+  const locale = (isLocale(lang) ? lang : "pt") as Locale;
+  const dic = await getDicionario(locale);
+  const moto = await getMoto(id);
+
+  if (!moto) {
+    return { title: dic.naoEncontrado.titulo };
+  }
+
+  const precos = precosDisponiveis(moto, rotulosDe(dic));
+  const listaPrecos = precos
+    .map((p) => `${formatarPreco(p.valor, locale)}/${p.rotulos.unidade}`)
+    .join(" · ");
+
+  const descricao =
+    moto.descricao?.trim() ||
+    `${moto.modelo}${moto.cilindrada ? ` ${moto.cilindrada}cc` : ""} — ${listaPrecos}`;
+
+  return {
+    title: moto.modelo,
+    description: descricao,
+    alternates: {
+      canonical: `/${locale}/moto/${moto.id}`,
+      languages: Object.fromEntries(
+        LOCALES.map((l) => [TAGS_HTML[l], `/${l}/moto/${moto.id}`]),
+      ),
+    },
+    openGraph: {
+      title: `${moto.modelo} | GoScooters`,
+      description: descricao,
+      type: "website",
+      images: moto.foto_urls?.[0] ? [{ url: moto.foto_urls[0] }] : undefined,
+    },
+  };
 }
 
 export default async function MotoPage({ params }: PageProps) {

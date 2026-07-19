@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   precosDisponiveis,
@@ -232,10 +233,14 @@ export default async function Home({ params, searchParams }: PageProps) {
                 >
                   <div className="overflow-hidden bg-slate-100">
                     {moto.foto_urls?.[0] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <Image
                         src={moto.foto_urls[0]}
                         alt={moto.modelo}
+                        width={640}
+                        height={480}
+                        // Três colunas no máximo: pede-se ao browser a largura
+                        // real de apresentação, não a da imagem original.
+                        sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 33vw"
                         className="block h-56 w-full object-cover transition duration-300 group-hover:scale-105"
                       />
                     ) : (

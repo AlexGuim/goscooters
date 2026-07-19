@@ -6,6 +6,20 @@ import { LOCALES, negociarLocale } from "@/lib/i18n";
 const SEM_IDIOMA = ["/admin", "/auth"];
 
 /**
+ * Ficheiros que os motores de busca e os browsers procuram em caminhos fixos.
+ * Prefixá-los com o idioma tornaria-os inalcançáveis: um crawler que peça
+ * /robots.txt não segue redirecionamentos para /pt/robots.txt.
+ */
+const FICHEIROS_RAIZ = [
+  "/robots.txt",
+  "/sitemap.xml",
+  "/icon.svg",
+  "/apple-icon.png",
+  "/favicon.ico",
+  "/manifest.webmanifest",
+];
+
+/**
  * Proxy (o antigo `middleware` — renomeado no Next 16).
  *
  * Faz duas coisas:
@@ -22,7 +36,14 @@ export async function proxy(request: NextRequest) {
 
   // Redirecciona para o idioma certo antes de qualquer trabalho de autenticação:
   // as páginas públicas não precisam de sessão e assim poupa-se a chamada.
-  if (!SEM_IDIOMA.some((p) => caminho === p || caminho.startsWith(`${p}/`))) {
+  const fixo =
+    SEM_IDIOMA.some((p) => caminho === p || caminho.startsWith(`${p}/`)) ||
+    FICHEIROS_RAIZ.includes(caminho) ||
+    // Qualquer imagem de metadados gerada pelo Next (opengraph-image, etc.).
+    caminho.includes("opengraph-image") ||
+    caminho.includes("twitter-image");
+
+  if (!fixo) {
     const temIdioma = LOCALES.some(
       (l) => caminho === `/${l}` || caminho.startsWith(`/${l}/`),
     );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { preencher, type Dicionario } from "@/lib/i18n";
 
 interface GaleriaMotaProps {
@@ -82,11 +83,14 @@ export default function GaleriaMota({ fotos, modelo, dic }: GaleriaMotaProps) {
         className="group relative block w-full overflow-hidden rounded-[2rem] bg-slate-100"
         aria-label={dic.galeria.abrir}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <Image
           className="h-80 w-full object-cover transition duration-300 group-hover:scale-105"
           src={fotos[0]}
           alt={modelo}
+          width={1024}
+          height={640}
+          sizes="(max-width: 1024px) 100vw, 60vw"
+          priority
         />
         <span className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-slate-950/70 px-3 py-1.5 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
           {total > 1
@@ -108,11 +112,13 @@ export default function GaleriaMota({ fotos, modelo, dic }: GaleriaMotaProps) {
                 total,
               })}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 className="h-24 w-full object-cover"
                 src={url}
                 alt={`${modelo} ${i + 1}`}
+                width={200}
+                height={150}
+                sizes="200px"
               />
             </button>
           ))}
@@ -168,11 +174,13 @@ export default function GaleriaMota({ fotos, modelo, dic }: GaleriaMotaProps) {
               </button>
             )}
 
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src={fotos[indice]}
               alt={`${modelo} ${indice + 1}`}
-              className="max-h-[75vh] max-w-full rounded-2xl object-contain"
+              width={1600}
+              height={1200}
+              sizes="100vw"
+              className="max-h-[75vh] w-auto rounded-2xl object-contain"
             />
 
             {total > 1 && (
@@ -208,8 +216,14 @@ export default function GaleriaMota({ fotos, modelo, dic }: GaleriaMotaProps) {
                       : "opacity-50 hover:opacity-90"
                   }`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="h-full w-full object-cover" />
+                  <Image
+                    src={url}
+                    alt=""
+                    width={160}
+                    height={112}
+                    sizes="80px"
+                    className="h-full w-full object-cover"
+                  />
                 </button>
               ))}
             </div>
