@@ -145,6 +145,10 @@
         "texto": "Under the GDPR you may request access to, rectification of, erasure of, restriction of or portability of your data, and you may withdraw your consent at any time — without affecting the lawfulness of processing carried out beforehand. You also have the right to lodge a complaint with the CNPD, the Portuguese data protection authority."
       },
       {
+        "titulo": "Driver registry and rental history",
+        "texto": "We keep an internal, private record of the drivers we rent to, including contact details and notes on their history and conduct in previous rentals, based on our legitimate interest in managing business risk. This record is not public and is not shared with third parties. You may request access to, correction of, or deletion of your data at any time."
+      },
+      {
         "titulo": "Contact",
         "texto": "To exercise your rights or ask any question, please contact us using the details shown on this site."
       }

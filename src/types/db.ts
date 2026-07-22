@@ -1,5 +1,6 @@
 export type MotoEstado = "disponivel" | "alugada" | "manutencao";
 export type PedidoEstado = "novo" | "contactado" | "fechado" | "perdido";
+export type AvaliacaoTipo = "positiva" | "negativa" | "neutra";
 
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
@@ -44,6 +45,28 @@ export type PedidoAluguer = {
   consentimento_em: string | null;
 }
 
+export type Motorista = {
+  id: string;
+  nome: string;
+  telefone: string;
+  /** Só dígitos, para reconhecer o mesmo número escrito de formas diferentes. */
+  telefone_digitos: string;
+  email: string | null;
+  plataforma: string | null;
+  notas: string | null;
+  created_at: string;
+};
+
+export type Avaliacao = {
+  id: string;
+  motorista_id: string;
+  tipo: AvaliacaoTipo;
+  nota: number | null;
+  comentario: string | null;
+  data_aluguer: string | null;
+  created_at: string;
+};
+
 export interface Database {
   public: {
     Tables: {
@@ -77,6 +100,38 @@ export interface Database {
             columns: ["moto_id"];
             isOneToOne: false;
             referencedRelation: "moto";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      motorista: {
+        Row: Motorista;
+        Insert: Omit<Motorista, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Motorista, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      avaliacao: {
+        Row: Avaliacao;
+        Insert: Omit<Avaliacao, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Avaliacao, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "avaliacao_motorista_id_fkey";
+            columns: ["motorista_id"];
+            isOneToOne: false;
+            referencedRelation: "motorista";
             referencedColumns: ["id"];
           },
         ];

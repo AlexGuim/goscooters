@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import type { PedidoAluguer, PedidoEstado } from "@/types/db";
+import Link from "next/link";
 import { updatePedidoEstado } from "@/actions/pedidoActions";
 import { duracaoPorExtenso } from "@/lib/precos";
 import pt from "@/dictionaries/pt.json";
 
+export interface AvisoMotorista {
+  motoristaId: string;
+  positivas: number;
+  negativas: number;
+}
+
 interface PedidosListProps {
   initialPedidos: PedidoAluguer[];
+  avisos: Record<string, AvisoMotorista>;
 }
 
 const estadoColors: Record<PedidoEstado, string> = {
@@ -17,7 +25,7 @@ const estadoColors: Record<PedidoEstado, string> = {
   perdido: "bg-red-100 text-red-700",
 };
 
-export default function PedidosList({ initialPedidos }: PedidosListProps) {
+export default function PedidosList({ initialPedidos, avisos }: PedidosListProps) {
   const [pedidos, setPedidos] = useState(initialPedidos);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -46,7 +54,22 @@ export default function PedidosList({ initialPedidos }: PedidosListProps) {
           >
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1">
-                <h3 className="font-semibold text-slate-950">{pedido.nome}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold text-slate-950">{pedido.nome}</h3>
+                  {avisos[pedido.id] && (
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        avisos[pedido.id].negativas > 0
+                          ? "bg-red-100 text-red-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      {avisos[pedido.id].negativas > 0
+                        ? `▼ ${avisos[pedido.id].negativas} negativa(s)`
+                        : `▲ motorista conhecido`}
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1 text-sm text-slate-600">{pedido.telefone}</p>
               </div>
               <div className="flex items-center gap-4">
@@ -102,6 +125,23 @@ export default function PedidosList({ initialPedidos }: PedidosListProps) {
                   </div>
                 )}
               </div>
+
+              {avisos[pedido.id] && (
+                <Link
+                  href="/admin/motoristas"
+                  className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm transition hover:border-emerald-300"
+                >
+                  <span className="text-slate-700">
+                    Este número já está no registo de motoristas
+                    {avisos[pedido.id].negativas > 0 && (
+                      <span className="font-semibold text-red-700">
+                        {" "}— {avisos[pedido.id].negativas} avaliação(ões) negativa(s)
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex-none font-semibold text-emerald-700">Ver ficha →</span>
+                </Link>
+              )}
               <div className="mt-4 flex gap-2 border-t border-slate-200 pt-4">
                 <a
                   className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"

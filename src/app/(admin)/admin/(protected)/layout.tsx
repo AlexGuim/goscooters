@@ -42,6 +42,12 @@ export default async function ProtectedAdminLayout({
                 >
                   Pedidos
                 </Link>
+                <Link
+                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
+                  href="/admin/motoristas"
+                >
+                  Motoristas
+                </Link>
               </nav>
               <LogoutButton />
             </div>
