@@ -3,11 +3,8 @@
 import { useRef, useState } from "react";
 import type { Moto, MotoEstado } from "@/types/db";
 import { createMoto, updateMoto } from "@/actions/motoActions";
-import {
-  uploadFotoMoto,
-  deleteFotoMoto,
-  uploadVideoMoto,
-} from "@/actions/fotoActions";
+import { deleteFotoMoto } from "@/actions/fotoActions";
+import { enviarFoto, enviarVideo } from "@/lib/uploads";
 
 interface MotoFormProps {
   /** Mota a editar; ausente significa criar uma nova. */
@@ -39,10 +36,7 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
     setACarregarFoto(true);
 
     for (const ficheiro of Array.from(ficheiros)) {
-      const formData = new FormData();
-      formData.append("foto", ficheiro);
-
-      const resultado = await uploadFotoMoto(formData);
+      const resultado = await enviarFoto(ficheiro);
 
       if (resultado.success && resultado.url) {
         setFotos((atuais) => [...atuais, resultado.url!]);
@@ -70,9 +64,7 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
     setErro(null);
     setACarregarVideo(true);
 
-    const formData = new FormData();
-    formData.append("video", ficheiro);
-    const resultado = await uploadVideoMoto(formData);
+    const resultado = await enviarVideo(ficheiro);
 
     if (resultado.success && resultado.url) {
       // Substituir o vídeo apaga o anterior — só há um por mota.
