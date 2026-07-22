@@ -231,7 +231,7 @@ export default async function Home({ params, searchParams }: PageProps) {
                   href={`/${locale}/moto/${moto.id}`}
                   className="group flex flex-col overflow-hidden rounded-3xl bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
                 >
-                  <div className="overflow-hidden bg-slate-100">
+                  <div className="relative overflow-hidden bg-slate-100">
                     {moto.foto_urls?.[0] ? (
                       <Image
                         src={moto.foto_urls[0]}
@@ -247,6 +247,14 @@ export default async function Home({ params, searchParams }: PageProps) {
                       <div className="flex h-56 items-center justify-center text-slate-500">
                         {dic.catalogo.semImagem}
                       </div>
+                    )}
+
+                    {/* Selo de vídeo: só quando a mota tem um. */}
+                    {moto.video_url && (
+                      <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-slate-950/75 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                        <span className="h-0 w-0 border-y-[5px] border-l-[8px] border-y-transparent border-l-white" />
+                        {dic.video.selo}
+                      </span>
                     )}
                   </div>
 

@@ -157,5 +157,17 @@
     "seguinte": "Fotografia seguinte",
     "contador": "Fotografia {atual} de {total}",
     "verTodas": "Ver todas as {n} fotografias"
+  },
+  "video": {
+    "selo": "Vídeo",
+    "reproduzir": "Ver vídeo da mota",
+    "titulo": "Vídeo"
+  },
+  "form_video": {
+    "rotulo": "Vídeo (opcional)",
+    "ajuda": "MP4, WebM ou MOV, até 50 MB. Um clip curto (10-20s) da mota a arrancar é o ideal.",
+    "aCarregar": "A carregar vídeo...",
+    "remover": "Remover vídeo",
+    "atual": "Vídeo atual"
   }
 }

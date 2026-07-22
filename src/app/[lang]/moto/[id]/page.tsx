@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
 import GaleriaMota from "@/components/GaleriaMota";
+import VideoMota from "@/components/VideoMota";
 import { getDicionario } from "@/lib/dictionaries";
 import {
   isLocale,
@@ -182,6 +183,22 @@ export default async function MotoPage({ params }: PageProps) {
             </div>
           </div>
         </section>
+
+        {moto.video_url && (
+          <section className="rounded-3xl bg-white p-5 shadow-sm sm:p-8">
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-slate-950">
+                {dic.video.titulo}
+              </h2>
+              <VideoMota
+                videoUrl={moto.video_url}
+                poster={moto.foto_urls?.[0] ?? null}
+                modelo={moto.modelo}
+                dic={dic}
+              />
+            </div>
+          </section>
+        )}
 
         <section className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
           <div className="space-y-4">

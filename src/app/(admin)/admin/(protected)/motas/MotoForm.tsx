@@ -3,7 +3,11 @@
 import { useRef, useState } from "react";
 import type { Moto, MotoEstado } from "@/types/db";
 import { createMoto, updateMoto } from "@/actions/motoActions";
-import { uploadFotoMoto, deleteFotoMoto } from "@/actions/fotoActions";
+import {
+  uploadFotoMoto,
+  deleteFotoMoto,
+  uploadVideoMoto,
+} from "@/actions/fotoActions";
 
 interface MotoFormProps {
   /** Mota a editar; ausente significa criar uma nova. */
@@ -22,6 +26,9 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
 
   const [fotos, setFotos] = useState<string[]>(moto?.foto_urls ?? []);
   const [aCarregarFoto, setACarregarFoto] = useState(false);
+  const [video, setVideo] = useState<string | null>(moto?.video_url ?? null);
+  const [aCarregarVideo, setACarregarVideo] = useState(false);
+  const inputVideo = useRef<HTMLInputElement>(null);
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -56,6 +63,34 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
     void deleteFotoMoto(url);
   };
 
+  const handleUploadVideo = async (ficheiros: FileList | null) => {
+    const ficheiro = ficheiros?.[0];
+    if (!ficheiro) return;
+
+    setErro(null);
+    setACarregarVideo(true);
+
+    const formData = new FormData();
+    formData.append("video", ficheiro);
+    const resultado = await uploadVideoMoto(formData);
+
+    if (resultado.success && resultado.url) {
+      // Substituir o vídeo apaga o anterior — só há um por mota.
+      if (video) void deleteFotoMoto(video);
+      setVideo(resultado.url);
+    } else {
+      setErro(resultado.error ?? "Erro ao carregar o vídeo.");
+    }
+
+    setACarregarVideo(false);
+    if (inputVideo.current) inputVideo.current.value = "";
+  };
+
+  const handleRemoverVideo = () => {
+    if (video) void deleteFotoMoto(video);
+    setVideo(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErro(null);
@@ -87,6 +122,7 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
       descricao: String(dados.get("descricao") ?? "").trim() || null,
       ativo: dados.get("ativo") === "on",
       foto_urls: fotos.length > 0 ? fotos : null,
+      video_url: video,
     };
 
     if (!valores.modelo) {
@@ -311,6 +347,46 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
             </p>
           </div>
 
+          {/* ── Vídeo (opcional, um por mota) ────────────────────────── */}
+          <div className="space-y-3">
+            <span className="text-sm font-medium text-slate-700">
+              Vídeo (opcional)
+            </span>
+
+            {video && (
+              <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <video
+                  src={video}
+                  className="h-16 w-24 flex-none rounded-xl bg-slate-950 object-cover"
+                  muted
+                  preload="metadata"
+                />
+                <span className="flex-1 text-sm text-slate-700">Vídeo atual</span>
+                <button
+                  type="button"
+                  onClick={handleRemoverVideo}
+                  className="rounded-full px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                >
+                  Remover
+                </button>
+              </div>
+            )}
+
+            <input
+              ref={inputVideo}
+              className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-full file:border-0 file:bg-emerald-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-700"
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime"
+              disabled={aCarregarVideo}
+              onChange={(e) => handleUploadVideo(e.target.files)}
+            />
+            <p className="text-xs text-slate-500">
+              {aCarregarVideo
+                ? "A carregar vídeo..."
+                : "MP4, WebM ou MOV, até 50 MB. Um clip curto (10-20s) da mota a arrancar é o ideal."}
+            </p>
+          </div>
+
           <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <input
               className="h-4 w-4 accent-emerald-600"
@@ -333,7 +409,7 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
             <button
               className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
               type="submit"
-              disabled={aGravar || aCarregarFoto}
+              disabled={aGravar || aCarregarFoto || aCarregarVideo}
             >
               {aGravar ? "A gravar..." : aEditar ? "Guardar alterações" : "Criar mota"}
             </button>

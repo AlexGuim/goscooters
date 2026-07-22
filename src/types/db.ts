@@ -19,6 +19,8 @@ export type Moto = {
   estado: MotoEstado;
   disponivel_em: string | null;
   foto_urls: string[] | null;
+  /** Vídeo de apresentação no Storage. Null = sem vídeo. */
+  video_url: string | null;
   descricao: string | null;
   ativo: boolean;
   created_at: string;

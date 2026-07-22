@@ -157,5 +157,17 @@
     "seguinte": "Next photo",
     "contador": "Photo {atual} of {total}",
     "verTodas": "View all {n} photos"
+  },
+  "video": {
+    "selo": "Video",
+    "reproduzir": "Watch scooter video",
+    "titulo": "Video"
+  },
+  "form_video": {
+    "rotulo": "Video (optional)",
+    "ajuda": "MP4, WebM or MOV, up to 50 MB. A short clip (10-20s) of the scooter running works best.",
+    "aCarregar": "Uploading video...",
+    "remover": "Remove video",
+    "atual": "Current video"
   }
 }
