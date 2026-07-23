@@ -56,8 +56,9 @@ function parseCSV(texto) {
 const semUrl = (v) => (v ?? "").replace(/\s*\(https?:\/\/[^)]*\)/g, "").trim();
 const parseEuro = (v) => { const n = parseFloat((v ?? "").replace(/[€\s]/g, "").replace(",", ".")); return Number.isFinite(n) ? n : null; };
 
-// Correção de gralhas de matrícula conhecidas do Notion (OCR: I→1).
-const ALIAS_MATRICULA = { "BJ45F1": "BJ45FI" };
+// Correção de gralhas de matrícula conhecidas do Notion (confirmadas pelo campo
+// "Veículo Associado", que é o link fiável vs a matrícula em texto livre).
+const ALIAS_MATRICULA = { "BJ45F1": "BJ45FI", "BJ71FH": "BT71UF" };
 const normMat = (m) => {
   const n = (m ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   return ALIAS_MATRICULA[n] ?? n;
