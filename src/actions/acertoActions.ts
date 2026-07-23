@@ -64,6 +64,14 @@ async function computar(
     .eq("id", proprietarioId)
     .maybeSingle();
   if (!dono) return { ok: false, error: "Proprietário não encontrado." };
+  // A frota própria não se acerta a si mesma: não há terceiro a quem transferir
+  // nem comissão a cobrar. Os seus custos controlam-se no Financeiro/Despesas.
+  if (dono.eh_goscooters) {
+    return {
+      ok: false,
+      error: "A GoScooters (frota própria) não gera acerto — vê o Financeiro/Despesas.",
+    };
+  }
 
   const { data: veiculos } = await supabaseAdmin
     .from("moto")
@@ -89,6 +97,7 @@ async function computar(
       .from("cobranca")
       .select("id, veiculo_id, valor_pago, periodo_inicio, periodo_fim, data_vencimento")
       .in("veiculo_id", veicIds)
+      .eq("tipo", "renda") // só renda gera comissão; caução/extra são reembolso
       .gte("data_vencimento", inicio)
       .lte("data_vencimento", fim);
 

@@ -13,8 +13,14 @@ import { formatarPreco } from "@/lib/precos";
  * cabeçalho certo, recusa — para o endpoint não poder ser disparado por qualquer um.
  */
 export async function GET(request: NextRequest) {
+  // Fail-closed: sem CRON_SECRET definido, o endpoint (que gasta SMS e lê dados
+  // de motoristas) fica FECHADO em vez de aberto a qualquer um.
   const segredo = process.env.CRON_SECRET;
-  if (segredo && request.headers.get("authorization") !== `Bearer ${segredo}`) {
+  if (!segredo) {
+    console.error("CRON_SECRET não definido — a recusar a execução por segurança.");
+    return new NextResponse("Cron não configurado (falta CRON_SECRET).", { status: 503 });
+  }
+  if (request.headers.get("authorization") !== `Bearer ${segredo}`) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 

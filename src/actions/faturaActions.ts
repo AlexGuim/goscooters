@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import { interpretarFatura, normalizarMatricula, type FaturaCampos } from "@/lib/faturas";
+import { interpretarFatura, type FaturaCampos } from "@/lib/faturas";
+import { encontrarMatricula } from "@/lib/matriculas";
 import type { DespesaCategoria, ImputarA } from "@/types/db";
 
 // Quem costuma suportar cada custo (igual ao default do formulário de despesas).
@@ -24,6 +25,8 @@ export interface LerFaturaResultado {
   imputar_a_sugerido: ImputarA;
   documento_url: string;
   texto_encontrado: boolean;
+  /** Aviso quando a matrícula foi associada por aproximação (confirmar!). */
+  aviso: string | null;
 }
 
 /**
@@ -94,19 +97,21 @@ export async function interpretarTextoFatura(
 async function montarResultado(texto: string, documentoUrl: string): Promise<LerFaturaResultado> {
   const campos = interpretarFatura(texto);
 
-  // Associa a matrícula lida a um veículo da frota.
+  // Associa a matrícula lida a um veículo da frota, tolerando erros de OCR.
   let veiculo: LerFaturaResultado["veiculo"] = null;
   let proprietario: LerFaturaResultado["proprietario"] = null;
-  const norm = normalizarMatricula(campos.matricula);
-  if (norm) {
+  let aviso: string | null = null;
+  if (campos.matricula) {
     const { data: motos } = await supabaseAdmin
       .from("moto")
       .select("id, matricula, matricula_norm, modelo, proprietario_id");
-    const m = (motos ?? []).find(
-      (x) => normalizarMatricula(x.matricula_norm ?? x.matricula) === norm,
-    );
-    if (m) {
+    const match = encontrarMatricula(campos.matricula, motos ?? []);
+    if (match) {
+      const m = (motos ?? []).find((x) => x.id === match.candidato.id)!;
       veiculo = { id: m.id, matricula: m.matricula, modelo: m.modelo };
+      if (match.motivo !== "exata") {
+        aviso = `Li a matrícula "${campos.matricula}" e associei a ${m.matricula} por semelhança — confirma se é o veículo certo.`;
+      }
       if (m.proprietario_id) {
         const { data: dono } = await supabaseAdmin
           .from("proprietario")
@@ -136,6 +141,7 @@ async function montarResultado(texto: string, documentoUrl: string): Promise<Ler
     imputar_a_sugerido,
     documento_url: documentoUrl,
     texto_encontrado: true,
+    aviso,
   };
 }
 
@@ -170,6 +176,28 @@ export async function gravarDespesaDeFatura(
   const n = Number(input.valor);
   if (!Number.isFinite(n) || n < 0) return { success: false, error: "Indica um valor válido." };
 
+  // Evita registar a mesma fatura duas vezes. Chave = fornecedor + referência +
+  // valor: faturas diferentes do mesmo fornecedor com a mesma referência (ex.:
+  // um "Processo Nº" repetido) mas valores distintos NÃO são bloqueadas.
+  const fornecedor = input.fornecedor?.trim() || null;
+  const referencia = input.referencia_externa?.trim() || null;
+  if (fornecedor && referencia) {
+    const { data: jaExiste } = await supabaseAdmin
+      .from("despesa")
+      .select("id")
+      .eq("fornecedor", fornecedor)
+      .eq("referencia_externa", referencia)
+      .eq("valor", input.valor)
+      .limit(1)
+      .maybeSingle();
+    if (jaExiste) {
+      return {
+        success: false,
+        error: `Esta fatura já foi registada (${fornecedor}, ref. ${referencia}, €${input.valor}).`,
+      };
+    }
+  }
+
   // Herda o dono do veículo se não vier explícito.
   let proprietario_id = input.proprietario_id ?? null;
   if (!proprietario_id && input.veiculo_id) {
@@ -193,8 +221,8 @@ export async function gravarDespesaDeFatura(
       estado_pagamento: "pendente",
       imputar_a: input.imputar_a,
       proprietario_id,
-      fornecedor: input.fornecedor?.trim() || null,
-      referencia_externa: input.referencia_externa?.trim() || null,
+      fornecedor,
+      referencia_externa: referencia,
       origem: "ingestao",
       detalhe: input.detalhe
         ? { ...input.detalhe, documento_url: input.documento_url ?? null }

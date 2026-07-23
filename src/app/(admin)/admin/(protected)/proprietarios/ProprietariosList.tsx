@@ -16,6 +16,23 @@ const campo =
   "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 
+/** Mensagem pronta a enviar ao motorista com o IBAN e o procedimento. */
+function instrucoesPagamento(d: Proprietario): string {
+  return [
+    "Instruções de pagamento — GoScooters",
+    "",
+    "O aluguer da tua mota é pago por transferência para:",
+    `Titular: ${d.nome}`,
+    d.iban ? `IBAN: ${d.iban}` : null,
+    "",
+    "• Paga sempre no teu dia (o dia em que recebeste a mota).",
+    "• Cada pagamento dá direito a 1 semana de utilização.",
+    "• Envia-nos o comprovativo por WhatsApp após a transferência.",
+  ]
+    .filter((l): l is string => l !== null)
+    .join("\n");
+}
+
 export default function ProprietariosList({
   inicial,
 }: {
@@ -23,6 +40,17 @@ export default function ProprietariosList({
 }) {
   const [donos, setDonos] = useState(inicial);
   const [modal, setModal] = useState<ProprietarioComContagem | "novo" | null>(null);
+  const [copiado, setCopiado] = useState<string | null>(null);
+
+  const copiarPagamento = async (d: Proprietario) => {
+    try {
+      await navigator.clipboard.writeText(instrucoesPagamento(d));
+      setCopiado(d.id);
+      setTimeout(() => setCopiado(null), 2000);
+    } catch {
+      alert("Não foi possível copiar. Usa o botão do WhatsApp.");
+    }
+  };
 
   const handleSaved = (d: ProprietarioComContagem) => {
     setDonos((atuais) => {
@@ -78,15 +106,34 @@ export default function ProprietariosList({
               <span>{d.tipo_parceiro === "anunciante" ? "Anunciante" : "Gerido"}</span>
               {d.email && <span>{d.email}</span>}
               {d.telefone && <span>{d.telefone}</span>}
+              {d.iban && <span className="font-mono">IBAN: {d.iban}</span>}
             </div>
 
-            <div className="mt-1 flex gap-3 border-t border-slate-100 pt-3">
+            <div className="mt-1 flex flex-wrap gap-3 border-t border-slate-100 pt-3">
               <button
                 className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                 onClick={() => setModal(d)}
               >
                 Editar
               </button>
+              {d.iban && (
+                <>
+                  <button
+                    className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
+                    onClick={() => copiarPagamento(d)}
+                  >
+                    {copiado === d.id ? "Copiado ✓" : "Copiar instruções"}
+                  </button>
+                  <a
+                    className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
+                    href={`https://wa.me/?text=${encodeURIComponent(instrucoesPagamento(d))}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Enviar por WhatsApp
+                  </a>
+                </>
+              )}
               {d.num_veiculos === 0 && (
                 <button
                   className="text-xs font-semibold text-red-600 transition hover:text-red-700"

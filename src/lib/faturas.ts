@@ -8,14 +8,20 @@ import type { DespesaCategoria } from "@/types/db";
  * adivinhar mal — o admin confirma/corrige tudo antes de gravar.
  */
 
+export interface FaturaItem {
+  descricao: string;
+  valor: string | null; // preço da linha, se estiver na mesma linha
+}
+
 export interface FaturaCampos {
   matricula: string | null;
   data: string | null; // ISO AAAA-MM-DD
   data_vencimento: string | null; // ISO
   fornecedor: string | null;
   referencia: string | null;
-  descricao: string | null;
-  valor: string | null; // "5.00"
+  descricao: string | null; // resumo (itens agregados)
+  itens: FaturaItem[]; // todas as linhas de serviço detetadas
+  valor: string | null; // "5.00" — total do documento
   km: number | null;
   proxima_troca: string | null; // texto livre (data ou km), vai para detalhe
   categoria: DespesaCategoria;
@@ -87,17 +93,37 @@ function acharCategoria(texto: string): DespesaCategoria {
   return "outro";
 }
 
-/** Descrição do serviço: a linha mais parecida com um item de trabalho. */
-function acharDescricao(texto: string): string | null {
+// Palavras que denunciam uma linha de serviço/peça numa fatura de oficina.
+const ITEM_CHAVE =
+  /([óo]leo|subst|pneu|revis|trav[ãa]|filtro|bateria|corrente|manuten|repara|servi[çc]o|m[ãa]o\s*de\s*obra|lavagem|inspe|pastilh|disco|vela|escova|farol|l[âa]mpada|correia|rolamento)/i;
+
+/** Todas as linhas de serviço da fatura (não só a primeira). */
+function acharItens(texto: string): FaturaItem[] {
   const linhas = texto.split("\n").map((l) => l.replace(/\s+/g, " ").trim());
-  const chave = /([óo]leo|subst|pneu|revis|trav[ãa]|filtro|bateria|corrente|manuten|repara)/i;
+  const itens: FaturaItem[] = [];
+  const vistos = new Set<string>();
   for (const l of linhas) {
-    if (chave.test(l) && l.length >= 6 && l.length <= 120 && /[a-zA-Z]/.test(l)) {
-      // Remove preços/percentagens que às vezes ficam colados à linha.
-      return l.replace(/\s*\d+[.,]\d{2}\s*€?.*$/, "").replace(/\s+/g, " ").trim() || l;
-    }
+    if (l.length < 4 || l.length > 140 || !/[a-zA-Z]/.test(l)) continue;
+    if (/^(descri|total|subtotal|iva|desconto|pre[çc]o|qtd|quantidade|c[óo]digo)/i.test(l)) continue;
+    if (!ITEM_CHAVE.test(l)) continue;
+    // Preços da linha (aceita vírgula ou ponto decimal); o valor do item é o
+    // último (as faturas listam preço-unid, qtd e total; o total vem por fim).
+    const precos = [...l.matchAll(/(\d[\d.\s]*,\d{2}|\d+\.\d{2})/g)];
+    const valor = precos.length ? numeroPT(precos[precos.length - 1][1]) : null;
+    // Descrição = tudo antes do primeiro preço (não corta números da descrição).
+    const desc = (precos.length
+      ? l.slice(0, precos[0].index)
+      : l
+    )
+      .replace(/\s+/g, " ")
+      .trim() || l;
+    // Dedup por descrição E valor: itens iguais com preços diferentes contam.
+    const chaveDedup = `${desc.toLowerCase()}|${valor ?? ""}`;
+    if (vistos.has(chaveDedup)) continue;
+    vistos.add(chaveDedup);
+    itens.push({ descricao: desc, valor });
   }
-  return null;
+  return itens;
 }
 
 export function interpretarFatura(textoBruto: string): FaturaCampos {
@@ -120,6 +146,9 @@ export function interpretarFatura(textoBruto: string): FaturaCampos {
     primeiro(texto, /\bkm\b[^:\n]*:?\s*([\d.\s]{3,})/i);
   const km = kmTexto ? Number(kmTexto.replace(/[.\s]/g, "")) || null : null;
 
+  const itens = acharItens(texto);
+  const descricao = itens.length ? itens.map((i) => i.descricao).join(" · ") : null;
+
   return {
     matricula: acharMatricula(texto),
     data:
@@ -130,10 +159,13 @@ export function interpretarFatura(textoBruto: string): FaturaCampos {
     ),
     fornecedor: primeiro(texto, /^(.*\b(?:LDA|Lda|Unipessoal|S\.?A\.?)\b.*)$/m),
     referencia:
-      primeiro(texto, /processo\s*n[ºo°.\s]*:?\s*([A-Za-z0-9/\-]+)/i) ??
+      // Preferir o nº de documento (mais discriminante); o "Processo Nº" pode
+      // repetir-se entre faturas e é usado como último recurso (dedup).
+      primeiro(texto, /(?:fatura|recibo|documento)\s*n[ºo°.\s]*:?\s*([A-Za-z0-9/\-]+)/i) ??
       primeiro(texto, /\b(Pr\d{3,4}\/\d+)\b/i) ??
-      primeiro(texto, /(?:fatura|recibo|documento)\s*n[ºo°.\s]*:?\s*([A-Za-z0-9/\-]+)/i),
-    descricao: acharDescricao(texto),
+      primeiro(texto, /processo\s*n[ºo°.\s]*:?\s*([A-Za-z0-9/\-]+)/i),
+    descricao,
+    itens,
     valor,
     km,
     proxima_troca: primeiro(

@@ -43,6 +43,8 @@ export default function ImportarFatura({
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<{ fase: string; pct: number } | null>(null);
+  const [avisoMatch, setAvisoMatch] = useState<string | null>(null);
+  const [veiculoAssociadoId, setVeiculoAssociadoId] = useState<string | null>(null);
 
   // Dados extraídos + estado do formulário de revisão.
   const [campos, setCampos] = useState<FaturaCampos | null>(null);
@@ -66,11 +68,15 @@ export default function ImportarFatura({
     setMatriculaLida(null);
     setVeiculoId("");
     setErro(null);
+    setAvisoMatch(null);
+    setVeiculoAssociadoId(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
   const preencher = (res: LerFaturaResultado) => {
     const { campos: c, veiculo, imputar_a_sugerido, documento_url } = res;
+    setAvisoMatch(res.aviso);
+    setVeiculoAssociadoId(veiculo?.id ?? null);
     setCampos(c);
     setDocUrl(documento_url);
     setMatriculaLida(c.matricula);
@@ -245,6 +251,17 @@ export default function ImportarFatura({
                 <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Li a matrícula <strong>{matriculaLida}</strong>, mas não corresponde a
                   nenhum veículo da frota. Escolhe o veículo à mão.
+                </p>
+              )}
+              {avisoMatch && !semVeiculo && veiculoId === veiculoAssociadoId && (
+                <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {avisoMatch}
+                </p>
+              )}
+              {campos.itens.length > 1 && (
+                <p className="rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-600">
+                  {campos.itens.length} itens lidos na fatura: {campos.itens.map((i) => i.descricao).join(" · ")}.
+                  Fica uma só despesa com o total; o detalhe é guardado.
                 </p>
               )}
 

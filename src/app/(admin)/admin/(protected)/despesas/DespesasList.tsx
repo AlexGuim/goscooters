@@ -75,12 +75,15 @@ export default function DespesasList({
   const [despesas, setDespesas] = useState(inicial);
   const [filtroCat, setFiltroCat] = useState<DespesaCategoria | "">("");
   const [filtroVeiculo, setFiltroVeiculo] = useState("");
+  const [filtroDono, setFiltroDono] = useState("");
   const [modal, setModal] = useState<DespesaComNomes | "novo" | null>(null);
 
   const filtradas = despesas.filter(
     (d) =>
       (!filtroCat || d.categoria === filtroCat) &&
-      (!filtroVeiculo || d.veiculo_id === filtroVeiculo),
+      (!filtroVeiculo || d.veiculo_id === filtroVeiculo) &&
+      (!filtroDono ||
+        (filtroDono === "__sem__" ? !d.proprietario_id : d.proprietario_id === filtroDono)),
   );
 
   const total = useMemo(
@@ -126,6 +129,17 @@ export default function DespesasList({
             {motos.map((m) => (
               <option key={m.id} value={m.id}>{m.matricula ?? m.modelo}</option>
             ))}
+          </select>
+          <select
+            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"
+            value={filtroDono}
+            onChange={(e) => setFiltroDono(e.target.value)}
+          >
+            <option value="">Todos os proprietários</option>
+            {proprietarios.map((p) => (
+              <option key={p.id} value={p.id}>{p.nome}</option>
+            ))}
+            <option value="__sem__">— sem proprietário —</option>
           </select>
           <span className="text-sm text-slate-600">
             {filtradas.length} · total {formatarPreco(total)}
