@@ -1,7 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { Moto, MotoEstado } from "@/types/db";
+import type {
+  Moto,
+  MotoEstado,
+  Proprietario,
+  TipoVeiculo,
+  EstadoOperacional,
+} from "@/types/db";
 import { createMoto, updateMoto } from "@/actions/motoActions";
 import { deleteFotoMoto } from "@/actions/fotoActions";
 import { enviarFoto, enviarVideo } from "@/lib/uploads";
@@ -9,15 +15,29 @@ import { enviarFoto, enviarVideo } from "@/lib/uploads";
 interface MotoFormProps {
   /** Mota a editar; ausente significa criar uma nova. */
   moto?: Moto;
+  /** Proprietários disponíveis para o seletor de dono. */
+  proprietarios: Proprietario[];
   onClose: () => void;
   onSaved: (moto: Moto) => void;
 }
+
+const ESTADO_OP: { valor: EstadoOperacional; rotulo: string }[] = [
+  { valor: "disponivel", rotulo: "Disponível" },
+  { valor: "ocupado", rotulo: "Ocupado (alugado)" },
+  { valor: "manutencao", rotulo: "Em manutenção" },
+  { valor: "inativo", rotulo: "Inativo" },
+];
 
 const campo =
   "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 const etiqueta = "block space-y-2 text-sm font-medium text-slate-700";
 
-export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
+export default function MotoForm({
+  moto,
+  proprietarios,
+  onClose,
+  onSaved,
+}: MotoFormProps) {
   const aEditar = Boolean(moto);
   const inputFicheiro = useRef<HTMLInputElement>(null);
 
@@ -100,19 +120,34 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
     const precoSemana = preco("preco_semana");
     const precoMes = preco("preco_mes");
 
+    const numero = (nome: string): number | null => {
+      const bruto = String(dados.get(nome) ?? "").trim().replace(",", ".");
+      return bruto === "" ? null : Number(bruto);
+    };
+
+    const ativo = dados.get("ativo") === "on";
+
     const valores = {
       modelo: String(dados.get("modelo") ?? "").trim(),
-      cilindrada: dados.get("cilindrada")
-        ? Number(dados.get("cilindrada"))
-        : null,
+      marca: String(dados.get("marca") ?? "").trim() || null,
+      cilindrada: numero("cilindrada"),
       matricula: String(dados.get("matricula") ?? "").trim() || null,
+      ano: numero("ano"),
+      cor: String(dados.get("cor") ?? "").trim() || null,
+      tipo_veiculo: String(dados.get("tipo_veiculo") ?? "moto") as TipoVeiculo,
+      proprietario_id: String(dados.get("proprietario_id") ?? "") || null,
+      km_atual: numero("km_atual"),
+      comissao_valor_override: preco("comissao_valor_override"),
       preco_dia: precoDia,
       preco_semana: precoSemana,
       preco_mes: precoMes,
       estado: String(dados.get("estado") ?? "disponivel") as MotoEstado,
+      estado_operacional: String(
+        dados.get("estado_operacional") ?? "disponivel",
+      ) as EstadoOperacional,
       disponivel_em: String(dados.get("disponivel_em") ?? "") || null,
       descricao: String(dados.get("descricao") ?? "").trim() || null,
-      ativo: dados.get("ativo") === "on",
+      ativo,
       foto_urls: fotos.length > 0 ? fotos : null,
       video_url: video,
     };
@@ -125,8 +160,10 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
 
     const precos = [precoDia, precoSemana, precoMes].filter(Boolean) as string[];
 
-    if (precos.length === 0) {
-      setErro("Define pelo menos um preço (diário, semanal ou mensal).");
+    // Preço só é obrigatório para publicar no catálogo. Um veículo interno da
+    // frota (não visível) pode não ter preço definido.
+    if (ativo && precos.length === 0) {
+      setErro("Para publicar no catálogo, define pelo menos um preço.");
       setAGravar(false);
       return;
     }
@@ -195,6 +232,38 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
 
           <div className="grid gap-5 sm:grid-cols-2">
             <label className={etiqueta}>
+              <span>Marca</span>
+              <input
+                className={campo}
+                name="marca"
+                defaultValue={moto?.marca ?? ""}
+                placeholder="Honda"
+              />
+            </label>
+            <label className={etiqueta}>
+              <span>Matrícula</span>
+              <input
+                className={campo}
+                name="matricula"
+                defaultValue={moto?.matricula ?? ""}
+                placeholder="00-AB-00"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-4">
+            <label className={etiqueta}>
+              <span>Tipo</span>
+              <select
+                className={campo}
+                name="tipo_veiculo"
+                defaultValue={moto?.tipo_veiculo ?? "moto"}
+              >
+                <option value="moto">Moto</option>
+                <option value="carro">Carro</option>
+              </select>
+            </label>
+            <label className={etiqueta}>
               <span>Cilindrada (cc)</span>
               <input
                 className={campo}
@@ -206,15 +275,85 @@ export default function MotoForm({ moto, onClose, onSaved }: MotoFormProps) {
               />
             </label>
             <label className={etiqueta}>
-              <span>Matrícula</span>
+              <span>Ano</span>
               <input
                 className={campo}
-                name="matricula"
-                defaultValue={moto?.matricula ?? ""}
-                placeholder="12-AB-34"
+                name="ano"
+                type="number"
+                min="1990"
+                defaultValue={moto?.ano ?? ""}
+                placeholder="2024"
+              />
+            </label>
+            <label className={etiqueta}>
+              <span>Cor</span>
+              <input
+                className={campo}
+                name="cor"
+                defaultValue={moto?.cor ?? ""}
+                placeholder="Preta"
               />
             </label>
           </div>
+
+          {/* ── Frota: dono, estado e quilometragem ─────────────────── */}
+          <div className="grid gap-5 sm:grid-cols-3">
+            <label className={etiqueta}>
+              <span>Proprietário</span>
+              <select
+                className={campo}
+                name="proprietario_id"
+                defaultValue={moto?.proprietario_id ?? ""}
+              >
+                <option value="">— sem dono —</option>
+                {proprietarios.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome}
+                    {p.eh_goscooters ? " (própria)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={etiqueta}>
+              <span>Estado operacional</span>
+              <select
+                className={campo}
+                name="estado_operacional"
+                defaultValue={moto?.estado_operacional ?? "disponivel"}
+              >
+                {ESTADO_OP.map((e) => (
+                  <option key={e.valor} value={e.valor}>
+                    {e.rotulo}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={etiqueta}>
+              <span>Km atual</span>
+              <input
+                className={campo}
+                name="km_atual"
+                type="number"
+                min="0"
+                defaultValue={moto?.km_atual ?? ""}
+                placeholder="12000"
+              />
+            </label>
+          </div>
+
+          <label className={etiqueta}>
+            <span>Comissão deste veículo (%)</span>
+            <input
+              className={campo}
+              name="comissao_valor_override"
+              type="number"
+              step="0.1"
+              min="0"
+              max="100"
+              defaultValue={moto?.comissao_valor_override ?? ""}
+              placeholder="Deixa vazio para usar a % base do proprietário"
+            />
+          </label>
 
           {/* ── Preços ──────────────────────────────────────────────────
               Deixar em branco = período não oferecido. É a ausência de preço

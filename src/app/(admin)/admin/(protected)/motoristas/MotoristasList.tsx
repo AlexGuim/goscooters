@@ -5,9 +5,11 @@ import type { Avaliacao, AvaliacaoTipo, Motorista } from "@/types/db";
 import { normalizarTelefone } from "@/lib/telefone";
 import {
   criarMotorista,
+  atualizarMotorista,
   eliminarMotorista,
   criarAvaliacao,
   eliminarAvaliacao,
+  type MotoristaEditavel,
 } from "@/actions/motoristaActions";
 
 export interface MotoristaComAvaliacoes extends Motorista {
@@ -41,19 +43,27 @@ export default function MotoristasList({
 }) {
   const [motoristas, setMotoristas] = useState(inicial);
   const [procura, setProcura] = useState("");
+  const [soRevisao, setSoRevisao] = useState(false);
   const [aCriar, setACriar] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
 
+  const numRevisao = motoristas.filter((m) => m.precisa_revisao).length;
+
   const filtrados = useMemo(() => {
     const termo = procura.trim().toLowerCase();
-    if (!termo) return motoristas;
-    const digitos = normalizarTelefone(termo);
-    return motoristas.filter(
-      (m) =>
+    const digitos = termo ? normalizarTelefone(termo) : "";
+    // O filtro de revisão só se aplica se ainda houver registos por rever —
+    // assim, ao limpar o último, a lista não fica presa vazia.
+    const revisaoAtiva = soRevisao && numRevisao > 0;
+    return motoristas.filter((m) => {
+      if (revisaoAtiva && !m.precisa_revisao) return false;
+      if (!termo) return true;
+      return (
         m.nome.toLowerCase().includes(termo) ||
-        (digitos && m.telefone_digitos.includes(digitos)),
-    );
-  }, [motoristas, procura]);
+        (digitos && m.telefone_digitos.includes(digitos))
+      );
+    });
+  }, [motoristas, procura, soRevisao, numRevisao]);
 
   const handleCriado = (m: MotoristaComAvaliacoes) => {
     setMotoristas((atuais) => [m, ...atuais]);
@@ -81,15 +91,34 @@ export default function MotoristasList({
       atuais.map((m) => (m.id === id ? { ...m, avaliacoes } : m)),
     );
 
+  const atualizarCampos = (id: string, campos: Partial<MotoristaComAvaliacoes>) =>
+    setMotoristas((atuais) =>
+      atuais.map((m) => (m.id === id ? { ...m, ...campos } : m)),
+    );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <input
-          className={`${campo} max-w-sm`}
-          placeholder="Procurar por nome ou telefone..."
-          value={procura}
-          onChange={(e) => setProcura(e.target.value)}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            className={`${campo} max-w-xs`}
+            placeholder="Procurar por nome ou telefone..."
+            value={procura}
+            onChange={(e) => setProcura(e.target.value)}
+          />
+          {numRevisao > 0 && (
+            <button
+              onClick={() => setSoRevisao((v) => !v)}
+              className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
+                soRevisao
+                  ? "bg-amber-500 text-white"
+                  : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+              }`}
+            >
+              ⚠ {numRevisao} por rever
+            </button>
+          )}
+        </div>
         <button
           className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
           onClick={() => setACriar(true)}
@@ -122,7 +151,24 @@ export default function MotoristasList({
                   onClick={() => setExpandido(expandido === m.id ? null : m.id)}
                 >
                   <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">{m.nome}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-950">{m.nome}</p>
+                      {m.pais_iso && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          {m.pais_iso}
+                        </span>
+                      )}
+                      {m.estado === "bloqueado" && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                          bloqueado
+                        </span>
+                      )}
+                      {m.precisa_revisao && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                          ⚠ rever
+                        </span>
+                      )}
+                    </div>
                     <p className="truncate text-sm text-slate-600">
                       {m.telefone}
                       {m.plataforma ? ` · ${m.plataforma}` : ""}
@@ -151,6 +197,7 @@ export default function MotoristasList({
                   <DetalheMotorista
                     motorista={m}
                     onAvaliacoes={(avs) => atualizarLocal(m.id, avs)}
+                    onAtualizado={(campos) => atualizarCampos(m.id, campos)}
                     onEliminar={() => handleEliminar(m)}
                   />
                 )}
@@ -170,10 +217,12 @@ export default function MotoristasList({
 function DetalheMotorista({
   motorista,
   onAvaliacoes,
+  onAtualizado,
   onEliminar,
 }: {
   motorista: MotoristaComAvaliacoes;
   onAvaliacoes: (avs: Avaliacao[]) => void;
+  onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
   onEliminar: () => void;
 }) {
   const [tipo, setTipo] = useState<AvaliacaoTipo>("positiva");
@@ -182,38 +231,47 @@ function DetalheMotorista({
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Capturar o form ANTES do await: e.currentTarget fica null depois.
+    const form = e.currentTarget;
+    const dados = new FormData(form);
+    const notaBruta = dados.get("nota");
     setErro(null);
     setAGravar(true);
 
-    const dados = new FormData(e.currentTarget);
-    const notaBruta = dados.get("nota");
-    const r = await criarAvaliacao({
-      motoristaId: motorista.id,
-      tipo,
-      nota: notaBruta ? Number(notaBruta) : null,
-      comentario: String(dados.get("comentario") ?? ""),
-      dataAluguer: String(dados.get("data_aluguer") ?? "") || undefined,
-    });
+    try {
+      const r = await criarAvaliacao({
+        motoristaId: motorista.id,
+        tipo,
+        nota: notaBruta ? Number(notaBruta) : null,
+        comentario: String(dados.get("comentario") ?? ""),
+        dataAluguer: String(dados.get("data_aluguer") ?? "") || undefined,
+      });
 
-    setAGravar(false);
-    if (!r.success) {
-      setErro(r.error ?? "Erro ao gravar.");
-      return;
+      if (!r.success) {
+        setErro(r.error ?? "Erro ao gravar.");
+        return;
+      }
+
+      // Recarrega leve: acrescenta a avaliação nova em memória.
+      const nova: Avaliacao = {
+        id: crypto.randomUUID(),
+        motorista_id: motorista.id,
+        tipo,
+        nota: notaBruta ? Number(notaBruta) : null,
+        comentario: String(dados.get("comentario") ?? "").trim() || null,
+        data_aluguer: String(dados.get("data_aluguer") ?? "") || null,
+        created_at: new Date().toISOString(),
+      };
+      onAvaliacoes([nova, ...motorista.avaliacoes]);
+      form.reset();
+      setTipo("positiva");
+    } catch (err) {
+      // Se a Server Action rebentar, nunca deixar a UI presa em "a gravar".
+      console.error("Erro ao gravar avaliação:", err);
+      setErro("Erro inesperado. Tenta novamente.");
+    } finally {
+      setAGravar(false);
     }
-
-    // Recarrega leve: acrescenta a avaliação nova em memória.
-    const nova: Avaliacao = {
-      id: crypto.randomUUID(),
-      motorista_id: motorista.id,
-      tipo,
-      nota: notaBruta ? Number(notaBruta) : null,
-      comentario: String(dados.get("comentario") ?? "").trim() || null,
-      data_aluguer: String(dados.get("data_aluguer") ?? "") || null,
-      created_at: new Date().toISOString(),
-    };
-    onAvaliacoes([nova, ...motorista.avaliacoes]);
-    (e.target as HTMLFormElement).reset();
-    setTipo("positiva");
   };
 
   const handleEliminarAvaliacao = async (id: string) => {
@@ -227,6 +285,8 @@ function DetalheMotorista({
 
   return (
     <div className="space-y-6 border-t border-slate-200 bg-slate-50 px-6 py-5">
+      <FichaKYC motorista={motorista} onAtualizado={onAtualizado} />
+
       {motorista.notas && (
         <p className="rounded-2xl bg-white p-4 text-sm text-slate-700 shadow-sm">
           {motorista.notas}
@@ -349,6 +409,189 @@ function DetalheMotorista({
   );
 }
 
+const ESTADOS_MOTORISTA: { valor: MotoristaComAvaliacoes["estado"]; rotulo: string }[] = [
+  { valor: "lead", rotulo: "Lead" },
+  { valor: "ativo", rotulo: "Ativo" },
+  { valor: "inativo", rotulo: "Inativo" },
+  { valor: "bloqueado", rotulo: "Bloqueado" },
+];
+
+function FichaKYC({
+  motorista,
+  onAtualizado,
+}: {
+  motorista: MotoristaComAvaliacoes;
+  onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
+}) {
+  const [aEditar, setAEditar] = useState(false);
+  const [aGravar, setAGravar] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const dados = new FormData(form);
+    setErro(null);
+    setAGravar(true);
+
+    const telefoneNovo = String(dados.get("telefone") ?? "").trim();
+    const campos: MotoristaEditavel = {
+      nome: String(dados.get("nome") ?? "").trim(),
+      email: String(dados.get("email") ?? "").trim() || null,
+      plataforma: String(dados.get("plataforma") ?? "").trim() || null,
+      nif: String(dados.get("nif") ?? "").trim() || null,
+      pais_iso: String(dados.get("pais_iso") ?? "").trim().toUpperCase() || null,
+      morada_linha1: String(dados.get("morada_linha1") ?? "").trim() || null,
+      codigo_postal: String(dados.get("codigo_postal") ?? "").trim() || null,
+      localidade: String(dados.get("localidade") ?? "").trim() || null,
+      estado: String(dados.get("estado") ?? "lead") as MotoristaComAvaliacoes["estado"],
+      iban: String(dados.get("iban") ?? "").trim() || null,
+      // Guardar a ficha resolve a razão da revisão.
+      precisa_revisao: false,
+    };
+    // Só envia o telefone se mudou — evita recalcular (e corromper) o E.164 de
+    // um número estrangeiro que já estava correcto.
+    if (telefoneNovo !== (motorista.telefone ?? "")) {
+      campos.telefone = telefoneNovo;
+    }
+
+    try {
+      const r = await atualizarMotorista(motorista.id, campos);
+      if (!r.success) {
+        setErro(r.error ?? "Erro ao gravar.");
+        return;
+      }
+      // Funde os derivados recalculados pelo servidor (E.164, nif_valido).
+      onAtualizado({ ...campos, ...(r.derivados ?? {}) } as Partial<MotoristaComAvaliacoes>);
+      setAEditar(false);
+    } catch (err) {
+      console.error("Erro ao gravar ficha:", err);
+      setErro("Erro inesperado. Tenta novamente.");
+    } finally {
+      setAGravar(false);
+    }
+  };
+
+  if (!aEditar) {
+    const linhas: [string, string | null][] = [
+      ["Telefone (E.164)", motorista.telefone_e164],
+      ["País", motorista.pais_iso],
+      ["NIF", motorista.nif ? `${motorista.nif}${motorista.nif_valido === false ? " (inválido)" : ""}` : null],
+      ["Estado", motorista.estado],
+      ["Morada", [motorista.morada_linha1, motorista.codigo_postal, motorista.localidade].filter(Boolean).join(", ") || null],
+      ["IBAN", motorista.iban],
+    ];
+    return (
+      <div className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Ficha
+          </h3>
+          <button
+            onClick={() => setAEditar(true)}
+            className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
+          >
+            Editar ficha
+          </button>
+        </div>
+        {motorista.precisa_revisao && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Este registo veio da importação e precisa de ser confirmado. Ao guardar
+            a ficha, a marca de revisão é removida.
+          </p>
+        )}
+        <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+          {linhas.map(([rotulo, valor]) => (
+            <div key={rotulo} className="flex justify-between gap-3 text-sm">
+              <span className="text-slate-500">{rotulo}</span>
+              <span className="text-right text-slate-900">{valor || "—"}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl bg-white p-4 shadow-sm">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Editar ficha
+      </h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className={etiqueta}>
+          <span>Nome</span>
+          <input className={campo} name="nome" defaultValue={motorista.nome} required />
+        </label>
+        <label className={etiqueta}>
+          <span>Telefone</span>
+          <input className={campo} name="telefone" defaultValue={motorista.telefone} />
+        </label>
+        <label className={etiqueta}>
+          <span>Email</span>
+          <input className={campo} type="email" name="email" defaultValue={motorista.email ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>Plataforma</span>
+          <input className={campo} name="plataforma" defaultValue={motorista.plataforma ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>NIF</span>
+          <input className={campo} name="nif" defaultValue={motorista.nif ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>País (código ISO, ex. PT)</span>
+          <input className={campo} name="pais_iso" maxLength={2} defaultValue={motorista.pais_iso ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>Estado</span>
+          <select className={campo} name="estado" defaultValue={motorista.estado}>
+            {ESTADOS_MOTORISTA.map((e) => (
+              <option key={e.valor} value={e.valor}>{e.rotulo}</option>
+            ))}
+          </select>
+        </label>
+        <label className={etiqueta}>
+          <span>IBAN</span>
+          <input className={campo} name="iban" defaultValue={motorista.iban ?? ""} />
+        </label>
+      </div>
+      <label className={etiqueta}>
+        <span>Morada</span>
+        <input className={campo} name="morada_linha1" defaultValue={motorista.morada_linha1 ?? ""} />
+      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className={etiqueta}>
+          <span>Código postal</span>
+          <input className={campo} name="codigo_postal" defaultValue={motorista.codigo_postal ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>Localidade</span>
+          <input className={campo} name="localidade" defaultValue={motorista.localidade ?? ""} />
+        </label>
+      </div>
+
+      {erro && <p className="text-sm text-red-700">{erro}</p>}
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={() => setAEditar(false)}
+          className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={aGravar}
+          className="flex-1 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {aGravar ? "A gravar..." : "Guardar ficha"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function FormMotorista({
   onClose,
   onCriado,
@@ -363,10 +606,10 @@ function FormMotorista({
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const dados = new FormData(e.currentTarget);
     setErro(null);
     setAGravar(true);
 
-    const dados = new FormData(e.currentTarget);
     const input = {
       nome: String(dados.get("nome") ?? ""),
       telefone: String(dados.get("telefone") ?? ""),
@@ -375,7 +618,15 @@ function FormMotorista({
       notas: String(dados.get("notas") ?? "") || undefined,
     };
 
-    const r = await criarMotorista(input);
+    let r: { success: boolean; id?: string; error?: string };
+    try {
+      r = await criarMotorista(input);
+    } catch (err) {
+      console.error("Erro ao criar motorista:", err);
+      setErro("Erro inesperado. Tenta novamente.");
+      setAGravar(false);
+      return;
+    }
     setAGravar(false);
 
     if (!r.success || !r.id) {

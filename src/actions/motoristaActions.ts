@@ -3,8 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import { normalizarTelefone } from "@/lib/telefone";
+import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import type { AvaliacaoTipo, Avaliacao, Motorista } from "@/types/db";
+
+/** NIF português: 9 dígitos com checksum mod-11. */
+function nifValidoPT(nif: string): boolean {
+  const d = (nif ?? "").replace(/\D/g, "");
+  if (d.length !== 9) return false;
+  let soma = 0;
+  for (let i = 0; i < 8; i++) soma += Number(d[i]) * (9 - i);
+  const c = 11 - (soma % 11);
+  return (c >= 10 ? 0 : c) === Number(d[8]);
+}
 
 /**
  * Registo privado de motoristas. Como toda a administração, cada ação verifica a
@@ -111,18 +121,56 @@ export async function criarMotorista(
   return { success: true, id: data.id };
 }
 
+export type MotoristaEditavel = Partial<
+  Pick<
+    Motorista,
+    | "nome"
+    | "telefone"
+    | "email"
+    | "plataforma"
+    | "notas"
+    | "nif"
+    | "pais_iso"
+    | "morada_linha1"
+    | "codigo_postal"
+    | "localidade"
+    | "estado"
+    | "idioma_preferido"
+    | "iban"
+    | "doc_id_tipo"
+    | "doc_id_numero"
+    | "doc_id_validade"
+    | "precisa_revisao"
+  >
+>;
+
+export type MotoristaDerivados = Partial<
+  Pick<Motorista, "telefone_e164" | "telefone_digitos" | "nif_valido">
+>;
+
 export async function atualizarMotorista(
   id: string,
-  updates: Partial<Pick<Motorista, "nome" | "telefone" | "email" | "plataforma" | "notas">>,
-): Promise<{ success: boolean; error?: string }> {
+  updates: MotoristaEditavel,
+): Promise<{ success: boolean; error?: string; derivados?: MotoristaDerivados }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
-  const dados: Partial<Motorista> = { ...updates };
-  if (typeof updates.telefone === "string") {
-    dados.telefone_digitos = normalizarTelefone(updates.telefone);
+  // Recalcula os campos derivados e devolve-os, para o cliente atualizar o ecrã
+  // sem recarregar.
+  const derivados: MotoristaDerivados = {};
+  // Só recalcula o E.164 se o telefone foi de facto enviado (o cliente só o
+  // envia quando muda), para não corromper um número estrangeiro já correcto.
+  if ("telefone" in updates && typeof updates.telefone === "string") {
+    derivados.telefone_digitos = normalizarTelefone(updates.telefone);
+    derivados.telefone_e164 = paraE164(updates.telefone);
+  }
+  // "nif" in updates cobre também o apagar (nif=null), repondo nif_valido.
+  if ("nif" in updates) {
+    const d = (updates.nif ?? "").replace(/\D/g, "");
+    derivados.nif_valido = d.length === 9 ? nifValidoPT(updates.nif ?? "") : null;
   }
 
+  const dados: Partial<Motorista> = { ...updates, ...derivados };
   const { error } = await supabaseAdmin.from("motorista").update(dados).eq("id", id);
 
   if (error) {
@@ -131,7 +179,7 @@ export async function atualizarMotorista(
   }
 
   revalidatePath("/admin/motoristas");
-  return { success: true };
+  return { success: true, derivados };
 }
 
 export async function eliminarMotorista(

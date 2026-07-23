@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { Moto, MotoEstado } from "@/types/db";
+import { useMemo, useState } from "react";
+import type { Moto, MotoEstado, Proprietario } from "@/types/db";
 import { updateMoto, deleteMoto } from "@/actions/motoActions";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import pt from "@/dictionaries/pt.json";
@@ -9,14 +9,28 @@ import MotoForm from "./MotoForm";
 
 interface MotosListProps {
   initialMotas: Moto[];
+  proprietarios: Proprietario[];
 }
 
 type Modal = { tipo: "criar" } | { tipo: "editar"; moto: Moto } | null;
 
-export default function MotosList({ initialMotas }: MotosListProps) {
+export default function MotosList({ initialMotas, proprietarios }: MotosListProps) {
   const [motas, setMotas] = useState(initialMotas);
   const [modal, setModal] = useState<Modal>(null);
   const [aEliminar, setAEliminar] = useState<string | null>(null);
+  const [filtroDono, setFiltroDono] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState("");
+
+  const nomeDono = useMemo(
+    () => new Map(proprietarios.map((p) => [p.id, p.nome])),
+    [proprietarios],
+  );
+
+  const filtradas = motas.filter(
+    (m) =>
+      (!filtroDono || m.proprietario_id === filtroDono) &&
+      (!filtroTipo || m.tipo_veiculo === filtroTipo),
+  );
 
   const aplicar = (motoId: string, alteracoes: Partial<Moto>) =>
     setMotas((atuais) =>
@@ -92,14 +106,38 @@ export default function MotosList({ initialMotas }: MotosListProps) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-slate-600">
-          {motas.length} {motas.length === 1 ? "mota registada" : "motas registadas"}
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-slate-600">
+            {filtradas.length}{" "}
+            {filtradas.length === 1 ? "veículo" : "veículos"}
+          </p>
+          <select
+            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"
+            value={filtroDono}
+            onChange={(e) => setFiltroDono(e.target.value)}
+          >
+            <option value="">Todos os donos</option>
+            {proprietarios.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value)}
+          >
+            <option value="">Motos e carros</option>
+            <option value="moto">Só motos</option>
+            <option value="carro">Só carros</option>
+          </select>
+        </div>
         <button
           className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
           onClick={() => setModal({ tipo: "criar" })}
         >
-          + Nova mota
+          + Novo veículo
         </button>
       </div>
 
@@ -108,8 +146,8 @@ export default function MotosList({ initialMotas }: MotosListProps) {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
-                <th className="px-6 py-4 text-left font-semibold text-slate-950">Mota</th>
-                <th className="px-6 py-4 text-left font-semibold text-slate-950">Cilindrada</th>
+                <th className="px-6 py-4 text-left font-semibold text-slate-950">Veículo</th>
+                <th className="px-6 py-4 text-left font-semibold text-slate-950">Proprietário</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Preços</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Estado</th>
                 <th className="px-6 py-4 text-left font-semibold text-slate-950">Disponível em</th>
@@ -118,7 +156,7 @@ export default function MotosList({ initialMotas }: MotosListProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {motas.map((moto) => (
+              {filtradas.map((moto) => (
                 <tr key={moto.id} className="hover:bg-slate-50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -132,7 +170,7 @@ export default function MotosList({ initialMotas }: MotosListProps) {
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center text-[10px] text-slate-400">
-                            sem foto
+                            {moto.tipo_veiculo === "carro" ? "carro" : "sem foto"}
                           </div>
                         )}
                       </div>
@@ -144,7 +182,18 @@ export default function MotosList({ initialMotas }: MotosListProps) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-slate-600">{moto.cilindrada ?? "—"} cc</td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm text-slate-700">
+                      {moto.proprietario_id
+                        ? nomeDono.get(moto.proprietario_id) ?? "—"
+                        : "—"}
+                    </p>
+                    {moto.comissao_valor_override != null && (
+                      <p className="text-xs text-amber-600">
+                        {moto.comissao_valor_override}% (específica)
+                      </p>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-1">
                       {precosDisponiveis(moto, pt.periodos).map((preco) => (
@@ -229,6 +278,7 @@ export default function MotosList({ initialMotas }: MotosListProps) {
       {modal && (
         <MotoForm
           moto={modal.tipo === "editar" ? modal.moto : undefined}
+          proprietarios={proprietarios}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
         />

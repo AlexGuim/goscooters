@@ -34,7 +34,7 @@ export default async function ProtectedAdminLayout({
                   className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
                   href="/admin/motas"
                 >
-                  Motas
+                  Frota
                 </Link>
                 <Link
                   className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
