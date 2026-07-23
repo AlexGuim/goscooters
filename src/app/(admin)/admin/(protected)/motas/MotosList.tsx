@@ -33,6 +33,17 @@ export default function MotosList({ initialMotas }: MotosListProps) {
   };
 
   const handleAtivoChange = async (motoId: string, novoAtivo: boolean) => {
+    // Publicar no catálogo exige pelo menos um preço (constraint na BD). Avisar
+    // aqui, com clareza, em vez de deixar o erro genérico da constraint aparecer
+    // — os veículos importados da frota vêm muitas vezes sem preço.
+    if (novoAtivo) {
+      const m = motas.find((x) => x.id === motoId);
+      const temPreco = m && (m.preco_dia || m.preco_semana || m.preco_mes);
+      if (!temPreco) {
+        alert("Define um preço (diário, semanal ou mensal) antes de publicar no catálogo.");
+        return;
+      }
+    }
     const resultado = await updateMoto(motoId, { ativo: novoAtivo });
     if (resultado.success) {
       aplicar(motoId, { ativo: novoAtivo });

@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Dados privados de clientes (exports do Notion, CSV de migração) — NUNCA commitar
+/notion
+/docs/historico
+*.csv
+/docs/ARQUITETURA.md

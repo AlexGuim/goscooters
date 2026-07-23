@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import type { Moto } from "@/types/db";
+import type { Database } from "@/types/db";
+
+type MotoInsert = Database["public"]["Tables"]["moto"]["Insert"];
+type MotoUpdate = Database["public"]["Tables"]["moto"]["Update"];
 
 /**
  * Nota de segurança: Server Actions são endpoints HTTP públicos. Qualquer pessoa
@@ -13,7 +16,7 @@ import type { Moto } from "@/types/db";
 
 export async function updateMoto(
   id: string,
-  updates: Partial<Omit<Moto, "id" | "created_at">>,
+  updates: MotoUpdate,
 ): Promise<{ success: boolean; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) {
@@ -42,7 +45,7 @@ export async function updateMoto(
 }
 
 export async function createMoto(
-  data: Omit<Moto, "id" | "created_at">,
+  data: MotoInsert,
 ): Promise<{ success: boolean; error?: string; id?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) {
