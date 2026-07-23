@@ -51,6 +51,10 @@ export type EstadoPagamentoDespesa = "pendente" | "parcial" | "paga" | "isenta";
 export type ImputarA = "goscooters" | "proprietario" | "motorista";
 export type DespesaOrigem = "manual" | "recorrente" | "ingestao";
 
+// ── Acerto com parceiros (Fase 3) ───────────────────────────────────────────
+export type AcertoEstado = "rascunho" | "fechado" | "pago" | "parcial";
+export type AcertoLinhaTipo = "receita" | "despesa" | "comissao";
+
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
 // GenericTable do supabase-js exige — e o schema todo colapsa para `never`.
@@ -255,6 +259,36 @@ export type Despesa = {
   detalhe: unknown | null;
   documento_id: string | null;
   origem: DespesaOrigem;
+  created_at: string;
+};
+
+export type Acerto = {
+  id: string;
+  proprietario_id: string;
+  competencia_mes: string;
+  periodo_inicio: string;
+  periodo_fim: string;
+  receita_total: string;
+  comissao_total: string;
+  despesa_total: string;
+  liquido: string;
+  estado: AcertoEstado;
+  fechado_em: string | null;
+  fechado_por: string | null;
+  observacoes: string | null;
+  created_at: string;
+};
+
+export type AcertoLinha = {
+  id: string;
+  acerto_id: string;
+  tipo: AcertoLinhaTipo;
+  cobranca_id: string | null;
+  despesa_id: string | null;
+  veiculo_id: string | null;
+  matricula_snapshot: string | null;
+  descricao: string | null;
+  valor: string;
   created_at: string;
 };
 
@@ -505,6 +539,37 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<Despesa, "id" | "created_at" | "valor_total">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      acerto: {
+        Row: Acerto;
+        Insert: Partial<Omit<Acerto, "id" | "created_at">> & {
+          proprietario_id: string;
+          competencia_mes: string;
+          periodo_inicio: string;
+          periodo_fim: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Acerto, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      acerto_linha: {
+        Row: AcertoLinha;
+        Insert: Partial<Omit<AcertoLinha, "id" | "created_at">> & {
+          acerto_id: string;
+          tipo: AcertoLinhaTipo;
+          valor: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<AcertoLinha, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };
