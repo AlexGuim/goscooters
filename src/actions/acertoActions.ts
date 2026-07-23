@@ -130,15 +130,18 @@ async function computar(
     });
   }
 
-  // Despesas imputadas ao proprietário no mês.
+  // Despesas imputadas ao proprietário. Ao contrário das rendas (semanas que
+  // podem atravessar meses), uma despesa é um evento pontual: pertence ao seu
+  // mês de calendário (a competência), não à janela De/Até das semanas.
+  const mesDesp = periodoDoMes(competencia);
   let despesaTotal = 0;
   const { data: desps } = await supabaseAdmin
     .from("despesa")
     .select("id, veiculo_id, valor_total, categoria, descricao")
     .eq("proprietario_id", proprietarioId)
     .eq("imputar_a", "proprietario")
-    .gte("data_despesa", inicio)
-    .lte("data_despesa", fim);
+    .gte("data_despesa", mesDesp.inicio)
+    .lte("data_despesa", mesDesp.fim);
 
   for (const d of desps ?? []) {
     const v = Number(d.valor_total);

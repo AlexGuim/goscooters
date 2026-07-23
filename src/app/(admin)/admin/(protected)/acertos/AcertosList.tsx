@@ -29,14 +29,20 @@ const mesAnterior = () => {
   return d.toISOString().slice(0, 7);
 };
 
-// Limites do mês em ISO (AAAA-MM-DD).
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+// Semanas de renda que "pertencem" ao mês. Regra do parceiro: uma semana que
+// atravessa dois meses pertence ao mês com mais dias — e numa semana de 7 dias
+// isso é sempre o mês do 4.º dia (início + 3). Como a data de vencimento é o
+// início da semana, a janela de vencimentos é [1.º dia − 3, último dia − 3].
+// Ex.: julho → 28/06 a 28/07 (inclui a semana 28/06–04/07, exclui a de 30/07).
 const limitesDoMes = (competencia: string) => {
   const [ano, mes] = competencia.split("-").map(Number);
-  const ultimo = new Date(ano, mes, 0).getDate();
-  return {
-    inicio: `${competencia}-01`,
-    fim: `${competencia}-${String(ultimo).padStart(2, "0")}`,
-  };
+  const de = new Date(Date.UTC(ano, mes - 1, 1));
+  const ate = new Date(Date.UTC(ano, mes, 0));
+  de.setUTCDate(de.getUTCDate() - 3);
+  ate.setUTCDate(ate.getUTCDate() - 3);
+  return { inicio: iso(de), fim: iso(ate) };
 };
 
 const nomeMes = (competencia: string) => {
@@ -169,8 +175,10 @@ export default function AcertosList({
           </button>
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          O período usa por omissão o mês inteiro, mas podes ajustá-lo — útil quando
-          uma semana começa no fim do mês anterior (ex.: incluir 28/06 em julho).
+          <strong>Mês</strong> = mês contabilístico (define as despesas). <strong>De/Até</strong>{" "}
+          = semanas de renda a incluir, já pré-preenchidas: uma semana que atravessa
+          dois meses conta para o mês com mais dias (ex.: 28/06–04/07 entra em julho).
+          Ajusta se precisares.
         </p>
 
         {erro && <p className="mt-3 text-sm text-red-700">{erro}</p>}
