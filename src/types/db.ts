@@ -12,6 +12,32 @@ export type EstadoMotorista = "lead" | "ativo" | "inativo" | "bloqueado";
 export type OrigemMotorista = "site" | "referral" | "walk_in" | "importado";
 export type DocIdTipo = "cc" | "passaporte" | "titulo_residencia" | "aima";
 
+// ── Contratos e cobrança (Fase 2) ───────────────────────────────────────────
+export type Periodicidade = "semanal" | "quinzenal" | "mensal" | "diaria";
+export type ContratoEstado =
+  | "rascunho"
+  | "ativo"
+  | "pendente_fecho"
+  | "suspenso"
+  | "concluido"
+  | "cancelado";
+export type VistoriaTipo = "entrega" | "recolha" | "intermedia";
+export type KmFonte = "entrega" | "recolha" | "manutencao" | "manual";
+export type CobrancaTipo = "renda" | "caucao" | "extra";
+export type EstadoLiquidacao =
+  | "por_liquidar"
+  | "parcial"
+  | "liquidada"
+  | "isenta"
+  | "anulada";
+export type PagamentoMetodo =
+  | "transferencia"
+  | "mbway"
+  | "numerario"
+  | "multibanco"
+  | "outro";
+export type PagamentoOrigem = "manual" | "ingestao" | "webhook";
+
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
 // GenericTable do supabase-js exige — e o schema todo colapsa para `never`.
@@ -98,7 +124,102 @@ export type PedidoAluguer = {
   created_at: string;
   /** Momento do consentimento RGPD. Null nos pedidos anteriores à sua introdução. */
   consentimento_em: string | null;
+  /** Cliente real ligado a este lead, quando o funil fecha. */
+  motorista_id: string | null;
 }
+
+export type ContratoAluguer = {
+  id: string;
+  numero: string;
+  pedido_aluguer_id: string | null;
+  motorista_id: string;
+  veiculo_id: string;
+  /** Dono congelado à data — preserva o histórico se o veículo mudar de dono. */
+  proprietario_id: string | null;
+  periodicidade: Periodicidade;
+  /** Dia da semana do vencimento em ISO (1=segunda … 7=domingo). */
+  dia_vencimento: number | null;
+  preco_periodo: string;
+  caucao: string | null;
+  ancora_vencimento: string | null;
+  data_inicio: string;
+  data_fim_prevista: string | null;
+  data_fim: string | null;
+  km_inicio: number | null;
+  km_fim: number | null;
+  km_rodados: number | null;
+  estado: ContratoEstado;
+  contrato_assinado_url: string | null;
+  assinado_em: string | null;
+  observacoes: string | null;
+  import_notion_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type Vistoria = {
+  id: string;
+  contrato_id: string;
+  tipo: VistoriaTipo;
+  realizada_em: string;
+  km: number | null;
+  nivel_combustivel: number | null;
+  video_url: string | null;
+  foto_urls: string[] | null;
+  checklist: unknown | null;
+  notas: string | null;
+  assinatura_cliente_url: string | null;
+  created_at: string;
+};
+
+export type KmRegisto = {
+  id: string;
+  veiculo_id: string;
+  km: number;
+  data: string;
+  fonte: KmFonte;
+  contrato_id: string | null;
+  created_at: string;
+};
+
+export type Cobranca = {
+  id: string;
+  numero: string;
+  contrato_id: string;
+  motorista_id: string;
+  veiculo_id: string;
+  proprietario_id: string | null;
+  periodo_inicio: string;
+  periodo_fim: string;
+  data_vencimento: string;
+  tipo: CobrancaTipo;
+  valor_devido: string;
+  valor_pago: string;
+  estado_liquidacao: EstadoLiquidacao;
+  observacoes: string | null;
+  created_at: string;
+};
+
+export type Pagamento = {
+  id: string;
+  motorista_id: string;
+  valor: string;
+  data_recebimento: string;
+  metodo: PagamentoMetodo | null;
+  referencia: string | null;
+  comprovativo_url: string | null;
+  origem: PagamentoOrigem;
+  observacoes: string | null;
+  created_at: string;
+};
+
+export type PagamentoCobranca = {
+  id: string;
+  pagamento_id: string;
+  cobranca_id: string;
+  valor_alocado: string;
+  created_at: string;
+};
 
 export type Motorista = {
   id: string;
@@ -186,7 +307,10 @@ export interface Database {
       };
       pedido_aluguer: {
         Row: PedidoAluguer;
-        Insert: Omit<PedidoAluguer, "id" | "created_at"> & {
+        // Nulláveis/defaults são opcionais; só nome e telefone são obrigatórios.
+        Insert: Partial<Omit<PedidoAluguer, "id" | "created_at">> & {
+          nome: string;
+          telefone: string;
           id?: string;
           created_at?: string;
         };
@@ -237,6 +361,102 @@ export interface Database {
             referencedColumns: ["id"];
           },
         ];
+      };
+      contrato_aluguer: {
+        Row: ContratoAluguer;
+        // numero (default), km_rodados (gerado) e updated_at (default) nunca se inserem.
+        Insert: Partial<
+          Omit<ContratoAluguer, "id" | "created_at" | "updated_at" | "numero" | "km_rodados">
+        > & {
+          motorista_id: string;
+          veiculo_id: string;
+          data_inicio: string;
+          preco_periodo: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<
+          Omit<ContratoAluguer, "id" | "created_at" | "updated_at" | "numero" | "km_rodados">
+        > & { id?: string; created_at?: string };
+        Relationships: [];
+      };
+      vistoria: {
+        Row: Vistoria;
+        Insert: Partial<Omit<Vistoria, "id" | "created_at">> & {
+          contrato_id: string;
+          tipo: VistoriaTipo;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Vistoria, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      km_registo: {
+        Row: KmRegisto;
+        Insert: Partial<Omit<KmRegisto, "id" | "created_at">> & {
+          veiculo_id: string;
+          km: number;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<KmRegisto, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      cobranca: {
+        Row: Cobranca;
+        Insert: Partial<
+          Omit<Cobranca, "id" | "created_at" | "numero" | "valor_pago">
+        > & {
+          contrato_id: string;
+          motorista_id: string;
+          veiculo_id: string;
+          periodo_inicio: string;
+          periodo_fim: string;
+          data_vencimento: string;
+          valor_devido: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Cobranca, "id" | "created_at" | "numero">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      pagamento: {
+        Row: Pagamento;
+        Insert: Partial<Omit<Pagamento, "id" | "created_at">> & {
+          motorista_id: string;
+          valor: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Pagamento, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      pagamento_cobranca: {
+        Row: PagamentoCobranca;
+        Insert: Partial<Omit<PagamentoCobranca, "id" | "created_at">> & {
+          pagamento_id: string;
+          cobranca_id: string;
+          valor_alocado: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<PagamentoCobranca, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
       };
     };
     // Forma canónica gerada pelo Supabase. `Record<string, never>` não satisfaz
