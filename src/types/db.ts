@@ -462,7 +462,12 @@ export interface Database {
     // Forma canónica gerada pelo Supabase. `Record<string, never>` não satisfaz
     // o GenericSchema do supabase-js e faz o schema inteiro colapsar para `never`.
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      fn_gerar_cobrancas: {
+        Args: { p_contrato_id: string; p_ate: string };
+        Returns: number;
+      };
+    };
     Enums: {
       estado_moto: MotoEstado;
       estado_pedido: PedidoEstado;
