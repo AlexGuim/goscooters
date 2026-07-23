@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdmin } from "@/lib/dal";
 import type { Despesa, Moto, Proprietario } from "@/types/db";
 import DespesasList, { type DespesaComNomes } from "./DespesasList";
+import ImportarFatura from "./ImportarFatura";
 
 async function getDados(): Promise<{
   despesas: DespesaComNomes[];
@@ -45,6 +46,8 @@ export default async function DespesasAdminPage() {
           Custos por veículo: manutenção, portagens, coimas, seguro, GPS.
         </p>
       </div>
+
+      <ImportarFatura motos={motos} />
 
       <DespesasList inicial={despesas} motos={motos} proprietarios={proprietarios} />
     </div>

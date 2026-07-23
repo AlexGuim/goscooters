@@ -24,8 +24,8 @@ function mb(bytes: number): string {
  */
 async function enviarFicheiro(
   ficheiro: File,
-  pasta: "" | "videos",
-): Promise<{ success: boolean; url?: string; error?: string }> {
+  pasta: "" | "videos" | "faturas",
+): Promise<{ success: boolean; url?: string; path?: string; error?: string }> {
   const prep = await criarUploadAssinado(ficheiro.name, pasta);
 
   if (!prep.success || !prep.dados) {
@@ -41,7 +41,7 @@ async function enviarFicheiro(
     return { success: false, error: "Erro ao carregar o ficheiro. Tenta de novo." };
   }
 
-  return { success: true, url: prep.dados.url };
+  return { success: true, url: prep.dados.url, path: prep.dados.path };
 }
 
 export async function enviarFoto(
@@ -69,4 +69,20 @@ export async function enviarVideo(
     };
   }
   return enviarFicheiro(ficheiro, "videos");
+}
+
+export const DOC_TAMANHO_MAXIMO = 15 * 1024 * 1024; // 15 MB
+export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+
+/** Envia uma fatura/documento (PDF ou imagem) e devolve o URL e o caminho. */
+export async function enviarDocumento(
+  ficheiro: File,
+): Promise<{ success: boolean; url?: string; path?: string; error?: string }> {
+  if (!DOC_TIPOS.includes(ficheiro.type)) {
+    return { success: false, error: "Formato não suportado. Usa PDF, JPG, PNG ou WebP." };
+  }
+  if (ficheiro.size > DOC_TAMANHO_MAXIMO) {
+    return { success: false, error: `O ficheiro tem ${mb(ficheiro.size)} MB. O máximo é 15 MB.` };
+  }
+  return enviarFicheiro(ficheiro, "faturas");
 }

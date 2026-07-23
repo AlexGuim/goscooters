@@ -48,7 +48,7 @@ export interface UploadAssinado {
  */
 export async function criarUploadAssinado(
   nomeFicheiro: string,
-  pasta: "" | "videos" = "",
+  pasta: "" | "videos" | "faturas" = "",
 ): Promise<{ success: boolean; dados?: UploadAssinado; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) {
