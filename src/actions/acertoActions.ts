@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { dataCurtaBR } from "@/lib/datas";
 import type { AcertoLinhaTipo } from "@/types/db";
 
 /**
@@ -54,9 +55,9 @@ function periodoDoMes(competencia: string): { inicio: string; fim: string } {
 async function computar(
   proprietarioId: string,
   competencia: string,
+  inicio: string,
+  fim: string,
 ): Promise<{ ok: true; preview: AcertoPreview } | { ok: false; error: string }> {
-  const { inicio, fim } = periodoDoMes(competencia);
-
   const { data: dono } = await supabaseAdmin
     .from("proprietario")
     .select("id, nome, comissao_valor, eh_goscooters")
@@ -103,7 +104,7 @@ async function computar(
       );
       linhas.push({
         tipo: "receita",
-        descricao: `Renda ${String(c.periodo_inicio).slice(5)}–${String(c.periodo_fim).slice(5)}`,
+        descricao: `Renda ${dataCurtaBR(c.periodo_inicio)}–${dataCurtaBR(c.periodo_fim)}`,
         matricula: matDe.get(c.veiculo_id) ?? null,
         veiculo_id: c.veiculo_id,
         cobranca_id: c.id,
@@ -178,14 +179,19 @@ async function computar(
 export async function calcularAcerto(
   proprietarioId: string,
   competencia: string,
+  inicio?: string,
+  fim?: string,
 ): Promise<{ success: boolean; preview?: AcertoPreview; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
   if (!/^\d{4}-\d{2}$/.test(competencia)) {
     return { success: false, error: "Mês inválido (usa AAAA-MM)." };
   }
+  const p = periodoDoMes(competencia);
+  const de = inicio || p.inicio;
+  const ate = fim || p.fim;
 
-  const r = await computar(proprietarioId, competencia);
+  const r = await computar(proprietarioId, competencia, de, ate);
   if (!r.ok) return { success: false, error: r.error };
   return { success: true, preview: r.preview };
 }
@@ -193,6 +199,8 @@ export async function calcularAcerto(
 export async function fecharAcerto(
   proprietarioId: string,
   competencia: string,
+  inicio?: string,
+  fim?: string,
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
@@ -206,7 +214,8 @@ export async function fecharAcerto(
     .maybeSingle();
   if (existe) return { success: false, error: "Este mês já foi fechado para este parceiro." };
 
-  const r = await computar(proprietarioId, competencia);
+  const per = periodoDoMes(competencia);
+  const r = await computar(proprietarioId, competencia, inicio || per.inicio, fim || per.fim);
   if (!r.ok) return { success: false, error: r.error };
   const p = r.preview;
 

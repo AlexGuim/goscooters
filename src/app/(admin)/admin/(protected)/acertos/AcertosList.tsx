@@ -29,6 +29,16 @@ const mesAnterior = () => {
   return d.toISOString().slice(0, 7);
 };
 
+// Limites do mês em ISO (AAAA-MM-DD).
+const limitesDoMes = (competencia: string) => {
+  const [ano, mes] = competencia.split("-").map(Number);
+  const ultimo = new Date(ano, mes, 0).getDate();
+  return {
+    inicio: `${competencia}-01`,
+    fim: `${competencia}-${String(ultimo).padStart(2, "0")}`,
+  };
+};
+
 const nomeMes = (competencia: string) => {
   const [ano, mes] = competencia.slice(0, 7).split("-");
   const meses = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -45,7 +55,20 @@ export default function AcertosList({
   const [acertos, setAcertos] = useState(inicial);
   const [donoId, setDonoId] = useState(proprietarios[0]?.id ?? "");
   const [mes, setMes] = useState(() => mesAnterior());
+  const [de, setDe] = useState(() => limitesDoMes(mesAnterior()).inicio);
+  const [ate, setAte] = useState(() => limitesDoMes(mesAnterior()).fim);
   const [preview, setPreview] = useState<AcertoPreview | null>(null);
+
+  // Ao trocar o mês, repõe o período para os limites desse mês.
+  const trocarMes = (novo: string) => {
+    setMes(novo);
+    if (novo) {
+      const l = limitesDoMes(novo);
+      setDe(l.inicio);
+      setAte(l.fim);
+    }
+    setPreview(null);
+  };
   const [aCalcular, setACalcular] = useState(false);
   const [aFechar, setAFechar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -55,7 +78,7 @@ export default function AcertosList({
     setErro(null);
     setPreview(null);
     setACalcular(true);
-    const r = await calcularAcerto(donoId, mes);
+    const r = await calcularAcerto(donoId, mes, de, ate);
     setACalcular(false);
     if (!r.success || !r.preview) {
       setErro(r.error ?? "Erro ao calcular.");
@@ -69,7 +92,7 @@ export default function AcertosList({
     if (!window.confirm(`Fechar o acerto de ${preview.proprietario_nome} para ${nomeMes(mes)}? Fica congelado.`))
       return;
     setAFechar(true);
-    const r = await fecharAcerto(donoId, mes);
+    const r = await fecharAcerto(donoId, mes, de, ate);
     setAFechar(false);
     if (!r.success) {
       setErro(r.error ?? "Erro ao fechar.");
@@ -116,7 +139,25 @@ export default function AcertosList({
               className="block rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-emerald-500"
               type="month"
               value={mes}
-              onChange={(e) => { setMes(e.target.value); setPreview(null); }}
+              onChange={(e) => trocarMes(e.target.value)}
+            />
+          </label>
+          <label className="space-y-1.5 text-sm font-medium text-slate-700">
+            <span>De</span>
+            <input
+              className="block rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-emerald-500"
+              type="date"
+              value={de}
+              onChange={(e) => { setDe(e.target.value); setPreview(null); }}
+            />
+          </label>
+          <label className="space-y-1.5 text-sm font-medium text-slate-700">
+            <span>Até</span>
+            <input
+              className="block rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-emerald-500"
+              type="date"
+              value={ate}
+              onChange={(e) => { setAte(e.target.value); setPreview(null); }}
             />
           </label>
           <button
@@ -127,6 +168,10 @@ export default function AcertosList({
             {aCalcular ? "A calcular..." : "Calcular"}
           </button>
         </div>
+        <p className="mt-2 text-xs text-slate-500">
+          O período usa por omissão o mês inteiro, mas podes ajustá-lo — útil quando
+          uma semana começa no fim do mês anterior (ex.: incluir 28/06 em julho).
+        </p>
 
         {erro && <p className="mt-3 text-sm text-red-700">{erro}</p>}
 

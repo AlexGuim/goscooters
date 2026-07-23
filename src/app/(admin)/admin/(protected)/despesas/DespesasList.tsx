@@ -10,6 +10,7 @@ import type {
   Proprietario,
 } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
+import { dataBR } from "@/lib/datas";
 import {
   criarDespesa,
   atualizarDespesa,
@@ -48,6 +49,16 @@ const CAT_COR: Record<DespesaCategoria, string> = {
 };
 const IMPUTAR_ROTULO: Record<ImputarA, string> = {
   goscooters: "GoScooters", proprietario: "Proprietário", motorista: "Motorista",
+};
+// Quem costuma suportar cada tipo de custo (default; sempre editável).
+const IMPUTAR_PADRAO: Record<DespesaCategoria, ImputarA> = {
+  manutencao: "proprietario",
+  seguro: "proprietario",
+  gps: "proprietario",
+  portagem: "motorista",
+  coima: "motorista",
+  comissao: "goscooters",
+  outro: "goscooters",
 };
 
 const hoje = () => new Date().toISOString().slice(0, 10);
@@ -152,7 +163,7 @@ export default function DespesasList({
                     )}
                   </div>
                   <p className="text-sm text-slate-500">
-                    {d.data_despesa}
+                    {dataBR(d.data_despesa)}
                     {d.descricao ? ` · ${d.descricao}` : ""}
                     {` · suporta: ${IMPUTAR_ROTULO[d.imputar_a]}`}
                   </p>
@@ -207,6 +218,16 @@ function FormDespesa({
   const aEditar = Boolean(despesa);
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [categoria, setCategoria] = useState<DespesaCategoria>(despesa?.categoria ?? "manutencao");
+  const [imputarA, setImputarA] = useState<ImputarA>(
+    despesa?.imputar_a ?? IMPUTAR_PADRAO["manutencao"],
+  );
+
+  // Ao mudar a categoria, ajusta o "quem suporta" para o default dessa categoria.
+  const trocarCategoria = (c: DespesaCategoria) => {
+    setCategoria(c);
+    setImputarA(IMPUTAR_PADRAO[c]);
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -288,7 +309,12 @@ function FormDespesa({
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={etiqueta}>
               <span>Categoria</span>
-              <select className={campo} name="categoria" defaultValue={despesa?.categoria ?? "manutencao"}>
+              <select
+                className={campo}
+                name="categoria"
+                value={categoria}
+                onChange={(e) => trocarCategoria(e.target.value as DespesaCategoria)}
+              >
                 {CATEGORIAS.map((c) => (
                   <option key={c.valor} value={c.valor}>{c.rotulo}</option>
                 ))}
@@ -328,7 +354,12 @@ function FormDespesa({
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={etiqueta}>
               <span>Quem suporta o custo</span>
-              <select className={campo} name="imputar_a" defaultValue={despesa?.imputar_a ?? "goscooters"}>
+              <select
+                className={campo}
+                name="imputar_a"
+                value={imputarA}
+                onChange={(e) => setImputarA(e.target.value as ImputarA)}
+              >
                 <option value="goscooters">GoScooters</option>
                 <option value="proprietario">Proprietário</option>
                 <option value="motorista">Motorista</option>
