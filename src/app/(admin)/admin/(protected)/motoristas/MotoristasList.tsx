@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Avaliacao, AvaliacaoTipo, Motorista } from "@/types/db";
 import { normalizarTelefone } from "@/lib/telefone";
+import { IDIOMAS } from "@/lib/lembretes";
 import {
   criarMotorista,
   atualizarMotorista,
@@ -445,6 +446,7 @@ function FichaKYC({
       codigo_postal: String(dados.get("codigo_postal") ?? "").trim() || null,
       localidade: String(dados.get("localidade") ?? "").trim() || null,
       estado: String(dados.get("estado") ?? "lead") as MotoristaComAvaliacoes["estado"],
+      idioma_preferido: String(dados.get("idioma_preferido") ?? "pt").trim() || "pt",
       iban: String(dados.get("iban") ?? "").trim() || null,
       // Guardar a ficha resolve a razão da revisão.
       precisa_revisao: false,
@@ -479,6 +481,7 @@ function FichaKYC({
       ["NIF", motorista.nif ? `${motorista.nif}${motorista.nif_valido === false ? " (inválido)" : ""}` : null],
       ["Estado", motorista.estado],
       ["Morada", [motorista.morada_linha1, motorista.codigo_postal, motorista.localidade].filter(Boolean).join(", ") || null],
+      ["Idioma", IDIOMAS.find((i) => i.valor === motorista.idioma_preferido)?.rotulo ?? motorista.idioma_preferido],
       ["IBAN", motorista.iban],
     ];
     return (
@@ -547,6 +550,14 @@ function FichaKYC({
           <select className={campo} name="estado" defaultValue={motorista.estado}>
             {ESTADOS_MOTORISTA.map((e) => (
               <option key={e.valor} value={e.valor}>{e.rotulo}</option>
+            ))}
+          </select>
+        </label>
+        <label className={etiqueta}>
+          <span>Idioma (para lembretes)</span>
+          <select className={campo} name="idioma_preferido" defaultValue={motorista.idioma_preferido || "pt"}>
+            {IDIOMAS.map((i) => (
+              <option key={i.valor} value={i.valor}>{i.rotulo}</option>
             ))}
           </select>
         </label>

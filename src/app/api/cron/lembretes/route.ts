@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { enviarSMS, smsConfigurado } from "@/lib/sms";
 import { formatarPreco } from "@/lib/precos";
+import { textoLembrete } from "@/lib/lembretes";
 
 /**
  * Rotina diária de lembretes de pagamento (chamada pelo Vercel Cron).
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
   const motIds = [...new Set(alvo.map((c) => c.motorista_id as string))];
   const { data: mots } = await supabaseAdmin
     .from("motorista")
-    .select("id, nome, telefone_e164")
+    .select("id, nome, telefone_e164, idioma_preferido")
     .in("id", motIds);
   const infoMot = new Map((mots ?? []).map((m) => [m.id, m]));
 
@@ -68,9 +69,15 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    const texto =
-      `Ola ${nome}, lembrete GoScooters: a renda da mota ${mat} vence amanha ` +
-      `(${amanha.slice(8, 10)}/${amanha.slice(5, 7)}) - valor ${formatarPreco(String(c.em_falta))}. Obrigado!`;
+    const texto = textoLembrete(
+      {
+        nome,
+        matricula: mat,
+        data: `${amanha.slice(8, 10)}/${amanha.slice(5, 7)}`,
+        valor: formatarPreco(String(c.em_falta)),
+      },
+      m?.idioma_preferido,
+    );
 
     const r = await enviarSMS(e164, texto);
     if (r.ok) {

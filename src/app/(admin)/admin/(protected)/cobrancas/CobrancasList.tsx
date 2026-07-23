@@ -43,7 +43,7 @@ function linkWhatsapp(c: CobrancaPainel): string | null {
 
 export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }) {
   const [cobrancas, setCobrancas] = useState(inicial);
-  const [filtro, setFiltro] = useState<"atraso" | "vencer" | "todas">("atraso");
+  const [filtro, setFiltro] = useState<"atraso" | "vencer" | "semana" | "todas">("atraso");
   const [pagar, setPagar] = useState<CobrancaPainel | null>(null);
   // Captura o "agora" uma vez (montagem) para o cálculo ser puro no render.
   const [agora] = useState(() => Date.now());
@@ -54,6 +54,22 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
       return diff >= 0 && diff <= 7;
     },
     [agora],
+  );
+
+  // Semana atual do negócio: domingo a sábado.
+  const semana = useMemo(() => {
+    const fmt = (x: Date) =>
+      `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+    const hoje = new Date(agora);
+    const dom = new Date(hoje);
+    dom.setDate(hoje.getDate() - hoje.getDay());
+    const sab = new Date(dom);
+    sab.setDate(dom.getDate() + 6);
+    return { de: fmt(dom), ate: fmt(sab) };
+  }, [agora]);
+  const estaSemana = useCallback(
+    (d: string) => d.slice(0, 10) >= semana.de && d.slice(0, 10) <= semana.ate,
+    [semana],
   );
 
   const resumo = useMemo(() => {
@@ -69,6 +85,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   const filtradas = cobrancas.filter((c) => {
     if (filtro === "atraso") return c.em_atraso;
     if (filtro === "vencer") return !c.em_atraso && em7dias(c.data_vencimento);
+    if (filtro === "semana") return estaSemana(c.data_vencimento);
     return true;
   });
 
@@ -107,7 +124,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
       </div>
 
       <div className="flex gap-2">
-        {([["atraso", "Em atraso"], ["vencer", "A vencer"], ["todas", "Todas as abertas"]] as const).map(
+        {([["atraso", "Em atraso"], ["vencer", "A vencer"], ["semana", "Esta semana"], ["todas", "Todas as abertas"]] as const).map(
           ([v, r]) => (
             <button
               key={v}
