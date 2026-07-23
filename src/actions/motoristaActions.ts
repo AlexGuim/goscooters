@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
-import type { AvaliacaoTipo, Avaliacao, Motorista } from "@/types/db";
+import type { AvaliacaoTipo, Motorista } from "@/types/db";
 
 /** NIF português: 9 dígitos com checksum mod-11. */
 function nifValidoPT(nif: string): boolean {
