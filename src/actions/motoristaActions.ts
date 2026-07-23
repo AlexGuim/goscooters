@@ -251,5 +251,3 @@ export async function eliminarAvaliacao(
   revalidatePath("/admin/motoristas");
   return { success: true };
 }
-
-export type { Avaliacao };
