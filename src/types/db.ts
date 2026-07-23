@@ -38,6 +38,19 @@ export type PagamentoMetodo =
   | "outro";
 export type PagamentoOrigem = "manual" | "ingestao" | "webhook";
 
+// ── Despesas (Fase 3) ───────────────────────────────────────────────────────
+export type DespesaCategoria =
+  | "manutencao"
+  | "portagem"
+  | "coima"
+  | "seguro"
+  | "gps"
+  | "comissao"
+  | "outro";
+export type EstadoPagamentoDespesa = "pendente" | "parcial" | "paga" | "isenta";
+export type ImputarA = "goscooters" | "proprietario" | "motorista";
+export type DespesaOrigem = "manual" | "recorrente" | "ingestao";
+
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
 // GenericTable do supabase-js exige — e o schema todo colapsa para `never`.
@@ -218,6 +231,30 @@ export type PagamentoCobranca = {
   pagamento_id: string;
   cobranca_id: string;
   valor_alocado: string;
+  created_at: string;
+};
+
+export type Despesa = {
+  id: string;
+  veiculo_id: string | null;
+  categoria: DespesaCategoria;
+  descricao: string | null;
+  valor: string;
+  iva: string | null;
+  valor_total: string;
+  data_despesa: string;
+  data_vencimento: string | null;
+  estado_pagamento: EstadoPagamentoDespesa;
+  imputar_a: ImputarA;
+  proprietario_id: string | null;
+  motorista_id: string | null;
+  contrato_id: string | null;
+  recorrente: boolean;
+  fornecedor: string | null;
+  referencia_externa: string | null;
+  detalhe: unknown | null;
+  documento_id: string | null;
+  origem: DespesaOrigem;
   created_at: string;
 };
 
@@ -453,6 +490,21 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<PagamentoCobranca, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      despesa: {
+        Row: Despesa;
+        // valor_total é gerado — nunca se insere.
+        Insert: Partial<Omit<Despesa, "id" | "created_at" | "valor_total">> & {
+          categoria: DespesaCategoria;
+          valor: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Despesa, "id" | "created_at" | "valor_total">> & {
           id?: string;
           created_at?: string;
         };

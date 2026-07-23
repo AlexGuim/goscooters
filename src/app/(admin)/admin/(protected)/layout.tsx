@@ -50,6 +50,12 @@ export default async function ProtectedAdminLayout({
                 </Link>
                 <Link
                   className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
+                  href="/admin/despesas"
+                >
+                  Despesas
+                </Link>
+                <Link
+                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
                   href="/admin/pedidos"
                 >
                   Pedidos
