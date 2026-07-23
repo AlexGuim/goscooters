@@ -1,4 +1,4 @@
-import Link from "next/link";
+import NavAdmin from "./NavAdmin";
 import { requireAdmin } from "@/lib/dal";
 import LogoutButton from "./LogoutButton";
 
@@ -29,56 +29,7 @@ export default async function ProtectedAdminLayout({
               <p className="text-sm text-slate-600">{user.email}</p>
             </div>
             <div className="flex items-center gap-4">
-              <nav className="flex gap-6">
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/motas"
-                >
-                  Frota
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/contratos"
-                >
-                  Contratos
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/cobrancas"
-                >
-                  Cobrança
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/despesas"
-                >
-                  Despesas
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/acertos"
-                >
-                  Acertos
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/pedidos"
-                >
-                  Pedidos
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/motoristas"
-                >
-                  Motoristas
-                </Link>
-                <Link
-                  className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
-                  href="/admin/proprietarios"
-                >
-                  Proprietários
-                </Link>
-              </nav>
+              <NavAdmin />
               <LogoutButton />
             </div>
           </div>
