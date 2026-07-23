@@ -3,7 +3,13 @@
 import { useRef, useState } from "react";
 import type { DespesaCategoria, ImputarA, Moto } from "@/types/db";
 import { enviarDocumento } from "@/lib/uploads";
-import { lerFatura, gravarDespesaDeFatura } from "@/actions/faturaActions";
+import { ocrFicheiro } from "@/lib/ocr";
+import {
+  lerFatura,
+  interpretarTextoFatura,
+  gravarDespesaDeFatura,
+  type LerFaturaResultado,
+} from "@/actions/faturaActions";
 import type { FaturaCampos } from "@/lib/faturas";
 
 const campo =
@@ -36,6 +42,7 @@ export default function ImportarFatura({
   const [fase, setFase] = useState<Fase>("inicio");
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [progresso, setProgresso] = useState<{ fase: string; pct: number } | null>(null);
 
   // Dados extraídos + estado do formulário de revisão.
   const [campos, setCampos] = useState<FaturaCampos | null>(null);
@@ -62,28 +69,8 @@ export default function ImportarFatura({
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const aoEscolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const ficheiro = e.target.files?.[0];
-    if (!ficheiro) return;
-    setErro(null);
-    setOk(null);
-    setFase("a-processar");
-
-    const env = await enviarDocumento(ficheiro);
-    if (!env.success || !env.path || !env.url) {
-      setErro(env.error ?? "Erro ao carregar o ficheiro.");
-      setFase("inicio");
-      return;
-    }
-
-    const r = await lerFatura(env.path, env.url);
-    if (!r.success || !r.resultado) {
-      setErro(r.error ?? "Não consegui ler a fatura.");
-      setFase("inicio");
-      return;
-    }
-
-    const { campos: c, veiculo, imputar_a_sugerido, documento_url } = r.resultado;
+  const preencher = (res: LerFaturaResultado) => {
+    const { campos: c, veiculo, imputar_a_sugerido, documento_url } = res;
     setCampos(c);
     setDocUrl(documento_url);
     setMatriculaLida(c.matricula);
@@ -98,6 +85,53 @@ export default function ImportarFatura({
     setFornecedor(c.fornecedor ?? "");
     setReferencia(c.referencia ?? "");
     setFase("rever");
+  };
+
+  const aoEscolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const ficheiro = e.target.files?.[0];
+    if (!ficheiro) return;
+    setErro(null);
+    setOk(null);
+    setProgresso(null);
+    setFase("a-processar");
+
+    const env = await enviarDocumento(ficheiro);
+    if (!env.success || !env.path || !env.url) {
+      setErro(env.error ?? "Erro ao carregar o ficheiro.");
+      setFase("inicio");
+      return;
+    }
+
+    // 1) Tenta ler o texto do PDF no servidor (instantâneo, se houver camada de texto).
+    const r = await lerFatura(env.path, env.url);
+    if (r.success && r.resultado) {
+      preencher(r.resultado);
+      return;
+    }
+    if (!r.semTexto) {
+      setErro(r.error ?? "Não consegui ler a fatura.");
+      setFase("inicio");
+      return;
+    }
+
+    // 2) Sem texto (fatura digitalizada ou foto) → OCR no browser.
+    try {
+      setProgresso({ fase: "A preparar", pct: 0 });
+      const texto = await ocrFicheiro(ficheiro, (fase, pct) => setProgresso({ fase, pct }));
+      const r2 = await interpretarTextoFatura(texto, env.url);
+      setProgresso(null);
+      if (!r2.success || !r2.resultado) {
+        setErro(r2.error ?? "O OCR não reconheceu texto suficiente. Tenta uma imagem mais nítida.");
+        setFase("inicio");
+        return;
+      }
+      preencher(r2.resultado);
+    } catch (err) {
+      console.error("OCR error:", err);
+      setProgresso(null);
+      setErro("Erro no OCR. Tenta uma imagem mais nítida ou preenche à mão.");
+      setFase("inicio");
+    }
   };
 
   const gravar = async () => {
@@ -137,8 +171,8 @@ export default function ImportarFatura({
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Importar de fatura</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Carrega o PDF da fatura (gerado por software). Eu leio a matrícula, o
-            valor, a data e a KM; tu confirmas antes de gravar.
+            Carrega a fatura (PDF ou foto). Eu leio a matrícula, o valor, a data
+            e a KM — por OCR, se for digitalizada; tu confirmas antes de gravar.
           </p>
         </div>
         {!aberto && (
@@ -165,11 +199,25 @@ export default function ImportarFatura({
                 disabled={fase === "a-processar"}
                 className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-2xl file:border-0 file:bg-emerald-600 file:px-5 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-700 disabled:opacity-50"
               />
-              <p className="mt-3 text-xs text-slate-500">
-                {fase === "a-processar"
-                  ? "A carregar e a ler a fatura…"
-                  : "PDF até 15 MB. As fotos ainda não são lidas automaticamente."}
-              </p>
+              {fase === "a-processar" && progresso ? (
+                <div className="mt-4">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-emerald-600 transition-all"
+                      style={{ width: `${progresso.pct}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    OCR no teu browser — {progresso.fase.toLowerCase()} ({progresso.pct}%). Pode demorar alguns segundos.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-slate-500">
+                  {fase === "a-processar"
+                    ? "A carregar a fatura…"
+                    : "PDF ou foto até 15 MB. Faturas digitalizadas são lidas por OCR no teu browser."}
+                </p>
+              )}
             </div>
           )}
 

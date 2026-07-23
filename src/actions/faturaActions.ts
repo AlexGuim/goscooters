@@ -34,19 +34,13 @@ export interface LerFaturaResultado {
 export async function lerFatura(
   path: string,
   documentoUrl: string,
-): Promise<{ success: boolean; resultado?: LerFaturaResultado; error?: string }> {
+): Promise<{ success: boolean; resultado?: LerFaturaResultado; semTexto?: boolean; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
+  // Imagens (fotos) não têm camada de texto: vão direto para OCR no cliente.
   const ePdf = path.toLowerCase().endsWith(".pdf");
-  if (!ePdf) {
-    return {
-      success: false,
-      error:
-        "Por agora só consigo ler o texto de PDFs gerados por software. " +
-        "Para uma foto, preenche a despesa manualmente (o OCR de imagens fica para depois).",
-    };
-  }
+  if (!ePdf) return { success: false, semTexto: true };
 
   const { data: blob, error: dlErr } = await supabaseAdmin.storage
     .from("motas")
@@ -71,11 +65,33 @@ export async function lerFatura(
   if (texto.trim().length < 10) {
     return {
       success: false,
+      semTexto: true,
       error:
-        "Este PDF não tem texto legível (parece digitalizado). Preenche a despesa manualmente.",
+        "Este PDF não tem texto legível (parece digitalizado). Vou tentar por OCR.",
     };
   }
 
+  return { success: true, resultado: await montarResultado(texto, documentoUrl) };
+}
+
+/**
+ * Interpreta o texto de uma fatura já reconhecido no cliente (OCR do browser)
+ * e associa-o a um veículo. Usada para faturas digitalizadas / fotos.
+ */
+export async function interpretarTextoFatura(
+  texto: string,
+  documentoUrl: string,
+): Promise<{ success: boolean; resultado?: LerFaturaResultado; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (texto.trim().length < 10) {
+    return { success: false, error: "Não consegui reconhecer texto suficiente na fatura." };
+  }
+  return { success: true, resultado: await montarResultado(texto, documentoUrl) };
+}
+
+/** Interpreta o texto + associa veículo + sugere quem suporta o custo. */
+async function montarResultado(texto: string, documentoUrl: string): Promise<LerFaturaResultado> {
   const campos = interpretarFatura(texto);
 
   // Associa a matrícula lida a um veículo da frota.
@@ -114,15 +130,12 @@ export async function lerFatura(
     : IMPUTAR_PADRAO[campos.categoria];
 
   return {
-    success: true,
-    resultado: {
-      campos,
-      veiculo,
-      proprietario,
-      imputar_a_sugerido,
-      documento_url: documentoUrl,
-      texto_encontrado: true,
-    },
+    campos,
+    veiculo,
+    proprietario,
+    imputar_a_sugerido,
+    documento_url: documentoUrl,
+    texto_encontrado: true,
   };
 }
 
