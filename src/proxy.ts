@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { LOCALES, negociarLocale } from "@/lib/i18n";
 
 /** Caminhos que não pertencem ao site traduzido e não levam prefixo de idioma. */
-const SEM_IDIOMA = ["/admin", "/auth", "/api"];
+const SEM_IDIOMA = ["/admin", "/portal", "/auth", "/api"];
 
 /**
  * Ficheiros que os motores de busca e os browsers procuram em caminhos fixos.
@@ -100,6 +100,15 @@ export async function proxy(request: NextRequest) {
   // Já autenticado não tem nada que fazer no ecrã de login.
   if (isLoginPage && user) {
     return NextResponse.redirect(new URL("/admin/motas", request.url));
+  }
+
+  // Portal do parceiro: trava otimista (a autorização a sério é o requirePartner
+  // no layout). NÃO redirecionamos para fora do /portal/entrar quando há sessão,
+  // porque um admin autenticado (que não é parceiro) entraria em ciclo.
+  const isPortalArea = caminho.startsWith("/portal");
+  const isPortalLogin = caminho === "/portal/entrar";
+  if (isPortalArea && !isPortalLogin && !user) {
+    return NextResponse.redirect(new URL("/portal/entrar", request.url));
   }
 
   return response;

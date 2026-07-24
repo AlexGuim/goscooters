@@ -14,18 +14,21 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/admin/motas";
 
+  // Em caso de erro, volta ao login CERTO (portal ou admin) conforme o destino.
+  const login = next.startsWith("/portal") ? "/portal/entrar" : "/admin/login";
+
   // O Supabase devolve o erro no próprio link quando este expirou ou já foi usado.
   const erroSupabase = searchParams.get("error_description") ?? searchParams.get("error");
 
   if (erroSupabase) {
     return NextResponse.redirect(
-      `${origin}/admin/login?erro=${encodeURIComponent(erroSupabase)}`,
+      `${origin}${login}?erro=${encodeURIComponent(erroSupabase)}`,
     );
   }
 
   if (!code) {
     return NextResponse.redirect(
-      `${origin}/admin/login?erro=${encodeURIComponent("Link inválido ou incompleto.")}`,
+      `${origin}${login}?erro=${encodeURIComponent("Link inválido ou incompleto.")}`,
     );
   }
 
@@ -35,7 +38,7 @@ export async function GET(request: NextRequest) {
   if (error) {
     console.error("Falha ao trocar o código por sessão:", error);
     return NextResponse.redirect(
-      `${origin}/admin/login?erro=${encodeURIComponent(
+      `${origin}${login}?erro=${encodeURIComponent(
         "O link expirou ou já foi utilizado. Pede um novo.",
       )}`,
     );

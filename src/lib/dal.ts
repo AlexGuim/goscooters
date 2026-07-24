@@ -4,6 +4,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabaseServerClient";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /**
  * Lista de emails autorizados a entrar na administração, vinda de ADMIN_EMAIL.
@@ -81,4 +82,54 @@ export async function requireAdminForAction(): Promise<
   }
 
   return { ok: true, user };
+}
+
+// ── Portal do parceiro ──────────────────────────────────────────────────────
+
+export interface ParceiroSessao {
+  user: User;
+  proprietarioId: string;
+  nome: string;
+}
+
+/**
+ * Devolve o parceiro autenticado, ou null. O âmbito (que proprietário) vem
+ * SEMPRE do `auth_user_id` da sessão validada — nunca de um id no URL.
+ *
+ * Papéis DISJUNTOS: um email da allowlist de admin nunca é parceiro. E só entra
+ * quem tem portal_ativo, está ativo e não é a frota própria. Falha fechado.
+ */
+export const getAuthenticatedPartner = cache(async (): Promise<ParceiroSessao | null> => {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+
+  const email = data.user.email?.toLowerCase();
+  if (email && getAdminEmails().includes(email)) return null; // admin não é parceiro
+
+  const { data: dono } = await supabaseAdmin
+    .from("proprietario")
+    .select("id, nome, portal_ativo, ativo, eh_goscooters")
+    .eq("auth_user_id", data.user.id)
+    .maybeSingle();
+
+  if (!dono || !dono.portal_ativo || !dono.ativo || dono.eh_goscooters) return null;
+
+  return { user: data.user, proprietarioId: dono.id, nome: dono.nome };
+});
+
+/** Garante um parceiro autenticado; senão redirecciona para o login do portal. */
+export async function requirePartner(): Promise<ParceiroSessao> {
+  const parceiro = await getAuthenticatedPartner();
+  if (!parceiro) redirect("/portal/entrar");
+  return parceiro;
+}
+
+/** Variante para Server Actions do portal. */
+export async function requirePartnerForAction(): Promise<
+  { ok: true; parceiro: ParceiroSessao } | { ok: false; error: string }
+> {
+  const parceiro = await getAuthenticatedPartner();
+  if (!parceiro) return { ok: false, error: "Sessão expirada ou sem acesso ao portal." };
+  return { ok: true, parceiro };
 }

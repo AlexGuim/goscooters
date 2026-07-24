@@ -6,6 +6,8 @@ import {
   criarProprietario,
   atualizarProprietario,
   eliminarProprietario,
+  convidarParceiro,
+  revogarPortal,
 } from "@/actions/proprietarioActions";
 
 export interface ProprietarioComContagem extends Proprietario {
@@ -41,6 +43,35 @@ export default function ProprietariosList({
   const [donos, setDonos] = useState(inicial);
   const [modal, setModal] = useState<ProprietarioComContagem | "novo" | null>(null);
   const [copiado, setCopiado] = useState<string | null>(null);
+  const [aConvidar, setAConvidar] = useState<string | null>(null);
+
+  const convidar = async (d: ProprietarioComContagem) => {
+    const email = window.prompt("Email do parceiro para o convite ao portal:", d.email ?? "");
+    if (!email) return;
+    setAConvidar(d.id);
+    const r = await convidarParceiro(d.id, email);
+    setAConvidar(null);
+    if (r.success) {
+      setDonos((atuais) =>
+        atuais.map((x) => (x.id === d.id ? { ...x, portal_ativo: true, email } : x)),
+      );
+      alert("Convite enviado — o parceiro recebe um email com o link de acesso.");
+    } else {
+      alert(r.error);
+    }
+  };
+
+  const revogar = async (d: ProprietarioComContagem) => {
+    if (!window.confirm(`Revogar o acesso de "${d.nome}" ao portal?`)) return;
+    const r = await revogarPortal(d.id);
+    if (r.success) {
+      setDonos((atuais) =>
+        atuais.map((x) => (x.id === d.id ? { ...x, portal_ativo: false } : x)),
+      );
+    } else {
+      alert(r.error);
+    }
+  };
 
   const copiarPagamento = async (d: Proprietario) => {
     try {
@@ -116,6 +147,23 @@ export default function ProprietariosList({
               >
                 Editar
               </button>
+              {!d.eh_goscooters &&
+                (d.portal_ativo ? (
+                  <button
+                    className="text-xs font-semibold text-amber-700 transition hover:text-amber-800"
+                    onClick={() => revogar(d)}
+                  >
+                    Revogar portal
+                  </button>
+                ) : (
+                  <button
+                    className="text-xs font-semibold text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
+                    onClick={() => convidar(d)}
+                    disabled={aConvidar === d.id}
+                  >
+                    {aConvidar === d.id ? "A convidar..." : "Convidar ao portal"}
+                  </button>
+                ))}
               {d.iban && (
                 <>
                   <button
