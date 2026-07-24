@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -43,9 +44,10 @@ export default async function PortalDashboard() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {lista.map((m) => (
-              <div
+              <Link
                 key={m.id}
-                className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5"
+                href={`/portal/motos/${m.id}`}
+                className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5 transition hover:bg-slate-50"
               >
                 <div>
                   <p className="font-mono font-semibold text-slate-950">
@@ -56,15 +58,15 @@ export default async function PortalDashboard() {
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                   {ESTADO_ROTULO[m.estado_operacional] ?? m.estado_operacional}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         )}
       </section>
 
       <p className="rounded-3xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
-        Consulta os teus <strong>acertos mensais</strong> na aba <strong>Acertos</strong>. Em
-        breve: o <strong>histórico financeiro</strong> de cada moto (receita, custos e retorno).
+        Clica numa moto para veres o seu <strong>histórico financeiro</strong> (receita, custos
+        e retorno). Os teus fechos mensais estão na aba <strong>Acertos</strong>.
       </p>
     </div>
   );

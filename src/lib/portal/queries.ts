@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { calcularHistoricoAtivo, type HistoricoAtivo } from "@/lib/ativoHistorico";
 import type { Acerto, AcertoLinha } from "@/types/db";
 
 /**
@@ -42,4 +43,19 @@ export async function acertoDoParceiro(
     .order("created_at");
 
   return { acerto, linhas: linhas ?? [] };
+}
+
+export async function historicoAtivoDoParceiro(
+  proprietarioId: string,
+  motoId: string,
+): Promise<HistoricoAtivo | null> {
+  // Posse validada antes de calcular: a moto tem de ser deste parceiro.
+  const { data: moto } = await supabaseAdmin
+    .from("moto")
+    .select("id")
+    .eq("id", motoId)
+    .eq("proprietario_id", proprietarioId)
+    .maybeSingle();
+  if (!moto) return null;
+  return calcularHistoricoAtivo(motoId);
 }

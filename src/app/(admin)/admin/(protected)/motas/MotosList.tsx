@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Moto, MotoEstado, Proprietario } from "@/types/db";
 import { updateMoto, deleteMoto } from "@/actions/motoActions";
-import { historicoAtivo, type HistoricoAtivo } from "@/actions/ativoActions";
+import { historicoAtivo } from "@/actions/ativoActions";
+import type { HistoricoAtivo } from "@/lib/ativoHistorico";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import pt from "@/dictionaries/pt.json";
