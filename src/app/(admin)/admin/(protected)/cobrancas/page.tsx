@@ -7,7 +7,7 @@ async function getDados(): Promise<{
   whatsappNumero: string;
 }> {
   // Só as que precisam de atenção: por liquidar ou parciais.
-  const [cobRes, motsRes, motosRes] = await Promise.all([
+  const [cobRes, motsRes, motosRes, donosRes] = await Promise.all([
     supabaseAdmin
       .from("vw_cobranca_estado")
       .select("*")
@@ -15,15 +15,18 @@ async function getDados(): Promise<{
       .order("data_vencimento", { ascending: true }),
     supabaseAdmin.from("motorista").select("id, nome, telefone, telefone_e164"),
     supabaseAdmin.from("moto").select("id, matricula, modelo"),
+    supabaseAdmin.from("proprietario").select("*"),
   ]);
 
   const mot = new Map((motsRes.data ?? []).map((m) => [m.id, m]));
   const moto = new Map((motosRes.data ?? []).map((m) => [m.id, m]));
+  const dono = new Map((donosRes.data ?? []).map((d) => [d.id, d]));
 
   const cobrancas: CobrancaPainel[] = (cobRes.data ?? []).map(
     (c: Record<string, unknown>) => {
       const m = mot.get(c.motorista_id as string);
       const v = moto.get(c.veiculo_id as string);
+      const d = c.proprietario_id ? dono.get(c.proprietario_id as string) : undefined;
       return {
         id: c.id as string,
         numero: c.numero as string,
@@ -33,6 +36,9 @@ async function getDados(): Promise<{
         motorista_telefone: m?.telefone ?? null,
         motorista_e164: m?.telefone_e164 ?? null,
         veiculo_matricula: v?.matricula ?? "—",
+        proprietario_id: (c.proprietario_id as string) ?? null,
+        proprietario_nome: d?.nome ?? "Sem proprietário",
+        proprietario_recebe_direto: !!d?.recebe_pagamento_direto,
         periodo_inicio: c.periodo_inicio as string,
         periodo_fim: c.periodo_fim as string,
         data_vencimento: c.data_vencimento as string,

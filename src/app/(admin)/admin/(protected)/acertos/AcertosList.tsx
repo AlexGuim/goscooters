@@ -187,14 +187,15 @@ export default function AcertosList({
           <div className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             {preview.pago_direto && (
               <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                A renda deste parceiro é paga <strong>diretamente na conta dele</strong> — a
-                GoScooters não cobra esta receita. O acerto é o que o <strong>parceiro deve à
-                GoScooters</strong> (comissão{preview.despesa_total > 0 ? " + despesas" : ""}).
+                Parte da renda foi <strong>recebida diretamente pelo parceiro</strong>. A
+                GoScooters cobrou {formatarPreco(preview.receita_goscooters)} de{" "}
+                {formatarPreco(preview.receita_total)}; o líquido reflete a comissão + despesas
+                sobre o restante — daí o parceiro <strong>dever à GoScooters</strong>.
               </p>
             )}
             <div className="grid gap-3 sm:grid-cols-4">
               <Tile
-                rotulo={preview.pago_direto ? "Receita (paga ao parceiro)" : "Receita"}
+                rotulo={preview.pago_direto ? "Renda (parte ao parceiro)" : "Receita"}
                 valor={preview.receita_total}
                 cor="text-slate-950"
               />

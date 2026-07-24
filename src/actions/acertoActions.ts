@@ -79,9 +79,6 @@ async function computar(
       error: "A GoScooters (frota própria) não gera acerto — vê o Financeiro/Despesas.",
     };
   }
-  // Renda paga direto na conta do parceiro: a GoScooters não cobrou esta receita,
-  // por isso o extrato mostra só o que o parceiro DEVE (comissão + despesas).
-  const pagoDireto = !!dono.recebe_pagamento_direto;
 
   const { data: veiculos } = await supabaseAdmin
     .from("moto")
@@ -100,6 +97,7 @@ async function computar(
 
   const linhas: AcertoLinhaPreview[] = [];
   let receita = 0;
+  let receitaGs = 0; // parte cobrada pela GoScooters (o resto foi direto ao parceiro)
   const comissaoPorVeiculo = new Map<string, number>();
 
   if (veicIds.length > 0) {
@@ -111,31 +109,72 @@ async function computar(
       .gte("data_vencimento", inicio)
       .lte("data_vencimento", fim);
 
-    for (const c of cobs ?? []) {
+    const pagas = (cobs ?? []).filter((c) => Number(c.valor_pago) > 0);
+    const cobIds = pagas.map((c) => c.id);
+
+    // Quanto de cada renda foi recebido PELA GoScooters (o resto entrou na conta
+    // do parceiro). Vem das alocações de pagamento, pelo recebido_por de cada um.
+    const gsPorCobranca = new Map<string, number>();
+    // Tolerância à migração: se a coluna recebido_por ainda não existir, trata-se
+    // tudo como recebido pela GoScooters (comportamento anterior) em vez de partir.
+    let semRecebidoPor = false;
+    if (cobIds.length > 0) {
+      const { data: alocs, error: alocErr } = await supabaseAdmin
+        .from("pagamento_cobranca")
+        .select("cobranca_id, valor_alocado, pagamento:pagamento_id(recebido_por)")
+        .in("cobranca_id", cobIds);
+      if (alocErr) {
+        semRecebidoPor = true;
+      } else {
+        for (const a of alocs ?? []) {
+          // O embed do pagamento pode vir como objeto ou array conforme a versão.
+          const pj = Array.isArray(a.pagamento) ? a.pagamento[0] : a.pagamento;
+          const rp = (pj as { recebido_por?: string } | null)?.recebido_por ?? "goscooters";
+          if (rp === "goscooters") {
+            const k = a.cobranca_id as string;
+            gsPorCobranca.set(k, (gsPorCobranca.get(k) ?? 0) + Number(a.valor_alocado));
+          }
+        }
+      }
+    }
+
+    for (const c of pagas) {
       const pago = Number(c.valor_pago);
-      if (pago <= 0) continue;
+      const gs = semRecebidoPor ? pago : Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
       receita += pago;
+      receitaGs += gs;
       const taxa = taxaDe.get(c.veiculo_id) ?? taxaBase;
       const com = Math.round(pago * taxa) / 100;
       comissaoPorVeiculo.set(
         c.veiculo_id,
         (comissaoPorVeiculo.get(c.veiculo_id) ?? 0) + com,
       );
-      // Só emitir a linha de renda (positiva) quando a GoScooters a cobrou. No
-      // pago direto a renda é do parceiro; as linhas ficam só comissão+despesa,
-      // para o somatório do extrato bater certo com o líquido (que é negativo).
-      if (!pagoDireto) {
-        linhas.push({
-          tipo: "receita",
-          descricao: `Renda ${dataCurtaBR(c.periodo_inicio)}–${dataCurtaBR(c.periodo_fim)}`,
-          matricula: matDe.get(c.veiculo_id) ?? null,
-          veiculo_id: c.veiculo_id,
-          cobranca_id: c.id,
-          despesa_id: null,
-          valor: pago,
-        });
-      }
+      const canal = gs >= pago - 0.005 ? "GoScooters" : gs <= 0.005 ? "parceiro" : "misto";
+      linhas.push({
+        tipo: "receita",
+        descricao: `Renda ${dataCurtaBR(c.periodo_inicio)}–${dataCurtaBR(c.periodo_fim)} · recebido: ${canal}`,
+        matricula: matDe.get(c.veiculo_id) ?? null,
+        veiculo_id: c.veiculo_id,
+        cobranca_id: c.id,
+        despesa_id: null,
+        valor: pago,
+      });
     }
+  }
+
+  // Renda que foi direto ao parceiro (não à GoScooters): deduz-se, para o extrato
+  // mostrar as rendas recebidas E o somatório bater certo com o líquido.
+  const receitaParceiro = Math.round((receita - receitaGs) * 100) / 100;
+  if (receitaParceiro > 0.005) {
+    linhas.push({
+      tipo: "receita",
+      descricao: "Renda recebida diretamente pelo parceiro (fora da GoScooters)",
+      matricula: null,
+      veiculo_id: null,
+      cobranca_id: null,
+      despesa_id: null,
+      valor: -receitaParceiro,
+    });
   }
 
   // Linhas de comissão (uma por veículo).
@@ -182,12 +221,14 @@ async function computar(
   }
 
   const receitaTotal = Math.round(receita * 100) / 100;
+  const receitaGoscooters = Math.round(receitaGs * 100) / 100;
   comissaoTotal = Math.round(comissaoTotal * 100) / 100;
   despesaTotal = Math.round(despesaTotal * 100) / 100;
 
-  // No pago direto a GoScooters não cobrou a receita → líquido negativo (o
-  // parceiro deve comissão + despesas). Caso normal: a GoScooters cobrou tudo.
-  const receitaGoscooters = pagoDireto ? 0 : receitaTotal;
+  // Líquido = receita cobrada pela GoScooters − comissão − despesas. Se parte (ou
+  // tudo) foi direto ao parceiro, o líquido desce e pode ficar negativo — nesse
+  // caso é o que o parceiro DEVE à GoScooters. pago_direto = houve renda direta.
+  const pagoDireto = receitaParceiro > 0.005;
   const liquido =
     Math.round((receitaGoscooters - comissaoTotal - despesaTotal) * 100) / 100;
 

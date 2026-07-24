@@ -37,6 +37,7 @@ export type PagamentoMetodo =
   | "multibanco"
   | "outro";
 export type PagamentoOrigem = "manual" | "ingestao" | "webhook";
+export type PagamentoRecebidoPor = "goscooters" | "proprietario";
 
 // ── Despesas (Fase 3) ───────────────────────────────────────────────────────
 export type DespesaCategoria =
@@ -228,6 +229,8 @@ export type Pagamento = {
   referencia: string | null;
   comprovativo_url: string | null;
   origem: PagamentoOrigem;
+  /** Quem recebeu o dinheiro: a GoScooters ou o parceiro (conta dele). */
+  recebido_por: PagamentoRecebidoPor;
   observacoes: string | null;
   created_at: string;
 };

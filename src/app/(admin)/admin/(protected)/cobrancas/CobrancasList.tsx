@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { EstadoLiquidacao, PagamentoMetodo } from "@/types/db";
+import type { EstadoLiquidacao, PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import { registarPagamento, type AlocacaoInput } from "@/actions/pagamentoActions";
 
@@ -14,6 +14,9 @@ export interface CobrancaPainel {
   motorista_telefone: string | null;
   motorista_e164: string | null;
   veiculo_matricula: string;
+  proprietario_id: string | null;
+  proprietario_nome: string;
+  proprietario_recebe_direto: boolean;
   periodo_inicio: string;
   periodo_fim: string;
   data_vencimento: string;
@@ -89,6 +92,17 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
     return true;
   });
 
+  // Separadas por proprietário da moto (secção por dono, com subtotal).
+  const grupos = useMemo(() => {
+    const m = new Map<string, { nome: string; itens: CobrancaPainel[] }>();
+    for (const c of filtradas) {
+      const k = c.proprietario_id ?? "__sem__";
+      if (!m.has(k)) m.set(k, { nome: c.proprietario_nome, itens: [] });
+      m.get(k)!.itens.push(c);
+    }
+    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  }, [filtradas]);
+
   // Remove da lista (ou atualiza) as cobranças que ficaram liquidadas após pagar.
   const aposPagamento = (idsLiquidados: Set<string>, parciais: Map<string, number>) => {
     setCobrancas((atuais) =>
@@ -146,9 +160,19 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
+        <div className="space-y-4">
+          {grupos.map((g) => {
+            const totalFalta = g.itens.reduce((s, c) => s + Number(c.em_falta), 0);
+            return (
+        <div key={g.nome} className="overflow-hidden rounded-3xl bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-5 py-3">
+            <p className="text-sm font-semibold text-slate-700">{g.nome}</p>
+            <p className="text-xs font-medium text-slate-500">
+              {g.itens.length} cobrança(s) · {formatarPreco(totalFalta)}
+            </p>
+          </div>
           <div className="divide-y divide-slate-100">
-            {filtradas.map((c) => {
+            {g.itens.map((c) => {
               const wa = linkWhatsapp(c);
               return (
                 <div key={c.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
@@ -198,6 +222,9 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
             })}
           </div>
         </div>
+            );
+          })}
+        </div>
       )}
 
       {pagar && (
@@ -227,6 +254,9 @@ function FormPagamento({
 }) {
   const [valor, setValor] = useState<string>(cobrancaClicada.em_falta);
   const [metodo, setMetodo] = useState<PagamentoMetodo>("transferencia");
+  const [recebidoPor, setRecebidoPor] = useState<PagamentoRecebidoPor>(
+    cobrancaClicada.proprietario_recebe_direto ? "proprietario" : "goscooters",
+  );
   const [data, setData] = useState(() => hoje());
   const [referencia, setReferencia] = useState("");
   const [aGravar, setAGravar] = useState(false);
@@ -262,6 +292,7 @@ function FormPagamento({
         data_recebimento: data,
         metodo,
         referencia,
+        recebido_por: recebidoPor,
         alocacoes,
       });
       if (!r.success) {
@@ -340,6 +371,22 @@ function FormPagamento({
               <input className={campo} value={referencia} onChange={(e) => setReferencia(e.target.value)} />
             </label>
           </div>
+          <label className={etiqueta}>
+            <span>Recebido por</span>
+            <select
+              className={campo}
+              value={recebidoPor}
+              onChange={(e) => setRecebidoPor(e.target.value as PagamentoRecebidoPor)}
+            >
+              <option value="goscooters">GoScooters</option>
+              <option value="proprietario">Parceiro (conta dele)</option>
+            </select>
+            <span className="text-xs font-normal text-slate-500">
+              {cobrancaClicada.proprietario_recebe_direto
+                ? "Este parceiro recebe direto — muda para GoScooters se foste tu a receber."
+                : "Muda para “Parceiro” se este pagamento entrou na conta dele."}
+            </span>
+          </label>
 
           {/* Pré-visualização da alocação */}
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

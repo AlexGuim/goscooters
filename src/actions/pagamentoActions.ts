@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import type { PagamentoMetodo } from "@/types/db";
+import type { PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 
 export interface AlocacaoInput {
   cobranca_id: string;
@@ -16,6 +16,8 @@ export interface RegistarPagamentoInput {
   data_recebimento: string;
   metodo?: PagamentoMetodo | null;
   referencia?: string | null;
+  /** Quem recebeu: 'goscooters' (default) ou 'proprietario' (conta do parceiro). */
+  recebido_por?: PagamentoRecebidoPor;
   alocacoes: AlocacaoInput[];
 }
 
@@ -51,6 +53,11 @@ export async function registarPagamento(
       data_recebimento: input.data_recebimento,
       metodo: input.metodo ?? null,
       referencia: input.referencia?.trim() || null,
+      // Só enviar recebido_por quando NÃO é o default, para o insert funcionar
+      // mesmo antes da migração (coluna inexistente). Omisso → default da BD.
+      ...(input.recebido_por && input.recebido_por !== "goscooters"
+        ? { recebido_por: input.recebido_por }
+        : {}),
     })
     .select("id")
     .single();
