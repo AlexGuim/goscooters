@@ -13,6 +13,7 @@ import {
   criarContrato,
   atualizarContrato,
   gerarCobrancas,
+  terminarContrato,
 } from "@/actions/contratoActions";
 
 export interface ContratoComNomes extends ContratoAluguer {
@@ -113,6 +114,28 @@ export default function ContratosList({
     }
   };
 
+  const handleTerminar = async (c: ContratoComNomes) => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const dataFim = window.prompt(
+      `Terminar o contrato ${c.numero}? Para de faturar e anula as semanas futuras por pagar.\n\nData de fim (AAAA-MM-DD):`,
+      hoje,
+    );
+    if (!dataFim) return;
+
+    setAGerar(c.id);
+    const r = await terminarContrato(c.id, dataFim);
+    setAGerar(null);
+
+    if (r.success) {
+      setContratos((atuais) =>
+        atuais.map((x) => (x.id === c.id ? { ...x, estado: "concluido", data_fim: dataFim } : x)),
+      );
+      alert(`Contrato terminado.${r.anuladas ? ` ${r.anuladas} cobrança(s) futura(s) anulada(s).` : ""}`);
+    } else {
+      alert(r.error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -194,6 +217,15 @@ export default function ContratosList({
                   >
                     Editar
                   </button>
+                  {aberto && (
+                    <button
+                      className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
+                      onClick={() => handleTerminar(c)}
+                      disabled={aGerar === c.id}
+                    >
+                      Terminar
+                    </button>
+                  )}
                 </div>
               </div>
             );

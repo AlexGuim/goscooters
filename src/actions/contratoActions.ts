@@ -108,6 +108,68 @@ export async function atualizarContrato(
 }
 
 /**
+ * Termina um contrato: marca-o como concluído na data de fim, ANULA as cobranças
+ * futuras ainda por pagar (semanas que já não vão ser usadas — o modelo é
+ * pré-pago) e liberta o veículo. As semanas já iniciadas/pagas mantêm-se (dívida
+ * real). É o "evento de fim" que trava a geração rolante.
+ */
+export async function terminarContrato(
+  id: string,
+  dataFim: string,
+): Promise<{ success: boolean; anuladas?: number; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (!dataFim) return { success: false, error: "Indica a data de fim do contrato." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataFim)) {
+    return { success: false, error: "Data inválida (usa AAAA-MM-DD)." };
+  }
+
+  const { data: c } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("veiculo_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  // 1.º concluir: fecha já a janela de geração rolante (fn_gerar_cobrancas só
+  // gera para ativo/pendente_fecho), evitando corridas com o cron.
+  const { error } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .update({ estado: "concluido", data_fim: dataFim })
+    .eq("id", id);
+  if (error) {
+    console.error("terminarContrato error:", error);
+    return { success: false, error: "Erro ao terminar o contrato." };
+  }
+
+  // 2.º anular as semanas FUTURAS por liquidar (início depois do fim). As já
+  // pagas/parciais mantêm-se (dinheiro real ou dívida por uma semana usada).
+  const { data: anuladasData, error: anulErr } = await supabaseAdmin
+    .from("cobranca")
+    .update({ estado_liquidacao: "anulada" })
+    .eq("contrato_id", id)
+    .eq("estado_liquidacao", "por_liquidar")
+    .gt("periodo_inicio", dataFim)
+    .select("id");
+  if (anulErr) {
+    console.error("terminarContrato anular error:", anulErr);
+    // O contrato já ficou concluído (não gera mais); as cobranças futuras
+    // podem ser anuladas manualmente. Não revertemos.
+  }
+
+  if (c?.veiculo_id) {
+    await supabaseAdmin
+      .from("moto")
+      .update({ estado_operacional: "disponivel" })
+      .eq("id", c.veiculo_id);
+  }
+
+  revalidatePath("/admin/contratos");
+  revalidatePath("/admin/motas");
+  revalidatePath("/admin/cobrancas");
+  return { success: true, anuladas: anuladasData?.length ?? 0 };
+}
+
+/**
  * Inicia (ou estende) a faturação de um contrato: fixa a âncora do 1.º
  * vencimento, se ainda não existir, e materializa as cobranças até `ate`.
  */

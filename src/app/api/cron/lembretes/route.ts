@@ -25,6 +25,26 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
+  // Geração rolante (cobrança aberta): garante que cada contrato ativo tem
+  // cobranças geradas até ~2 semanas à frente. Sem data de fim — a faturação só
+  // para quando o contrato é terminado (evento explícito). fn_gerar_cobrancas é
+  // idempotente, por isso isto apenas acrescenta a semana que falta.
+  const horizonte = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  const { data: ativos } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("id")
+    .in("estado", ["ativo", "pendente_fecho"])
+    .not("ancora_vencimento", "is", null);
+  let geradas = 0;
+  for (const ct of ativos ?? []) {
+    const { data: n, error: genErr } = await supabaseAdmin.rpc("fn_gerar_cobrancas", {
+      p_contrato_id: ct.id,
+      p_ate: horizonte,
+    });
+    if (genErr) console.error(`[cron] gerar cobranças ${ct.id}:`, genErr.message);
+    else geradas += n ?? 0;
+  }
+
   // "Amanhã" (aproximação UTC — algumas horas de desvio são irrelevantes num lembrete).
   const amanha = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 
@@ -41,7 +61,7 @@ export async function GET(request: NextRequest) {
 
   const alvo = cobrancas ?? [];
   if (alvo.length === 0) {
-    return NextResponse.json({ ok: true, amanha, total: 0, mensagem: "Nada vence amanhã." });
+    return NextResponse.json({ ok: true, amanha, geradas, total: 0, mensagem: "Nada vence amanhã." });
   }
 
   // Telefones e nomes dos motoristas envolvidos.
@@ -95,6 +115,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     amanha,
+    geradas,
     total: alvo.length,
     enviados,
     smsConfigurado: smsConfigurado(),
