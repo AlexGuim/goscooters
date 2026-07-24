@@ -161,6 +161,10 @@ export interface ConcluirEntregaInput {
   assinatura_path: string | null;
   regras_versao?: string | null;
   regras_hash?: string | null;
+  carta_numero?: string | null;
+  carta_categoria?: string | null;
+  carta_pais?: string | null;
+  carta_validade?: string | null;
 }
 
 /** Conclui o self-service: grava docs/dados no motorista + prova de aceite. */
@@ -196,6 +200,18 @@ export async function concluirPorToken(
     if (input.doc_paths.length) upd.doc_urls = input.doc_paths;
     if (Object.keys(upd).length) {
       await supabaseAdmin.from("motorista").update(upd).eq("id", s.motorista_id);
+    }
+
+    // Carta em separado: colunas recentes (fase4c) — se ainda não migradas, não
+    // deve impedir a conclusão do onboarding.
+    const cartaUpd: MotoristaUpdate = {};
+    if (input.carta_numero?.trim()) cartaUpd.carta_numero = input.carta_numero.trim();
+    if (input.carta_categoria?.trim()) cartaUpd.carta_categoria = input.carta_categoria.trim().toUpperCase();
+    if (input.carta_pais?.trim()) cartaUpd.carta_pais = input.carta_pais.trim().toUpperCase();
+    if (input.carta_validade) cartaUpd.carta_validade = input.carta_validade;
+    if (Object.keys(cartaUpd).length) {
+      const { error } = await supabaseAdmin.from("motorista").update(cartaUpd).eq("id", s.motorista_id);
+      if (error) console.warn("concluirPorToken carta (migrar fase4c?):", error.message);
     }
   }
 

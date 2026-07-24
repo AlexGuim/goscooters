@@ -355,6 +355,10 @@ export type Motorista = {
   doc_id_numero: string | null;
   doc_id_validade: string | null;
   doc_urls: string[] | null;
+  carta_numero: string | null;
+  carta_categoria: string | null;
+  carta_pais: string | null;
+  carta_validade: string | null;
   morada_linha1: string | null;
   codigo_postal: string | null;
   localidade: string | null;

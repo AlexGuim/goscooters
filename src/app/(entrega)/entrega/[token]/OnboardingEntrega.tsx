@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { enviarDocPorToken, enviarAssinaturaPorToken } from "@/lib/uploads";
 import { consentirPorToken, concluirPorToken, type SessaoPublica } from "@/actions/entregaActions";
+import { ocrFicheiro } from "@/lib/ocr";
+import { interpretarDocumento } from "@/lib/documentos";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 
 const DOC_SLOTS = [
@@ -40,6 +42,13 @@ export default function OnboardingEntrega({
   const [tipo, setTipo] = useState("cc");
   const [numero, setNumero] = useState("");
   const [validade, setValidade] = useState("");
+  const [identidadeFile, setIdentidadeFile] = useState<File | null>(null);
+  const [aLerOcr, setALerOcr] = useState(false);
+  // Carta de condução
+  const [cartaNumero, setCartaNumero] = useState("");
+  const [cartaCategoria, setCartaCategoria] = useState("");
+  const [cartaPais, setCartaPais] = useState("");
+  const [cartaValidade, setCartaValidade] = useState("");
   // Regras + assinatura
   const [regrasAceite, setRegrasAceite] = useState(false);
   const [assinatura, setAssinatura] = useState<Blob | null>(null);
@@ -59,11 +68,30 @@ export default function OnboardingEntrega({
   const carregarDoc = async (slot: string, file: File | undefined) => {
     if (!file) return;
     setErro(null);
+    if (slot === "identidade") setIdentidadeFile(file);
     setACarregar(slot);
     const r = await enviarDocPorToken(token, file);
     setACarregar(null);
     if (r.success && r.path) setDocs((d) => ({ ...d, [slot]: r.path! }));
     else setErro(r.error ?? "Erro ao carregar.");
+  };
+
+  const lerDocumento = async () => {
+    if (!identidadeFile) return;
+    setErro(null);
+    setALerOcr(true);
+    try {
+      const texto = await ocrFicheiro(identidadeFile);
+      const d = interpretarDocumento(texto);
+      if (d.nome) setNome(d.nome);
+      if (d.numero) setNumero(d.numero);
+      if (d.validade) setValidade(d.validade);
+      if (!d.nome && !d.numero) setErro("Não consegui ler o documento — confirma os campos à mão.");
+    } catch {
+      setErro("Não consegui ler o documento — confirma os campos à mão.");
+    } finally {
+      setALerOcr(false);
+    }
   };
 
   const submeter = async () => {
@@ -90,6 +118,10 @@ export default function OnboardingEntrega({
       assinatura_path,
       regras_versao: sessao.regras?.versao ?? null,
       regras_hash: sessao.regras?.hash ?? null,
+      carta_numero: cartaNumero || null,
+      carta_categoria: cartaCategoria || null,
+      carta_pais: cartaPais || null,
+      carta_validade: cartaValidade || null,
     });
     setASubmeter(false);
     if (!r.ok) return setErro(r.error ?? "Erro ao submeter.");
@@ -158,6 +190,16 @@ export default function OnboardingEntrega({
 
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Os teus dados</h2>
+        {identidadeFile && (
+          <button
+            type="button"
+            onClick={lerDocumento}
+            disabled={aLerOcr}
+            className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+          >
+            {aLerOcr ? "a ler o documento…" : "✨ Ler documento automaticamente (opcional)"}
+          </button>
+        )}
         <label className="block space-y-1.5 text-sm font-medium text-slate-700">
           <span>Nome completo</span>
           <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} />
@@ -178,6 +220,28 @@ export default function OnboardingEntrega({
           <span>Validade do documento</span>
           <input className={campo} type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
         </label>
+      </section>
+
+      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Carta de condução</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>Nº da carta</span>
+            <input className={campo} value={cartaNumero} onChange={(e) => setCartaNumero(e.target.value)} />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>Categoria</span>
+            <input className={campo} value={cartaCategoria} onChange={(e) => setCartaCategoria(e.target.value)} placeholder="A1, A, B…" />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>País emissor</span>
+            <input className={campo} value={cartaPais} onChange={(e) => setCartaPais(e.target.value)} placeholder="PT, BR…" maxLength={2} />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>Validade</span>
+            <input className={campo} type="date" value={cartaValidade} onChange={(e) => setCartaValidade(e.target.value)} />
+          </label>
+        </div>
       </section>
 
       {sessao.regras && (

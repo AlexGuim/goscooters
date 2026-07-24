@@ -140,6 +140,10 @@ export type MotoristaEditavel = Partial<
     | "doc_id_tipo"
     | "doc_id_numero"
     | "doc_id_validade"
+    | "carta_numero"
+    | "carta_categoria"
+    | "carta_pais"
+    | "carta_validade"
     | "precisa_revisao"
   >
 >;

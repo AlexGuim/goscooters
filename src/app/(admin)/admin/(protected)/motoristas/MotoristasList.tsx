@@ -451,6 +451,16 @@ function FichaKYC({
       // Guardar a ficha resolve a razão da revisão.
       precisa_revisao: false,
     };
+    // Carta: só enviar quando preenchida (colunas da fase4c; assim a ficha não
+    // parte se a SQL ainda não correu).
+    const cn = String(dados.get("carta_numero") ?? "").trim();
+    const cc = String(dados.get("carta_categoria") ?? "").trim().toUpperCase();
+    const cp = String(dados.get("carta_pais") ?? "").trim().toUpperCase();
+    const cv = String(dados.get("carta_validade") ?? "").trim();
+    if (cn) campos.carta_numero = cn;
+    if (cc) campos.carta_categoria = cc;
+    if (cp) campos.carta_pais = cp;
+    if (cv) campos.carta_validade = cv;
     // Só envia o telefone se mudou — evita recalcular (e corromper) o E.164 de
     // um número estrangeiro que já estava correcto.
     if (telefoneNovo !== (motorista.telefone ?? "")) {
@@ -481,6 +491,7 @@ function FichaKYC({
       ["NIF", motorista.nif ? `${motorista.nif}${motorista.nif_valido === false ? " (inválido)" : ""}` : null],
       ["Estado", motorista.estado],
       ["Morada", [motorista.morada_linha1, motorista.codigo_postal, motorista.localidade].filter(Boolean).join(", ") || null],
+      ["Carta", motorista.carta_numero ? `${motorista.carta_numero}${motorista.carta_categoria ? ` · ${motorista.carta_categoria}` : ""}${motorista.carta_pais ? ` · ${motorista.carta_pais}` : ""}${motorista.carta_validade ? ` · val. ${motorista.carta_validade}` : ""}` : null],
       ["Idioma", IDIOMAS.find((i) => i.valor === motorista.idioma_preferido)?.rotulo ?? motorista.idioma_preferido],
       ["IBAN", motorista.iban],
     ];
@@ -581,6 +592,26 @@ function FichaKYC({
         </label>
       </div>
 
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Carta de condução</p>
+      <div className="grid gap-4 sm:grid-cols-4">
+        <label className={etiqueta}>
+          <span>Nº da carta</span>
+          <input className={campo} name="carta_numero" defaultValue={motorista.carta_numero ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>Categoria</span>
+          <input className={campo} name="carta_categoria" defaultValue={motorista.carta_categoria ?? ""} placeholder="A1, A, B" />
+        </label>
+        <label className={etiqueta}>
+          <span>País</span>
+          <input className={campo} name="carta_pais" maxLength={2} defaultValue={motorista.carta_pais ?? ""} placeholder="PT" />
+        </label>
+        <label className={etiqueta}>
+          <span>Validade</span>
+          <input className={campo} type="date" name="carta_validade" defaultValue={motorista.carta_validade ?? ""} />
+        </label>
+      </div>
+
       {erro && <p className="text-sm text-red-700">{erro}</p>}
 
       <div className="flex gap-3">
@@ -665,6 +696,10 @@ function FormMotorista({
       doc_id_numero: null,
       doc_id_validade: null,
       doc_urls: null,
+      carta_numero: null,
+      carta_categoria: null,
+      carta_pais: null,
+      carta_validade: null,
       morada_linha1: null,
       codigo_postal: null,
       localidade: null,
