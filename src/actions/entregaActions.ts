@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { mensagemLinkEntrega } from "@/lib/mensagens";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
 type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
@@ -34,7 +35,7 @@ async function sessaoValida(token: string): Promise<EntregaSessao | null> {
 /** Cria uma sessão de entrega para um contrato e devolve o LINK (uma só vez). */
 export async function criarSessaoEntrega(
   contratoId: string,
-): Promise<{ success: boolean; link?: string; error?: string }> {
+): Promise<{ success: boolean; link?: string; whatsapp?: string | null; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
@@ -62,8 +63,25 @@ export async function criarSessaoEntrega(
 
   const h = await headers();
   const origin = h.get("origin") ?? `https://${h.get("host") ?? "goscooters.vercel.app"}`;
+  const link = `${origin}/entrega/${token}`;
+
+  // Mensagem pronta no WhatsApp, na língua do motorista (click-to-send).
+  let whatsapp: string | null = null;
+  if (c.motorista_id) {
+    const { data: m } = await supabaseAdmin
+      .from("motorista")
+      .select("nome, telefone_e164, idioma_preferido")
+      .eq("id", c.motorista_id)
+      .maybeSingle();
+    if (m?.telefone_e164) {
+      const num = m.telefone_e164.replace(/\D/g, "");
+      const texto = mensagemLinkEntrega(m.nome ?? "", link, m.idioma_preferido);
+      whatsapp = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+    }
+  }
+
   revalidatePath("/admin/contratos");
-  return { success: true, link: `${origin}/entrega/${token}` };
+  return { success: true, link, whatsapp };
 }
 
 // ── Público (validado por token, sem conta) ──────────────────────────────────

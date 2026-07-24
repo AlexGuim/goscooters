@@ -27,6 +27,14 @@ const MODELOS: Record<string, Modelo> = {
     `Bonjour ${d.nome}, rappel GoScooters : le loyer du scooter ${d.matricula} est dû demain (${d.data}) — montant ${d.valor}. Merci !`,
   it: (d) =>
     `Ciao ${d.nome}, promemoria GoScooters: il noleggio dello scooter ${d.matricula} scade domani (${d.data}) — importo ${d.valor}. Grazie!`,
+  bn: (d) =>
+    `হ্যালো ${d.nome}, GoScooters রিমাইন্ডার: ${d.matricula} স্কুটারের ভাড়া আগামীকাল (${d.data}) দিতে হবে — পরিমাণ ${d.valor}। ধন্যবাদ!`,
+  hi: (d) =>
+    `नमस्ते ${d.nome}, GoScooters रिमाइंडर: स्कूटर ${d.matricula} का किराया कल (${d.data}) देय है — राशि ${d.valor}। धन्यवाद!`,
+  ne: (d) =>
+    `नमस्ते ${d.nome}, GoScooters सम्झना: स्कुटर ${d.matricula} को भाडा भोलि (${d.data}) तिर्नुपर्छ — रकम ${d.valor}। धन्यवाद!`,
+  ur: (d) =>
+    `ہیلو ${d.nome}، GoScooters یاد دہانی: سکوٹر ${d.matricula} کا کرایہ کل (${d.data}) واجب الادا ہے — رقم ${d.valor}۔ شکریہ!`,
 };
 
 /**

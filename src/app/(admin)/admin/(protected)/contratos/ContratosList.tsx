@@ -121,10 +121,15 @@ export default function ContratosList({
     const r = await criarSessaoEntrega(c.id);
     setAGerar(null);
     if (r.success && r.link) {
-      window.prompt(
-        "Link de preparação (válido 72h). Copia e envia ao motorista por WhatsApp:",
-        r.link,
-      );
+      if (r.whatsapp) {
+        // Abre o WhatsApp já com a mensagem na língua do motorista.
+        window.open(r.whatsapp, "_blank");
+      } else {
+        window.prompt(
+          "Link de preparação (72h). Copia e envia ao motorista (sem telefone E.164 na ficha):",
+          r.link,
+        );
+      }
     } else {
       alert(r.error);
     }

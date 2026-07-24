@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { enviarSMS, smsConfigurado } from "@/lib/sms";
+import { enviarLembrete, smsConfigurado, whatsappConfigurado } from "@/lib/sms";
 import { formatarPreco } from "@/lib/precos";
 import { textoLembrete } from "@/lib/lembretes";
 
@@ -99,12 +99,12 @@ export async function GET(request: NextRequest) {
       m?.idioma_preferido,
     );
 
-    const r = await enviarSMS(e164, texto);
+    const r = await enviarLembrete(e164, texto);
     if (r.ok) {
       enviados++;
-      resultados.push({ nome, estado: "SMS enviado" });
+      resultados.push({ nome, estado: `enviado (${r.canal})` });
     } else {
-      console.error(`[lembretes] falha SMS para ${nome}:`, r.erro);
+      console.error(`[lembretes] falha para ${nome}:`, r.erro);
       resultados.push({ nome, estado: `falhou: ${r.erro}` });
     }
   }
@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
     geradas,
     total: alvo.length,
     enviados,
-    smsConfigurado: smsConfigurado(),
+    canal: whatsappConfigurado() ? "whatsapp" : smsConfigurado() ? "sms" : "nenhum",
     resultados,
   });
 }
