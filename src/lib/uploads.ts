@@ -1,7 +1,8 @@
 import { supabaseBrowser } from "@/lib/supabaseClient";
-import { criarUploadAssinado } from "@/actions/fotoActions";
+import { criarUploadAssinado, criarUploadPrivado } from "@/actions/fotoActions";
 
 const BUCKET = "motas";
+const BUCKET_PRIVADO = "privado";
 
 export const FOTO_TAMANHO_MAXIMO = 10 * 1024 * 1024; // 10 MB
 export const FOTO_TIPOS = ["image/jpeg", "image/png", "image/webp", "image/avif"];
@@ -69,6 +70,59 @@ export async function enviarVideo(
     };
   }
   return enviarFicheiro(ficheiro, "videos");
+}
+
+// ── Bucket PRIVADO (documentos, vídeos e assinaturas sensíveis) ─────────────
+// Devolve o CAMINHO (a guardar na BD), nunca um URL público. Lê-se por URL
+// assinado (urlAssinado).
+async function enviarPrivado(
+  ficheiro: Blob,
+  nome: string,
+  pasta: string,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  const prep = await criarUploadPrivado(nome, pasta);
+  if (!prep.success || !prep.dados) {
+    return { success: false, error: prep.error ?? "Erro ao preparar o upload." };
+  }
+  const { error } = await supabaseBrowser.storage
+    .from(BUCKET_PRIVADO)
+    .uploadToSignedUrl(prep.dados.path, prep.dados.token, ficheiro);
+  if (error) {
+    console.error("uploadToSignedUrl (privado) error:", error);
+    return { success: false, error: "Erro ao carregar o ficheiro. Tenta de novo." };
+  }
+  return { success: true, path: prep.dados.path };
+}
+
+export async function enviarFotoPrivada(
+  ficheiro: File,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  if (!FOTO_TIPOS.includes(ficheiro.type)) {
+    return { success: false, error: "Formato não suportado. Usa JPG, PNG ou WebP." };
+  }
+  if (ficheiro.size > FOTO_TAMANHO_MAXIMO) {
+    return { success: false, error: `A imagem tem ${mb(ficheiro.size)} MB. O máximo é 10 MB.` };
+  }
+  return enviarPrivado(ficheiro, ficheiro.name, "vistorias/fotos");
+}
+
+export async function enviarVideoPrivado(
+  ficheiro: File,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  if (!VIDEO_TIPOS.includes(ficheiro.type)) {
+    return { success: false, error: "Formato não suportado. Usa MP4, WebM ou MOV." };
+  }
+  if (ficheiro.size > VIDEO_TAMANHO_MAXIMO) {
+    return { success: false, error: `O vídeo tem ${mb(ficheiro.size)} MB. O máximo é 50 MB.` };
+  }
+  return enviarPrivado(ficheiro, ficheiro.name, "vistorias/videos");
+}
+
+/** Assinatura desenhada no ecrã (PNG). */
+export async function enviarAssinaturaPrivada(
+  blob: Blob,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  return enviarPrivado(blob, "assinatura.png", "vistorias/assinaturas");
 }
 
 export const DOC_TAMANHO_MAXIMO = 15 * 1024 * 1024; // 15 MB

@@ -77,6 +77,57 @@ export async function criarUploadAssinado(
   };
 }
 
+const BUCKET_PRIVADO = "privado";
+
+/**
+ * Prepara um upload direto para o bucket PRIVADO (documentos, vídeos e
+ * assinaturas sensíveis). Devolve o CAMINHO (a guardar na BD) e o token — nunca
+ * um URL público, porque estes ficheiros só se leem por URL assinado.
+ */
+export async function criarUploadPrivado(
+  nomeFicheiro: string,
+  pasta: string,
+): Promise<{ success: boolean; dados?: { path: string; token: string }; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const prefixo = pasta ? `${pasta.replace(/[^a-z0-9/_-]/gi, "")}/` : "";
+  const caminho = `${prefixo}${crypto.randomUUID()}-${nomeSeguro(nomeFicheiro)}`;
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(BUCKET_PRIVADO)
+    .createSignedUploadUrl(caminho);
+
+  if (error || !data) {
+    console.error("criarUploadPrivado error:", error);
+    return { success: false, error: "Erro ao preparar o upload." };
+  }
+  return { success: true, dados: { path: data.path, token: data.token } };
+}
+
+/**
+ * Devolve um URL assinado, de curta duração, para LER um ficheiro privado.
+ * Só um admin autenticado o obtém — é assim que se mostram documentos/vídeos
+ * sensíveis sem os pôr num bucket público.
+ */
+export async function urlAssinado(
+  path: string,
+  segundos = 3600,
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (!path) return { success: false, error: "Caminho em falta." };
+
+  const { data, error } = await supabaseAdmin.storage
+    .from(BUCKET_PRIVADO)
+    .createSignedUrl(path, segundos);
+  if (error || !data) {
+    console.error("urlAssinado error:", error);
+    return { success: false, error: "Não consegui abrir o ficheiro." };
+  }
+  return { success: true, url: data.signedUrl };
+}
+
 /**
  * Remove um ficheiro do storage. Só actua sobre ficheiros do nosso bucket —
  * URLs externos (as fotos antigas do Unsplash, por exemplo) são ignorados em

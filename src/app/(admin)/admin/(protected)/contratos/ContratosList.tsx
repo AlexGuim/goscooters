@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type {
   ContratoAluguer,
   ContratoEstado,
@@ -211,6 +212,12 @@ export default function ContratosList({
                       {aGerar === c.id ? "A gerar..." : "Gerar cobranças"}
                     </button>
                   )}
+                  <Link
+                    href={`/admin/contratos/${c.id}/entrega`}
+                    className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  >
+                    Entregar
+                  </Link>
                   <button
                     className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                     onClick={() => setModal(c)}
