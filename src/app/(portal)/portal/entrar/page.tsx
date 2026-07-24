@@ -13,12 +13,12 @@ async function handlePassword(_prev: State | undefined, formData: FormData): Pro
 
   const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
   if (error) {
-    return {
-      error:
-        error.message === "Invalid login credentials"
-          ? "Email ou palavra-passe incorretos."
-          : error.message,
-    };
+    if (error.message === "Invalid login credentials") {
+      return { error: "Email ou palavra-passe incorretos." };
+    }
+    // Não expor detalhe do backend ao cliente.
+    console.error("portal login error:", error.message);
+    return { error: "Não foi possível entrar. Tenta novamente." };
   }
   window.location.href = "/portal";
   return {};
@@ -35,13 +35,14 @@ async function handleMagicLink(_prev: State | undefined, formData: FormData): Pr
       emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal`,
     },
   });
-  if (error) {
-    if (/rate limit/i.test(error.message)) {
-      return { error: "Demasiados emails num curto espaço de tempo. Tenta daqui a pouco ou usa a palavra-passe." };
-    }
-    return { error: "Se este email tiver acesso, vais receber o link." };
+  // O rate limit é benigno de revelar; tudo o resto usa a MESMA mensagem neutra
+  // no sucesso e no erro — não revela se o email é (ou não) um parceiro.
+  if (error && /rate limit/i.test(error.message)) {
+    return { error: "Demasiados emails num curto espaço. Tenta mais tarde ou usa a palavra-passe." };
   }
-  return { success: `Enviámos um link de acesso para ${email}. Verifica o teu email.` };
+  return {
+    success: "Se este email tiver acesso, enviámos um link. Verifica a tua caixa de correio.",
+  };
 }
 
 export default function EntrarPortalPage() {
