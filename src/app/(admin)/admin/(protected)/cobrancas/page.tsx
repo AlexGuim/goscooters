@@ -47,6 +47,7 @@ async function getDados(): Promise<{
         em_falta: String(c.em_falta),
         em_atraso: Boolean(c.em_atraso),
         estado_liquidacao: c.estado_liquidacao as CobrancaPainel["estado_liquidacao"],
+        tipo: (c.tipo as CobrancaPainel["tipo"]) ?? "renda",
       };
     },
   );

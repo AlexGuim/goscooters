@@ -10,6 +10,19 @@ export interface DanoPrevio {
   foto_path?: string | null;
 }
 
+/**
+ * Item de material entregue com a mota (ex.: capacete, 2 chaves, colete).
+ * Na entrega marca-se `entregue`; na recolha herda-se a lista e marca-se
+ * `devolvido` por item. Guardado no jsonb vistoria.checklist.materiais.
+ */
+export interface MaterialLinha {
+  key: string;
+  rotulo: string;
+  qtd: number;
+  entregue?: boolean;
+  devolvido?: boolean;
+}
+
 export interface SubmeterEntregaInput {
   contrato_id: string;
   km: number | null;
@@ -19,6 +32,7 @@ export interface SubmeterEntregaInput {
   assinatura_path: string | null;
   checklist_itens: Record<string, boolean>;
   danos: DanoPrevio[];
+  materiais: MaterialLinha[];
   notas: string | null;
   // Prova de aceitação das regras (versão + hash da versão exata mostrada).
   regras_versao?: string | null;
@@ -68,6 +82,7 @@ export async function submeterVistoriaEntrega(
     checklist: {
       itens: input.checklist_itens,
       danos: input.danos,
+      materiais: input.materiais ?? [],
       regras: input.regras_versao
         ? {
             versao: input.regras_versao,
@@ -171,6 +186,7 @@ export interface SubmeterRecolhaInput {
   assinatura_path: string | null;
   checklist_itens: Record<string, boolean>;
   danos: DanoPrevio[];
+  materiais: MaterialLinha[];
   notas: string | null;
 }
 
@@ -212,7 +228,7 @@ export async function submeterVistoriaRecolha(
     nivel_combustivel: input.nivel_combustivel,
     video_url: input.video_path,
     foto_urls: input.foto_paths.length ? input.foto_paths : null,
-    checklist: { itens: input.checklist_itens, danos: input.danos },
+    checklist: { itens: input.checklist_itens, danos: input.danos, materiais: input.materiais ?? [] },
     notas: input.notas?.trim() || null,
     assinatura_cliente_url: input.assinatura_path,
   });

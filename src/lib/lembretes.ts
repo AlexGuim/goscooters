@@ -53,6 +53,47 @@ export function textoLembrete(dados: DadosLembrete, idioma: string | null | unde
     : `${MODELOS.en(dados)}\n${MODELOS.pt(dados)}`;
 }
 
+export interface DadosCoima {
+  nome: string;
+  matricula: string;
+  data: string; // data da infração, já formatada
+  valor: string; // já formatado
+}
+
+type ModeloCoima = (d: DadosCoima) => string;
+
+const MODELOS_COIMA: Record<string, ModeloCoima> = {
+  pt: (d) =>
+    `Olá ${d.nome}, a GoScooters recebeu uma coima da mota ${d.matricula} referente a ${d.data} — valor ${d.valor}. Este montante fica na tua conta. Qualquer dúvida, fala connosco.`,
+  en: (d) =>
+    `Hi ${d.nome}, GoScooters received a traffic fine for scooter ${d.matricula} dated ${d.data} — amount ${d.valor}. This amount is added to your account. Any questions, contact us.`,
+  es: (d) =>
+    `Hola ${d.nome}, GoScooters recibió una multa de la moto ${d.matricula} del ${d.data} — importe ${d.valor}. Este importe se añade a tu cuenta. Cualquier duda, contáctanos.`,
+  fr: (d) =>
+    `Bonjour ${d.nome}, GoScooters a reçu une amende pour le scooter ${d.matricula} du ${d.data} — montant ${d.valor}. Ce montant est ajouté à votre compte. Pour toute question, contactez-nous.`,
+  it: (d) =>
+    `Ciao ${d.nome}, GoScooters ha ricevuto una multa per lo scooter ${d.matricula} del ${d.data} — importo ${d.valor}. Questo importo viene aggiunto al tuo conto. Per domande, contattaci.`,
+  bn: (d) =>
+    `হ্যালো ${d.nome}, ${d.data} তারিখে ${d.matricula} স্কুটারের একটি জরিমানা GoScooters পেয়েছে — পরিমাণ ${d.valor}। এই টাকা আপনার হিসাবে যোগ হবে। কোনো প্রশ্ন থাকলে যোগাযোগ করুন।`,
+  hi: (d) =>
+    `नमस्ते ${d.nome}, GoScooters को स्कूटर ${d.matricula} का ${d.data} का एक चालान मिला — राशि ${d.valor}। यह राशि आपके खाते में जोड़ी जाएगी। कोई प्रश्न हो तो संपर्क करें।`,
+  ne: (d) =>
+    `नमस्ते ${d.nome}, GoScooters ले स्कुटर ${d.matricula} को ${d.data} को जरिवाना पायो — रकम ${d.valor}। यो रकम तपाईंको खातामा थपिन्छ। प्रश्न भए सम्पर्क गर्नुहोस्।`,
+  ur: (d) =>
+    `ہیلو ${d.nome}، GoScooters کو سکوٹر ${d.matricula} کا ${d.data} کا جرمانہ موصول ہوا — رقم ${d.valor}۔ یہ رقم آپ کے کھاتے میں شامل ہو جائے گی۔ کوئی سوال ہو تو رابطہ کریں۔`,
+};
+
+/** Texto da notificação de coima, na língua do motorista (+ inglês). */
+export function textoCoima(dados: DadosCoima, idioma: string | null | undefined): string {
+  const lang = (idioma || "pt").slice(0, 2).toLowerCase();
+  if (lang === "pt") return MODELOS_COIMA.pt(dados);
+  if (lang === "en") return MODELOS_COIMA.en(dados);
+  const modelo = MODELOS_COIMA[lang];
+  return modelo
+    ? `${modelo(dados)}\n${MODELOS_COIMA.en(dados)}`
+    : `${MODELOS_COIMA.en(dados)}\n${MODELOS_COIMA.pt(dados)}`;
+}
+
 /** Línguas oferecidas no formulário do motorista. */
 export const IDIOMAS: { valor: string; rotulo: string }[] = [
   { valor: "pt", rotulo: "Português" },

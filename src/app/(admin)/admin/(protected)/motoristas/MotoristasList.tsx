@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Avaliacao, AvaliacaoTipo, Motorista } from "@/types/db";
+import { useMemo, useRef, useState } from "react";
+import type { Avaliacao, AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
 import { normalizarTelefone } from "@/lib/telefone";
 import { IDIOMAS } from "@/lib/lembretes";
+import { ocrFicheiro } from "@/lib/ocr";
+import { interpretarDocumento, iso3ParaIso2 } from "@/lib/documentos";
 import {
   criarMotorista,
   atualizarMotorista,
@@ -645,6 +647,47 @@ function FormMotorista({
 }) {
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [aLerDoc, setALerDoc] = useState(false);
+  const [statusOcr, setStatusOcr] = useState<string | null>(null);
+
+  // Lê a foto/PDF do documento, corre o OCR (MRZ) e pré-preenche o formulário.
+  // Nunca grava — o admin confirma sempre antes de criar. O NIF não vem na MRZ.
+  const lerDocumento = async (file: File | undefined) => {
+    if (!file) return;
+    const form = formRef.current;
+    if (!form) return;
+    setALerDoc(true);
+    setStatusOcr("A ler o documento…");
+    try {
+      const texto = await ocrFicheiro(file, (fase, pct) => setStatusOcr(`${fase} ${pct}%`));
+      const d = interpretarDocumento(texto);
+      const set = (name: string, valor: string | null | undefined) => {
+        if (!valor) return false;
+        const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+        if (!el) return false;
+        el.value = valor;
+        return true;
+      };
+      const preenchidos: string[] = [];
+      if (set("nome", d.nome)) preenchidos.push("nome");
+      if (set("data_nascimento", d.nascimento)) preenchidos.push("nascimento");
+      if (set("doc_id_numero", d.numero)) preenchidos.push("nº do documento");
+      if (set("doc_id_validade", d.validade)) preenchidos.push("validade");
+      if (set("doc_id_tipo", d.tipo)) preenchidos.push("tipo");
+      if (set("pais_iso", iso3ParaIso2(d.nacionalidade))) preenchidos.push("país");
+      setStatusOcr(
+        preenchidos.length
+          ? `Preenchido: ${preenchidos.join(", ")}. Confirma tudo — o NIF não vem do documento.`
+          : "Não consegui ler a zona MRZ. Tenta uma foto mais nítida ou preenche à mão.",
+      );
+    } catch (err) {
+      console.error("OCR do documento falhou:", err);
+      setStatusOcr("Erro ao ler o documento. Preenche à mão.");
+    } finally {
+      setALerDoc(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -658,6 +701,15 @@ function FormMotorista({
       email: String(dados.get("email") ?? "") || undefined,
       plataforma: String(dados.get("plataforma") ?? "") || undefined,
       notas: String(dados.get("notas") ?? "") || undefined,
+      nif: String(dados.get("nif") ?? "").trim() || null,
+      pais_iso: String(dados.get("pais_iso") ?? "").trim().toUpperCase() || null,
+      morada_linha1: String(dados.get("morada_linha1") ?? "").trim() || null,
+      codigo_postal: String(dados.get("codigo_postal") ?? "").trim() || null,
+      localidade: String(dados.get("localidade") ?? "").trim() || null,
+      data_nascimento: String(dados.get("data_nascimento") ?? "").trim() || null,
+      doc_id_tipo: (String(dados.get("doc_id_tipo") ?? "").trim() || null) as DocIdTipo | null,
+      doc_id_numero: String(dados.get("doc_id_numero") ?? "").trim() || null,
+      doc_id_validade: String(dados.get("doc_id_validade") ?? "").trim() || null,
     };
 
     let r: { success: boolean; id?: string; error?: string };
@@ -685,24 +737,24 @@ function FormMotorista({
       plataforma: input.plataforma?.trim() || null,
       notas: input.notas?.trim() || null,
       created_at: new Date().toISOString(),
-      // Campos KYC ainda não editados neste formulário simples.
       telefone_e164: null,
       telefones_extra: null,
-      nif: null,
+      nif: input.nif,
+      // O servidor recalcula nif_valido; otimista fica null (sem marca).
       nif_valido: null,
-      pais_iso: null,
-      data_nascimento: null,
-      doc_id_tipo: null,
-      doc_id_numero: null,
-      doc_id_validade: null,
+      pais_iso: input.pais_iso,
+      data_nascimento: input.data_nascimento,
+      doc_id_tipo: input.doc_id_tipo,
+      doc_id_numero: input.doc_id_numero,
+      doc_id_validade: input.doc_id_validade,
       doc_urls: null,
       carta_numero: null,
       carta_categoria: null,
       carta_pais: null,
       carta_validade: null,
-      morada_linha1: null,
-      codigo_postal: null,
-      localidade: null,
+      morada_linha1: input.morada_linha1,
+      codigo_postal: input.codigo_postal,
+      localidade: input.localidade,
       estado: "lead",
       origem: "site",
       idioma_preferido: "pt",
@@ -735,7 +787,22 @@ function FormMotorista({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="mt-6 space-y-4">
+          {/* OCR do documento — pré-preenche os campos (best-effort, sempre confirmar) */}
+          <div className="space-y-2 rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 p-3">
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50">
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                disabled={aLerDoc}
+                onChange={(e) => lerDocumento(e.target.files?.[0])}
+              />
+              {aLerDoc ? "A ler…" : "📷 Ler documento (CC / passaporte)"}
+            </label>
+            {statusOcr && <p className="text-xs text-slate-600">{statusOcr}</p>}
+          </div>
+
           <label className={etiqueta}>
             <span>
               Nome <span className="text-red-600">*</span>
@@ -769,6 +836,56 @@ function FormMotorista({
             <span>Email (opcional)</span>
             <input className={campo} type="email" name="email" />
           </label>
+
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Identificação</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={etiqueta}>
+              <span>NIF</span>
+              <input className={campo} name="nif" inputMode="numeric" placeholder="9 dígitos" />
+            </label>
+            <label className={etiqueta}>
+              <span>Data de nascimento</span>
+              <input className={campo} type="date" name="data_nascimento" />
+            </label>
+            <label className={etiqueta}>
+              <span>Tipo de documento</span>
+              <select className={campo} name="doc_id_tipo" defaultValue="">
+                <option value="">—</option>
+                <option value="cc">Cartão de cidadão</option>
+                <option value="passaporte">Passaporte</option>
+                <option value="titulo_residencia">Título de residência</option>
+              </select>
+            </label>
+            <label className={etiqueta}>
+              <span>Nº do documento</span>
+              <input className={campo} name="doc_id_numero" />
+            </label>
+            <label className={etiqueta}>
+              <span>Validade do documento</span>
+              <input className={campo} type="date" name="doc_id_validade" />
+            </label>
+            <label className={etiqueta}>
+              <span>País (ISO, ex. PT)</span>
+              <input className={campo} name="pais_iso" maxLength={2} placeholder="PT" />
+            </label>
+          </div>
+
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Morada</p>
+          <label className={etiqueta}>
+            <span>Morada</span>
+            <input className={campo} name="morada_linha1" placeholder="Rua, nº, andar" />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={etiqueta}>
+              <span>Código postal</span>
+              <input className={campo} name="codigo_postal" placeholder="0000-000" />
+            </label>
+            <label className={etiqueta}>
+              <span>Localidade</span>
+              <input className={campo} name="localidade" />
+            </label>
+          </div>
+
           <label className={etiqueta}>
             <span>Notas gerais (opcional)</span>
             <textarea className={`${campo} h-20`} name="notas" />

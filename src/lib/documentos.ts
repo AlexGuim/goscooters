@@ -18,6 +18,23 @@ const VAZIO: DadosDocumento = {
   nome: null, numero: null, nacionalidade: null, nascimento: null, validade: null, tipo: null,
 };
 
+/**
+ * Converte o código de país ISO-3 (da MRZ, ex. PRT) para ISO-2 (ex. PT), que é
+ * o formato guardado em motorista.pais_iso. Cobre os países mais comuns da base
+ * de motoristas (imigrantes) — devolve null se não estiver na tabela, para não
+ * meter lixo no campo (nesse caso preenche-se à mão).
+ */
+const ISO3_ISO2: Record<string, string> = {
+  PRT: "PT", BRA: "BR", BGD: "BD", IND: "IN", NPL: "NP", PAK: "PK", LKA: "LK",
+  AGO: "AO", GNB: "GW", CPV: "CV", STP: "ST", MOZ: "MZ", ESP: "ES", FRA: "FR",
+  ITA: "IT", ROU: "RO", UKR: "UA", MAR: "MA", DZA: "DZ", SEN: "SN", NGA: "NG",
+  GBR: "GB", DEU: "DE", VEN: "VE", COL: "CO", GEO: "GE", MDA: "MD", TUN: "TN",
+};
+export function iso3ParaIso2(iso3: string | null | undefined): string | null {
+  if (!iso3) return null;
+  return ISO3_ISO2[iso3.toUpperCase()] ?? null;
+}
+
 /** YYMMDD → ISO. `futuro` (validade) assume século 2000; senão infere. */
 function dataMRZ(s: string, futuro: boolean): string | null {
   if (!/^\d{6}$/.test(s)) return null;

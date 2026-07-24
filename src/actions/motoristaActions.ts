@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
-import type { AvaliacaoTipo, Motorista } from "@/types/db";
+import type { AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
 
 /** NIF português: 9 dígitos com checksum mod-11. */
 function nifValidoPT(nif: string): boolean {
@@ -68,6 +68,16 @@ export interface CriarMotoristaInput {
   email?: string;
   plataforma?: string;
   notas?: string;
+  // KYC opcional já na criação (colunas de fase1_nucleo).
+  nif?: string | null;
+  pais_iso?: string | null;
+  morada_linha1?: string | null;
+  codigo_postal?: string | null;
+  localidade?: string | null;
+  data_nascimento?: string | null;
+  doc_id_tipo?: DocIdTipo | null;
+  doc_id_numero?: string | null;
+  doc_id_validade?: string | null;
 }
 
 export async function criarMotorista(
@@ -99,15 +109,29 @@ export async function criarMotorista(
     };
   }
 
+  const nif = input.nif?.trim() || null;
+  const nifDigitos = (nif ?? "").replace(/\D/g, "");
+
   const { data, error } = await supabaseAdmin
     .from("motorista")
     .insert({
       nome,
       telefone,
       telefone_digitos: digitos,
+      telefone_e164: paraE164(telefone),
       email: input.email?.trim() || null,
       plataforma: input.plataforma?.trim() || null,
       notas: input.notas?.trim() || null,
+      nif,
+      nif_valido: nifDigitos.length === 9 ? nifValidoPT(nif ?? "") : null,
+      pais_iso: input.pais_iso?.trim().toUpperCase() || null,
+      morada_linha1: input.morada_linha1?.trim() || null,
+      codigo_postal: input.codigo_postal?.trim() || null,
+      localidade: input.localidade?.trim() || null,
+      data_nascimento: input.data_nascimento || null,
+      doc_id_tipo: input.doc_id_tipo || null,
+      doc_id_numero: input.doc_id_numero?.trim() || null,
+      doc_id_validade: input.doc_id_validade || null,
     })
     .select("id")
     .single();
@@ -134,6 +158,7 @@ export type MotoristaEditavel = Partial<
     | "morada_linha1"
     | "codigo_postal"
     | "localidade"
+    | "data_nascimento"
     | "estado"
     | "idioma_preferido"
     | "iban"

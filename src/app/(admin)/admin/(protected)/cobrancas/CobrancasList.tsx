@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import type { EstadoLiquidacao, PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
+import type { CobrancaTipo, EstadoLiquidacao, PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import { registarPagamento, type AlocacaoInput } from "@/actions/pagamentoActions";
 
@@ -25,6 +25,7 @@ export interface CobrancaPainel {
   em_falta: string;
   em_atraso: boolean;
   estado_liquidacao: EstadoLiquidacao;
+  tipo: CobrancaTipo;
 }
 
 const campo =
@@ -34,11 +35,17 @@ const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 const hoje = () => new Date().toISOString().slice(0, 10);
 const dataCurta = (d: string) => d.slice(8, 10) + "/" + d.slice(5, 7);
 
+const TIPO_ROTULO: Partial<Record<CobrancaTipo, string>> = {
+  caucao: "caução",
+  extra: "coima / extra",
+};
+
 function linkWhatsapp(c: CobrancaPainel): string | null {
   const num = (c.motorista_e164 || c.motorista_telefone || "").replace(/\D/g, "");
   if (!num) return null;
+  const oQue = c.tipo === "renda" ? "a renda" : `um valor (${TIPO_ROTULO[c.tipo] ?? c.tipo})`;
   const texto = encodeURIComponent(
-    `Olá ${c.motorista_nome}, lembrete de pagamento: a renda da mota ${c.veiculo_matricula} ` +
+    `Olá ${c.motorista_nome}, lembrete de pagamento: ${oQue} da mota ${c.veiculo_matricula} ` +
       `vence a ${dataCurta(c.data_vencimento)} — valor ${formatarPreco(c.em_falta)}. Obrigado!`,
   );
   return `https://wa.me/${num}?text=${texto}`;
@@ -51,39 +58,47 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   // Captura o "agora" uma vez (montagem) para o cálculo ser puro no render.
   const [agora] = useState(() => Date.now());
 
-  const em7dias = useCallback(
-    (d: string) => {
-      const diff = (new Date(d).getTime() - agora) / 86400000;
-      return diff >= 0 && diff <= 7;
-    },
-    [agora],
-  );
-
-  // Semana atual do negócio: domingo a sábado.
-  const semana = useMemo(() => {
+  // Janela de datas em formato ISO local (comparação por string, imune a fuso).
+  const janela = useMemo(() => {
     const fmt = (x: Date) =>
       `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
-    const hoje = new Date(agora);
-    const dom = new Date(hoje);
-    dom.setDate(hoje.getDate() - hoje.getDay());
-    const sab = new Date(dom);
-    sab.setDate(dom.getDate() + 6);
-    return { de: fmt(dom), ate: fmt(sab) };
+    const h = new Date(agora);
+    const mais7 = new Date(h);
+    mais7.setDate(h.getDate() + 7);
+    // Semana corrente segunda→domingo (convenção PT/ISO: 1=segunda … 7=domingo).
+    const dow = (h.getDay() + 6) % 7; // 0=segunda … 6=domingo
+    const seg = new Date(h);
+    seg.setDate(h.getDate() - dow);
+    const dom = new Date(seg);
+    dom.setDate(seg.getDate() + 6);
+    return { hoje: fmt(h), ate7: fmt(mais7), segunda: fmt(seg), domingo: fmt(dom) };
   }, [agora]);
+
+  const em7dias = useCallback(
+    (d: string) => {
+      const s = d.slice(0, 10);
+      return s >= janela.hoje && s <= janela.ate7;
+    },
+    [janela],
+  );
   const estaSemana = useCallback(
-    (d: string) => d.slice(0, 10) >= semana.de && d.slice(0, 10) <= semana.ate,
-    [semana],
+    (d: string) => {
+      const s = d.slice(0, 10);
+      return s >= janela.segunda && s <= janela.domingo;
+    },
+    [janela],
   );
 
   const resumo = useMemo(() => {
-    let atrasoV = 0, atrasoN = 0, vencerV = 0, vencerN = 0;
+    let atrasoV = 0, atrasoN = 0, vencerV = 0, vencerN = 0, semanaV = 0, semanaN = 0;
     for (const c of cobrancas) {
       const falta = Number(c.em_falta);
       if (c.em_atraso) { atrasoV += falta; atrasoN++; }
       else if (em7dias(c.data_vencimento)) { vencerV += falta; vencerN++; }
+      if (estaSemana(c.data_vencimento)) { semanaV += falta; semanaN++; }
     }
-    return { atrasoV, atrasoN, vencerV, vencerN };
-  }, [cobrancas, em7dias]);
+    return { atrasoV, atrasoN, vencerV, vencerN, semanaV, semanaN };
+  }, [cobrancas, em7dias, estaSemana]);
 
   const filtradas = cobrancas.filter((c) => {
     if (filtro === "atraso") return c.em_atraso;
@@ -119,11 +134,16 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   return (
     <div className="space-y-6">
       {/* Resumo */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-3xl bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Em atraso</p>
           <p className="mt-1 text-2xl font-bold text-red-600">{formatarPreco(resumo.atrasoV)}</p>
           <p className="text-xs text-slate-500">{resumo.atrasoN} cobrança(s)</p>
+        </div>
+        <div className="rounded-3xl bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Vence esta semana</p>
+          <p className="mt-1 text-2xl font-bold text-emerald-600">{formatarPreco(resumo.semanaV)}</p>
+          <p className="text-xs text-slate-500">{resumo.semanaN} cobrança(s)</p>
         </div>
         <div className="rounded-3xl bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">A vencer (7 dias)</p>
@@ -138,7 +158,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
       </div>
 
       <div className="flex gap-2">
-        {([["atraso", "Em atraso"], ["vencer", "A vencer"], ["semana", "Esta semana"], ["todas", "Todas as abertas"]] as const).map(
+        {([["atraso", "Em atraso"], ["semana", "Vence esta semana"], ["vencer", "A vencer (7 dias)"], ["todas", "Todas as abertas"]] as const).map(
           ([v, r]) => (
             <button
               key={v}
@@ -193,9 +213,16 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                           parcial
                         </span>
                       )}
+                      {c.tipo !== "renda" && (
+                        <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
+                          {TIPO_ROTULO[c.tipo] ?? c.tipo}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-slate-500">
-                      {c.veiculo_matricula} · semana {dataCurta(c.periodo_inicio)}–{dataCurta(c.periodo_fim)}
+                      {c.tipo === "renda"
+                        ? `${c.veiculo_matricula} · semana ${dataCurta(c.periodo_inicio)}–${dataCurta(c.periodo_fim)}`
+                        : `${c.veiculo_matricula} · ${TIPO_ROTULO[c.tipo] ?? c.tipo} · ${dataCurta(c.periodo_inicio)}`}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type {
   Despesa,
   DespesaCategoria,
@@ -16,6 +16,7 @@ import {
   atualizarDespesa,
   eliminarDespesa,
 } from "@/actions/despesaActions";
+import { registarCoima, resolverCondutor } from "@/actions/coimaActions";
 
 export interface DespesaComNomes extends Despesa {
   veiculo_matricula: string | null;
@@ -236,11 +237,31 @@ function FormDespesa({
   const [imputarA, setImputarA] = useState<ImputarA>(
     despesa?.imputar_a ?? IMPUTAR_PADRAO["manutencao"],
   );
+  const formRef = useRef<HTMLFormElement>(null);
+  const [condutor, setCondutor] = useState<{ ok: boolean; nome?: string; contrato?: string; error?: string } | null>(null);
+  const [aResolver, setAResolver] = useState(false);
 
   // Ao mudar a categoria, ajusta o "quem suporta" para o default dessa categoria.
   const trocarCategoria = (c: DespesaCategoria) => {
     setCategoria(c);
     setImputarA(IMPUTAR_PADRAO[c]);
+    setCondutor(null);
+  };
+
+  // Coima: descobre quem conduzia na data da infração (para o admin confirmar).
+  const sugerirCondutor = async () => {
+    const form = formRef.current;
+    if (!form) return;
+    const veiculoId = (form.elements.namedItem("veiculo_id") as HTMLSelectElement | null)?.value || "";
+    const dataInfr =
+      (form.elements.namedItem("data_infracao") as HTMLInputElement | null)?.value ||
+      (form.elements.namedItem("data_despesa") as HTMLInputElement | null)?.value || "";
+    if (!veiculoId) return setCondutor({ ok: false, error: "Escolhe primeiro o veículo." });
+    if (!dataInfr) return setCondutor({ ok: false, error: "Indica a data da infração." });
+    setAResolver(true);
+    const r = await resolverCondutor(veiculoId, dataInfr);
+    setAResolver(false);
+    setCondutor(r.ok ? { ok: true, nome: r.motorista_nome, contrato: r.contrato_numero } : { ok: false, error: r.error });
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -250,6 +271,62 @@ function FormDespesa({
     setAGravar(true);
 
     const veiculoId = String(dados.get("veiculo_id") ?? "") || null;
+
+    // Coima nova → procedimento automático (imputa ao motorista, gera dívida,
+    // notifica). Editar uma coima existente segue o fluxo normal de despesa.
+    if (!aEditar && categoria === "coima") {
+      try {
+        const r = await registarCoima({
+          veiculo_id: veiculoId,
+          valor: String(dados.get("valor") ?? "").replace(",", "."),
+          iva: String(dados.get("iva") ?? "").replace(",", ".") || null,
+          descricao: String(dados.get("descricao") ?? "").trim() || null,
+          data_despesa: String(dados.get("data_despesa") ?? ""),
+          data_infracao: String(dados.get("data_infracao") ?? "") || null,
+          pontos: dados.get("pontos") ? Number(dados.get("pontos")) : null,
+          fornecedor: String(dados.get("fornecedor") ?? "").trim() || null,
+          referencia_externa: String(dados.get("referencia_externa") ?? "").trim() || null,
+          data_vencimento: String(dados.get("data_vencimento") ?? "") || null,
+          gerar_divida: dados.get("gerar_divida") === "on",
+          notificar: dados.get("notificar") === "on",
+        });
+        setAGravar(false);
+        if (!r.success) return setErro(r.error ?? "Erro ao gravar a coima.");
+
+        const resumo: string[] = [];
+        if (r.motorista_nome) resumo.push(`Condutor: ${r.motorista_nome}${r.contrato_numero ? ` (${r.contrato_numero})` : ""}`);
+        if (r.divida_gerada) resumo.push(`Dívida ao motorista: ${formatarPreco(r.valor_divida ?? "0")}`);
+        if (r.notificado && r.notificado !== "nenhum") resumo.push(`Motorista notificado (${r.notificado})`);
+        if (r.aviso) resumo.push(r.aviso);
+        if (resumo.length) alert(resumo.join("\n"));
+
+        const dono = veiculoId ? motos.find((m) => m.id === veiculoId)?.proprietario_id ?? null : null;
+        const valorN = Number(String(dados.get("valor") ?? "").replace(",", "."));
+        const ivaN = Number(String(dados.get("iva") ?? "").replace(",", ".")) || 0;
+        onSaved({
+          ...({ created_at: new Date().toISOString() } as DespesaComNomes),
+          id: r.id ?? "",
+          veiculo_id: veiculoId,
+          categoria: "coima",
+          descricao: String(dados.get("descricao") ?? "").trim() || "Coima",
+          valor: String(valorN),
+          iva: ivaN ? String(ivaN) : null,
+          valor_total: String(valorN + ivaN),
+          data_despesa: String(dados.get("data_despesa") ?? ""),
+          imputar_a: "motorista",
+          estado_pagamento: "pendente",
+          proprietario_id: dono,
+          veiculo_matricula: veiculoId ? motos.find((m) => m.id === veiculoId)?.matricula ?? "—" : null,
+          proprietario_nome: proprietarios.find((p) => p.id === dono)?.nome ?? null,
+        } as DespesaComNomes);
+      } catch (err) {
+        console.error(err);
+        setErro("Erro inesperado. Tenta novamente.");
+        setAGravar(false);
+      }
+      return;
+    }
+
     const base = {
       veiculo_id: veiculoId,
       categoria: String(dados.get("categoria") ?? "outro") as DespesaCategoria,
@@ -319,7 +396,7 @@ function FormDespesa({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={etiqueta}>
               <span>Categoria</span>
@@ -364,6 +441,57 @@ function FormDespesa({
             <span>Descrição</span>
             <input className={campo} name="descricao" defaultValue={despesa?.descricao ?? ""} placeholder="Ex.: mudança de óleo e travões" />
           </label>
+
+          {!aEditar && categoria === "coima" && (
+            <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                Coima — procedimento automático
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={etiqueta}>
+                  <span>Data da infração</span>
+                  <input className={campo} name="data_infracao" type="date" />
+                </label>
+                <label className={etiqueta}>
+                  <span>Pontos (se aplicável)</span>
+                  <input className={campo} name="pontos" type="number" min="0" step="1" />
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={sugerirCondutor}
+                  disabled={aResolver}
+                  className="rounded-2xl border border-amber-300 bg-white px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                >
+                  {aResolver ? "A procurar…" : "Sugerir condutor"}
+                </button>
+                {condutor &&
+                  (condutor.ok ? (
+                    <span className="text-sm text-emerald-700">
+                      Condutor: <strong>{condutor.nome}</strong>
+                      {condutor.contrato ? ` · ${condutor.contrato}` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-red-700">{condutor.error}</span>
+                  ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-white p-3">
+                  <input className="h-4 w-4 accent-emerald-600" type="checkbox" name="gerar_divida" defaultChecked />
+                  <span className="text-sm text-slate-700">Gerar dívida ao motorista</span>
+                </label>
+                <label className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-white p-3">
+                  <input className="h-4 w-4 accent-emerald-600" type="checkbox" name="notificar" />
+                  <span className="text-sm text-slate-700">Notificar o motorista</span>
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">
+                A coima é imputada ao motorista (reembolso — não entra na comissão). Se gerares a
+                dívida, ela aparece nas Cobranças e liquida-se como qualquer outra.
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={etiqueta}>

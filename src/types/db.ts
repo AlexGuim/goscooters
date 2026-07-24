@@ -264,6 +264,10 @@ export type Despesa = {
   detalhe: unknown | null;
   documento_id: string | null;
   origem: DespesaOrigem;
+  // Coima (fase3f): data da infração, pontos e elo à dívida gerada ao motorista.
+  data_infracao: string | null;
+  pontos: number | null;
+  cobranca_id: string | null;
   created_at: string;
 };
 

@@ -7,12 +7,14 @@ import { dataBR } from "@/lib/datas";
 import DanoForm from "./DanoForm";
 
 interface Dano { zona?: string; nota?: string }
+interface Material { key?: string; rotulo?: string; qtd?: number; entregue?: boolean; devolvido?: boolean }
 interface VistoriaPrep {
   realizada_em: string;
   km: number | null;
   combustivel: number | null;
   notas: string | null;
   danos: Dano[];
+  materiais: Material[];
   fotos: string[];
   video: string | null;
   assinatura: string | null;
@@ -26,7 +28,7 @@ async function sign(path: string | null): Promise<string | null> {
 
 async function prep(v: Record<string, unknown> | null): Promise<VistoriaPrep | null> {
   if (!v) return null;
-  const checklist = (v.checklist ?? {}) as { danos?: Dano[] };
+  const checklist = (v.checklist ?? {}) as { danos?: Dano[]; materiais?: Material[] };
   const fotos = (await Promise.all(((v.foto_urls as string[]) ?? []).map(sign))).filter(Boolean) as string[];
   return {
     realizada_em: v.realizada_em as string,
@@ -34,6 +36,7 @@ async function prep(v: Record<string, unknown> | null): Promise<VistoriaPrep | n
     combustivel: (v.nivel_combustivel as number) ?? null,
     notas: (v.notas as string) ?? null,
     danos: checklist.danos ?? [],
+    materiais: checklist.materiais ?? [],
     fotos,
     video: await sign((v.video_url as string) ?? null),
     assinatura: await sign((v.assinatura_cliente_url as string) ?? null),
@@ -110,13 +113,13 @@ export default async function VistoriaComparacao({
       {/* Comparação */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Coluna titulo="Entrega" v={entrega} />
-        <Coluna titulo="Recolha" v={recolha} />
+        <Coluna titulo="Recolha" v={recolha} recolha />
       </div>
     </div>
   );
 }
 
-function Coluna({ titulo, v }: { titulo: string; v: VistoriaPrep | null }) {
+function Coluna({ titulo, v, recolha }: { titulo: string; v: VistoriaPrep | null; recolha?: boolean }) {
   return (
     <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-5">
       <div className="flex items-baseline justify-between">
@@ -151,6 +154,20 @@ function Coluna({ titulo, v }: { titulo: string; v: VistoriaPrep | null }) {
               {v.danos.map((d, i) => (
                 <p key={i} className="text-sm text-slate-600">• {[d.zona, d.nota].filter(Boolean).join(" — ")}</p>
               ))}
+            </div>
+          )}
+          {v.materiais.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Materiais</p>
+              {v.materiais.map((m, i) => {
+                const emFalta = recolha && m.entregue !== false && !m.devolvido;
+                return (
+                  <p key={i} className={`flex justify-between gap-3 text-sm ${emFalta ? "text-red-600" : "text-slate-600"}`}>
+                    <span>{m.rotulo || "—"}{m.qtd && m.qtd > 1 ? ` ×${m.qtd}` : ""}</span>
+                    <span>{recolha ? (m.devolvido ? "devolvido" : "em falta") : m.entregue === false ? "não entregue" : "entregue"}</span>
+                  </p>
+                );
+              })}
             </div>
           )}
           {v.notas && <p className="text-sm text-slate-500">{v.notas}</p>}
