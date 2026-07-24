@@ -136,7 +136,12 @@ export async function criarUploadPorToken(
   if (!s) return { ok: false, error: "Link inválido ou expirado." };
   if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento." };
 
-  const ext = (nomeFicheiro.split(".").pop() ?? "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const ext = (nomeFicheiro.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Allowlist no servidor: o cliente controla o nome, por isso a validação de
+  // tipo do uploads.ts (browser) não basta. O bucket reforça tipo/tamanho.
+  if (!["pdf", "jpg", "jpeg", "png", "webp"].includes(ext)) {
+    return { ok: false, error: "Formato não suportado — usa foto (JPG/PNG) ou PDF." };
+  }
   const caminho = `entregas/${s.id}/${randomBytes(8).toString("hex")}.${ext}`;
   const { data, error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).createSignedUploadUrl(caminho);
   if (error || !data) {
@@ -167,6 +172,15 @@ export async function concluirPorToken(
   if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento." };
   if (!input.regras_versao) return { ok: false, error: "Falta aceitar as regras." };
 
+  // A prova das regras é carimbada pelo SERVIDOR (a versão/hash reais da regra
+  // ativa), nunca pelo que o cliente diz — senão a prova seria repudiável.
+  const { data: regra } = await supabaseAdmin
+    .from("regras_aluguer")
+    .select("versao, hash")
+    .eq("ativa", true)
+    .maybeSingle();
+  if (!regra) return { ok: false, error: "Regras não configuradas." };
+
   const h = await headers();
   const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
   const ua = h.get("user-agent") ?? null;
@@ -189,8 +203,8 @@ export async function concluirPorToken(
     docs: input.doc_paths,
     assinatura_path: input.assinatura_path,
     regras: {
-      versao: input.regras_versao,
-      hash: input.regras_hash ?? null,
+      versao: regra.versao, // do servidor, não do cliente
+      hash: regra.hash,
       aceite: true,
       em: agora,
       ip,
