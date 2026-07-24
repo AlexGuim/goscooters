@@ -16,6 +16,7 @@ import {
   gerarCobrancas,
   terminarContrato,
 } from "@/actions/contratoActions";
+import { criarSessaoEntrega } from "@/actions/entregaActions";
 
 export interface ContratoComNomes extends ContratoAluguer {
   motorista_nome: string;
@@ -110,6 +111,20 @@ export default function ContratosList({
         ),
       );
       alert(`${r.geradas ?? 0} cobrança(s) nova(s) gerada(s).`);
+    } else {
+      alert(r.error);
+    }
+  };
+
+  const handleLink = async (c: ContratoComNomes) => {
+    setAGerar(c.id);
+    const r = await criarSessaoEntrega(c.id);
+    setAGerar(null);
+    if (r.success && r.link) {
+      window.prompt(
+        "Link de preparação (válido 72h). Copia e envia ao motorista por WhatsApp:",
+        r.link,
+      );
     } else {
       alert(r.error);
     }
@@ -212,6 +227,13 @@ export default function ContratosList({
                       {aGerar === c.id ? "A gerar..." : "Gerar cobranças"}
                     </button>
                   )}
+                  <button
+                    className="text-xs font-semibold text-slate-600 transition hover:text-slate-900 disabled:opacity-50"
+                    onClick={() => handleLink(c)}
+                    disabled={aGerar === c.id}
+                  >
+                    Link ao motorista
+                  </button>
                   <Link
                     href={`/admin/contratos/${c.id}/entrega`}
                     className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"

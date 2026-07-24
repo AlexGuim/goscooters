@@ -1,5 +1,6 @@
 import { supabaseBrowser } from "@/lib/supabaseClient";
 import { criarUploadAssinado, criarUploadPrivado } from "@/actions/fotoActions";
+import { criarUploadPorToken } from "@/actions/entregaActions";
 
 const BUCKET = "motas";
 const BUCKET_PRIVADO = "privado";
@@ -127,6 +128,46 @@ export async function enviarAssinaturaPrivada(
 
 export const DOC_TAMANHO_MAXIMO = 15 * 1024 * 1024; // 15 MB
 export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+
+// ── Upload autorizado por TOKEN de entrega (motorista, sem conta) ────────────
+async function enviarPorToken(
+  token: string,
+  ficheiro: Blob,
+  nome: string,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  const prep = await criarUploadPorToken(token, nome);
+  if (!prep.ok || !prep.path || !prep.uploadToken) {
+    return { success: false, error: prep.error ?? "Erro ao preparar o upload." };
+  }
+  const { error } = await supabaseBrowser.storage
+    .from(BUCKET_PRIVADO)
+    .uploadToSignedUrl(prep.path, prep.uploadToken, ficheiro);
+  if (error) {
+    console.error("uploadToSignedUrl (token) error:", error);
+    return { success: false, error: "Erro ao carregar. Tenta de novo." };
+  }
+  return { success: true, path: prep.path };
+}
+
+export async function enviarDocPorToken(
+  token: string,
+  ficheiro: File,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  if (!DOC_TIPOS.includes(ficheiro.type)) {
+    return { success: false, error: "Formato não suportado. Usa foto (JPG/PNG) ou PDF." };
+  }
+  if (ficheiro.size > DOC_TAMANHO_MAXIMO) {
+    return { success: false, error: `O ficheiro tem ${mb(ficheiro.size)} MB. O máximo é 15 MB.` };
+  }
+  return enviarPorToken(token, ficheiro, ficheiro.name);
+}
+
+export async function enviarAssinaturaPorToken(
+  token: string,
+  blob: Blob,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  return enviarPorToken(token, blob, "assinatura.png");
+}
 
 /** Envia uma fatura/documento (PDF ou imagem) e devolve o URL e o caminho. */
 export async function enviarDocumento(

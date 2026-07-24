@@ -298,6 +298,27 @@ export type RegrasAluguer = {
   created_at: string;
 };
 
+export type EntregaSessaoEstado =
+  | "enviado"
+  | "aberto"
+  | "docs_carregados"
+  | "concluido"
+  | "expirado"
+  | "cancelado";
+
+export type EntregaSessao = {
+  id: string;
+  token_hash: string;
+  contrato_id: string | null;
+  motorista_id: string | null;
+  estado: EntregaSessaoEstado;
+  dados: unknown | null;
+  consentimento_em: string | null;
+  expira_em: string;
+  concluido_em: string | null;
+  created_at: string;
+};
+
 export type AcertoLinha = {
   id: string;
   acerto_id: string;
@@ -604,6 +625,20 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<RegrasAluguer, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      entrega_sessao: {
+        Row: EntregaSessao;
+        Insert: Partial<Omit<EntregaSessao, "id" | "created_at">> & {
+          token_hash: string;
+          expira_em: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<EntregaSessao, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };
