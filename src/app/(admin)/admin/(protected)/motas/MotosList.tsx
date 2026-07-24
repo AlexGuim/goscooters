@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Moto, MotoEstado, Proprietario } from "@/types/db";
 import { updateMoto, deleteMoto } from "@/actions/motoActions";
+import { historicoAtivo, type HistoricoAtivo } from "@/actions/ativoActions";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
+import { dataBR } from "@/lib/datas";
 import pt from "@/dictionaries/pt.json";
 import MotoForm from "./MotoForm";
 
@@ -17,6 +19,7 @@ type Modal = { tipo: "criar" } | { tipo: "editar"; moto: Moto } | null;
 export default function MotosList({ initialMotas, proprietarios }: MotosListProps) {
   const [motas, setMotas] = useState(initialMotas);
   const [modal, setModal] = useState<Modal>(null);
+  const [pnl, setPnl] = useState<Moto | null>(null);
   const [aEliminar, setAEliminar] = useState<string | null>(null);
   const [filtroDono, setFiltroDono] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
@@ -242,6 +245,12 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
                   <td className="px-6 py-4">
                     <div className="flex justify-end gap-3">
                       <button
+                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
+                        onClick={() => setPnl(moto)}
+                      >
+                        P&L
+                      </button>
+                      <button
                         className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                         onClick={() => setModal({ tipo: "editar", moto })}
                       >
@@ -283,6 +292,119 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
           onSaved={handleSaved}
         />
       )}
+
+      {pnl && <ModalPnL moto={pnl} onClose={() => setPnl(null)} />}
+    </div>
+  );
+}
+
+function ModalPnL({ moto, onClose }: { moto: Moto; onClose: () => void }) {
+  const [dados, setDados] = useState<HistoricoAtivo | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    historicoAtivo(moto.id).then((r) => {
+      if (!vivo) return;
+      if (r.success && r.dados) setDados(r.dados);
+      else setErro(r.error ?? "Erro ao calcular.");
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [moto.id]);
+
+  const eur = (n: number | null) => (n == null ? "—" : formatarPreco(n));
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="my-8 w-full max-w-lg rounded-3xl bg-white p-6 shadow-lg sm:p-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-950">Histórico do ativo</h2>
+            <p className="text-sm text-slate-600">
+              {moto.matricula ?? "?"} · {moto.modelo}
+            </p>
+          </div>
+          <button
+            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
+            onClick={onClose}
+            type="button"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+
+        {erro && <p className="mt-6 text-sm text-red-700">{erro}</p>}
+        {!dados && !erro && <p className="mt-6 text-sm text-slate-500">A calcular…</p>}
+
+        {dados && (
+          <div className="mt-6 space-y-4">
+            <p className="text-xs text-slate-500">
+              Desde a aquisição
+              {dados.data_aquisicao ? ` (${dataBR(dados.data_aquisicao)})` : ""}
+              {dados.valor_aquisicao != null ? ` · valor ${eur(dados.valor_aquisicao)}` : ""}.
+              Regime de caixa (renda cobrada).
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Kpi rotulo="Receita acumulada" valor={eur(dados.receita)} cor="text-slate-950" />
+              <Kpi rotulo="Custos" valor={eur(dados.custo)} cor="text-red-600" />
+              <Kpi
+                rotulo="Resultado"
+                valor={eur(dados.resultado)}
+                cor={dados.resultado >= 0 ? "text-emerald-700" : "text-red-600"}
+              />
+              <Kpi
+                rotulo="ROI"
+                valor={dados.roi == null ? "—" : `${dados.roi}%`}
+                cor="text-slate-950"
+              />
+              <Kpi
+                rotulo="Custo / km"
+                valor={dados.custo_km == null ? "—" : eur(dados.custo_km)}
+                cor="text-slate-700"
+              />
+              <Kpi
+                rotulo="km percorridos"
+                valor={dados.km_percorridos == null ? "—" : dados.km_percorridos.toLocaleString("pt-PT")}
+                cor="text-slate-700"
+              />
+            </div>
+            {dados.valor_aquisicao != null && (
+              <p
+                className={`rounded-2xl px-4 py-3 text-sm font-semibold ${
+                  dados.recuperado
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-800"
+                }`}
+              >
+                {dados.recuperado
+                  ? "✓ O ativo já cobriu o valor de aquisição."
+                  : `Ainda por recuperar ${eur(Math.round((dados.valor_aquisicao - dados.resultado) * 100) / 100)} do valor de aquisição.`}
+              </p>
+            )}
+            <p className="text-xs text-slate-400">
+              {dados.n_rendas_pagas} renda(s) paga(s) · {dados.n_despesas} despesa(s).
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Kpi({ rotulo, valor, cor }: { rotulo: string; valor: string; cor: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <p className="text-xs text-slate-500">{rotulo}</p>
+      <p className={`mt-1 text-lg font-bold ${cor}`}>{valor}</p>
     </div>
   );
 }
