@@ -88,10 +88,16 @@ export async function atualizarProprietario(
  * Auth por email, liga-o ao proprietário (auth_user_id) e ativa o portal. O
  * parceiro recebe um email com um link que o autentica e o leva a /portal.
  */
+async function encontrarUtilizador(mail: string): Promise<string | null> {
+  const { data } = await supabaseAdmin.auth.admin.listUsers();
+  return data?.users.find((u) => u.email?.toLowerCase() === mail)?.id ?? null;
+}
+
 export async function convidarParceiro(
   proprietarioId: string,
   email: string,
-): Promise<{ success: boolean; error?: string }> {
+  password?: string,
+): Promise<{ success: boolean; error?: string; via?: "password" | "email" }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
@@ -99,32 +105,52 @@ export async function convidarParceiro(
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) {
     return { success: false, error: "Indica um email válido." };
   }
+  const pw = password?.trim() || "";
+  if (pw && pw.length < 6) {
+    return { success: false, error: "A palavra-passe tem de ter pelo menos 6 caracteres." };
+  }
 
-  const h = await headers();
-  const origin = h.get("origin") ?? `https://${h.get("host") ?? "goscooters.vercel.app"}`;
-  const redirectTo = `${origin}/auth/callback?next=/portal`;
-
-  // 1) Cria o utilizador Auth (ou reutiliza, se o email já existir).
   let userId: string | null = null;
-  const { data: convite, error: convErr } =
-    await supabaseAdmin.auth.admin.inviteUserByEmail(mail, { redirectTo });
+  const via: "password" | "email" = pw ? "password" : "email";
 
-  if (convErr) {
-    if (!/already|exist|registered/i.test(convErr.message)) {
-      console.error("convidarParceiro invite error:", convErr);
-      return { success: false, error: "Não foi possível enviar o convite." };
-    }
-    const { data: lista } = await supabaseAdmin.auth.admin.listUsers();
-    userId = lista?.users.find((u) => u.email?.toLowerCase() === mail)?.id ?? null;
-    if (!userId) {
-      return { success: false, error: "O email já existe mas não o encontrei no Supabase." };
+  if (pw) {
+    // Com palavra-passe: cria (ou define no existente) SEM enviar email — imune
+    // ao rate limit do email e permite entrar logo com email + palavra-passe.
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email: mail,
+      password: pw,
+      email_confirm: true,
+    });
+    if (error) {
+      if (!/already|exist|registered/i.test(error.message)) {
+        console.error("convidarParceiro createUser error:", error);
+        return { success: false, error: "Não foi possível criar o acesso." };
+      }
+      userId = await encontrarUtilizador(mail);
+      if (userId) await supabaseAdmin.auth.admin.updateUserById(userId, { password: pw });
+    } else {
+      userId = data.user?.id ?? null;
     }
   } else {
-    userId = convite.user?.id ?? null;
+    // Sem palavra-passe: convite por email (link de acesso).
+    const h = await headers();
+    const origin = h.get("origin") ?? `https://${h.get("host") ?? "goscooters.vercel.app"}`;
+    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(mail, {
+      redirectTo: `${origin}/auth/callback?next=/portal`,
+    });
+    if (error) {
+      if (!/already|exist|registered/i.test(error.message)) {
+        console.error("convidarParceiro invite error:", error);
+        return { success: false, error: "Não foi possível enviar o convite (verifica o SMTP no Supabase)." };
+      }
+      userId = await encontrarUtilizador(mail);
+    } else {
+      userId = data.user?.id ?? null;
+    }
   }
-  if (!userId) return { success: false, error: "Não obtive o utilizador do convite." };
 
-  // 2) Liga ao proprietário e ativa o portal.
+  if (!userId) return { success: false, error: "Não consegui obter o utilizador do parceiro." };
+
   const { error: upErr } = await supabaseAdmin
     .from("proprietario")
     .update({ auth_user_id: userId, portal_ativo: true, email: mail })
@@ -135,7 +161,7 @@ export async function convidarParceiro(
   }
 
   revalidatePath("/admin/proprietarios");
-  return { success: true };
+  return { success: true, via };
 }
 
 /** Revoga o acesso do parceiro ao portal (mantém o vínculo Auth). */

@@ -46,16 +46,25 @@ export default function ProprietariosList({
   const [aConvidar, setAConvidar] = useState<string | null>(null);
 
   const convidar = async (d: ProprietarioComContagem) => {
-    const email = window.prompt("Email do parceiro para o convite ao portal:", d.email ?? "");
+    const email = window.prompt("Email do parceiro para o acesso ao portal:", d.email ?? "");
     if (!email) return;
+    const password = window.prompt(
+      "Palavra-passe para o parceiro (mín. 6 caracteres).\n\nDeixa VAZIO para enviar um link por email.",
+      "",
+    );
+    if (password === null) return; // cancelou
     setAConvidar(d.id);
-    const r = await convidarParceiro(d.id, email);
+    const r = await convidarParceiro(d.id, email, password || undefined);
     setAConvidar(null);
     if (r.success) {
       setDonos((atuais) =>
         atuais.map((x) => (x.id === d.id ? { ...x, portal_ativo: true, email } : x)),
       );
-      alert("Convite enviado — o parceiro recebe um email com o link de acesso.");
+      alert(
+        r.via === "password"
+          ? "Acesso criado. Dá ao parceiro o email + palavra-passe; ele pode alterá-la no portal."
+          : "Convite enviado — o parceiro recebe um email com o link de acesso.",
+      );
     } else {
       alert(r.error);
     }

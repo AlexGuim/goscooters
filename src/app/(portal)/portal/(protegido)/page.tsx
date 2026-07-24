@@ -63,8 +63,8 @@ export default async function PortalDashboard() {
       </section>
 
       <p className="rounded-3xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
-        Em breve: os teus <strong>acertos mensais</strong> com extrato, e o{" "}
-        <strong>histórico financeiro</strong> de cada moto (receita, custos e retorno).
+        Consulta os teus <strong>acertos mensais</strong> na aba <strong>Acertos</strong>. Em
+        breve: o <strong>histórico financeiro</strong> de cada moto (receita, custos e retorno).
       </p>
     </div>
   );
