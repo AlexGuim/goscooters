@@ -37,8 +37,13 @@ export interface AcertoPreview {
   periodo_inicio: string;
   periodo_fim: string;
   receita_total: number;
+  /** Parte da receita efetivamente cobrada PELA GoScooters (0 se paga direto). */
+  receita_goscooters: number;
   comissao_total: number;
   despesa_total: number;
+  /** Renda paga direto na conta do parceiro (inverte o sentido do líquido). */
+  pago_direto: boolean;
+  /** Positivo = a transferir ao parceiro; negativo = o parceiro deve à GoScooters. */
   liquido: number;
   linhas: AcertoLinhaPreview[];
 }
@@ -58,9 +63,11 @@ async function computar(
   inicio: string,
   fim: string,
 ): Promise<{ ok: true; preview: AcertoPreview } | { ok: false; error: string }> {
+  // Select amplo (*) para ser tolerante a colunas recentes ainda não migradas
+  // (ex.: recebe_pagamento_direto) — assim o acerto não parte antes da SQL.
   const { data: dono } = await supabaseAdmin
     .from("proprietario")
-    .select("id, nome, comissao_valor, eh_goscooters")
+    .select("*")
     .eq("id", proprietarioId)
     .maybeSingle();
   if (!dono) return { ok: false, error: "Proprietário não encontrado." };
@@ -72,6 +79,9 @@ async function computar(
       error: "A GoScooters (frota própria) não gera acerto — vê o Financeiro/Despesas.",
     };
   }
+  // Renda paga direto na conta do parceiro: a GoScooters não cobrou esta receita,
+  // por isso o extrato mostra só o que o parceiro DEVE (comissão + despesas).
+  const pagoDireto = !!dono.recebe_pagamento_direto;
 
   const { data: veiculos } = await supabaseAdmin
     .from("moto")
@@ -111,15 +121,20 @@ async function computar(
         c.veiculo_id,
         (comissaoPorVeiculo.get(c.veiculo_id) ?? 0) + com,
       );
-      linhas.push({
-        tipo: "receita",
-        descricao: `Renda ${dataCurtaBR(c.periodo_inicio)}–${dataCurtaBR(c.periodo_fim)}`,
-        matricula: matDe.get(c.veiculo_id) ?? null,
-        veiculo_id: c.veiculo_id,
-        cobranca_id: c.id,
-        despesa_id: null,
-        valor: pago,
-      });
+      // Só emitir a linha de renda (positiva) quando a GoScooters a cobrou. No
+      // pago direto a renda é do parceiro; as linhas ficam só comissão+despesa,
+      // para o somatório do extrato bater certo com o líquido (que é negativo).
+      if (!pagoDireto) {
+        linhas.push({
+          tipo: "receita",
+          descricao: `Renda ${dataCurtaBR(c.periodo_inicio)}–${dataCurtaBR(c.periodo_fim)}`,
+          matricula: matDe.get(c.veiculo_id) ?? null,
+          veiculo_id: c.veiculo_id,
+          cobranca_id: c.id,
+          despesa_id: null,
+          valor: pago,
+        });
+      }
     }
   }
 
@@ -169,7 +184,12 @@ async function computar(
   const receitaTotal = Math.round(receita * 100) / 100;
   comissaoTotal = Math.round(comissaoTotal * 100) / 100;
   despesaTotal = Math.round(despesaTotal * 100) / 100;
-  const liquido = Math.round((receitaTotal - comissaoTotal - despesaTotal) * 100) / 100;
+
+  // No pago direto a GoScooters não cobrou a receita → líquido negativo (o
+  // parceiro deve comissão + despesas). Caso normal: a GoScooters cobrou tudo.
+  const receitaGoscooters = pagoDireto ? 0 : receitaTotal;
+  const liquido =
+    Math.round((receitaGoscooters - comissaoTotal - despesaTotal) * 100) / 100;
 
   return {
     ok: true,
@@ -180,8 +200,10 @@ async function computar(
       periodo_inicio: inicio,
       periodo_fim: fim,
       receita_total: receitaTotal,
+      receita_goscooters: receitaGoscooters,
       comissao_total: comissaoTotal,
       despesa_total: despesaTotal,
+      pago_direto: pagoDireto,
       liquido,
       linhas,
     },
@@ -239,8 +261,10 @@ export async function fecharAcerto(
       periodo_inicio: p.periodo_inicio,
       periodo_fim: p.periodo_fim,
       receita_total: String(p.receita_total),
-      comissao_total: String(p.comissao_total),
+      receita_goscooters: String(p.receita_goscooters),
       despesa_total: String(p.despesa_total),
+      comissao_total: String(p.comissao_total),
+      pago_direto: p.pago_direto,
       liquido: String(p.liquido),
       estado: "fechado",
       fechado_por: auth.user.email ?? null,

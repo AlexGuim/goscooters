@@ -185,11 +185,26 @@ export default function AcertosList({
 
         {preview && (
           <div className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            {preview.pago_direto && (
+              <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                A renda deste parceiro é paga <strong>diretamente na conta dele</strong> — a
+                GoScooters não cobra esta receita. O acerto é o que o <strong>parceiro deve à
+                GoScooters</strong> (comissão{preview.despesa_total > 0 ? " + despesas" : ""}).
+              </p>
+            )}
             <div className="grid gap-3 sm:grid-cols-4">
-              <Tile rotulo="Receita" valor={preview.receita_total} cor="text-slate-950" />
+              <Tile
+                rotulo={preview.pago_direto ? "Receita (paga ao parceiro)" : "Receita"}
+                valor={preview.receita_total}
+                cor="text-slate-950"
+              />
               <Tile rotulo="Comissão" valor={-preview.comissao_total} cor="text-amber-700" />
               <Tile rotulo="Despesas" valor={-preview.despesa_total} cor="text-red-600" />
-              <Tile rotulo="Líquido a transferir" valor={preview.liquido} cor="text-emerald-700" forte />
+              {preview.liquido >= 0 ? (
+                <Tile rotulo="Líquido a transferir" valor={preview.liquido} cor="text-emerald-700" forte />
+              ) : (
+                <Tile rotulo="Parceiro deve à GoScooters" valor={-preview.liquido} cor="text-red-600" forte />
+              )}
             </div>
 
             {preview.linhas.length > 0 && (
@@ -247,12 +262,17 @@ export default function AcertosList({
                   </div>
                   <p className="text-xs text-slate-500">
                     Receita {formatarPreco(a.receita_total)} · Comissão {formatarPreco(a.comissao_total)} · Despesas {formatarPreco(a.despesa_total)}
+                    {a.pago_direto ? " · renda paga direto ao parceiro" : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <p className="text-xs text-slate-500">Líquido</p>
-                    <p className="text-lg font-bold text-emerald-700">{formatarPreco(a.liquido)}</p>
+                    <p className="text-xs text-slate-500">
+                      {Number(a.liquido) >= 0 ? "A transferir" : "Parceiro deve"}
+                    </p>
+                    <p className={`text-lg font-bold ${Number(a.liquido) >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {formatarPreco(Math.abs(Number(a.liquido)))}
+                    </p>
                   </div>
                   {a.estado === "fechado" && (
                     <span

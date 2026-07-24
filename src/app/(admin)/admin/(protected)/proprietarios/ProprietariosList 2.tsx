@@ -169,7 +169,6 @@ function FormProprietario({
 }) {
   const aEditar = Boolean(dono);
   const [ehGo, setEhGo] = useState(dono?.eh_goscooters ?? false);
-  const [recebeDireto, setRecebeDireto] = useState(dono?.recebe_pagamento_direto ?? false);
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -190,7 +189,6 @@ function FormProprietario({
       iban: String(dados.get("iban") ?? "").trim() || null,
       comissao_valor: ehGo ? null : comissao,
       eh_goscooters: ehGo,
-      recebe_pagamento_direto: ehGo ? false : recebeDireto,
       tipo_parceiro: String(dados.get("tipo_parceiro") ?? "gerido") as
         | "gerido"
         | "anunciante",
@@ -310,18 +308,6 @@ function FormProprietario({
                   <option value="gerido">Gerido (GoScooters gere)</option>
                   <option value="anunciante">Anunciante (só divulga)</option>
                 </select>
-              </label>
-              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
-                <input
-                  className="mt-0.5 h-4 w-4 accent-emerald-600"
-                  type="checkbox"
-                  checked={recebeDireto}
-                  onChange={(e) => setRecebeDireto(e.target.checked)}
-                />
-                <span className="text-sm text-slate-700">
-                  A renda é paga <strong>diretamente na conta do parceiro</strong>. No acerto,
-                  o parceiro deve a comissão (e reembolsos) à GoScooters, em vez de receber o líquido.
-                </span>
               </label>
             </div>
           )}

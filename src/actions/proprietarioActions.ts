@@ -21,6 +21,7 @@ export interface CriarProprietarioInput {
   // numeric no Postgres → guardado como string, como os preços.
   comissao_valor?: string | number | null;
   eh_goscooters?: boolean;
+  recebe_pagamento_direto?: boolean;
   tipo_parceiro?: "gerido" | "anunciante";
 }
 
@@ -44,6 +45,7 @@ export async function criarProprietario(
       comissao_modelo: "percentagem",
       comissao_valor: input.comissao_valor != null ? String(input.comissao_valor) : null,
       eh_goscooters: input.eh_goscooters ?? false,
+      recebe_pagamento_direto: input.recebe_pagamento_direto ?? false,
       tipo_parceiro: input.tipo_parceiro ?? "gerido",
     })
     .select("id")

@@ -110,6 +110,8 @@ export type Proprietario = {
   morada: string | null;
   /** Frota própria do GoScooters: não gera acerto com terceiros. */
   eh_goscooters: boolean;
+  /** true = a renda é paga direto na conta do parceiro (inverte o acerto). */
+  recebe_pagamento_direto: boolean;
   saldo_inicial: string;
   comissao_modelo: ComissaoModelo | null;
   /** % de comissão base (ou valor fixo, conforme o modelo). */
@@ -269,8 +271,12 @@ export type Acerto = {
   periodo_inicio: string;
   periodo_fim: string;
   receita_total: string;
+  /** Parte da receita cobrada pela GoScooters (0 se paga direto ao parceiro). */
+  receita_goscooters: string;
   comissao_total: string;
   despesa_total: string;
+  /** Renda paga direto ao parceiro (o líquido fica negativo = parceiro deve). */
+  pago_direto: boolean;
   liquido: string;
   estado: AcertoEstado;
   fechado_em: string | null;
