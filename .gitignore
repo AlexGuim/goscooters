@@ -46,3 +46,9 @@ next-env.d.ts
 /docs/historico
 *.csv
 /docs/ARQUITETURA.md
+
+# Duplicados de sincronizacao (macOS/iCloud/Dropbox) — nao versionar
+* 2.ts
+* 2.tsx
+* 2.js
+* 2.jsx
