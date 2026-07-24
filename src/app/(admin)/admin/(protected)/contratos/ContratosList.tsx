@@ -239,12 +239,30 @@ export default function ContratosList({
                   >
                     Link ao motorista
                   </button>
-                  <Link
-                    href={`/admin/contratos/${c.id}/entrega`}
-                    className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                  >
-                    Entregar
-                  </Link>
+                  {c.estado !== "concluido" && c.estado !== "cancelado" && (
+                    <Link
+                      href={`/admin/contratos/${c.id}/entrega`}
+                      className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                    >
+                      Entregar
+                    </Link>
+                  )}
+                  {aberto && (
+                    <Link
+                      href={`/admin/contratos/${c.id}/recolha`}
+                      className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                    >
+                      Devolver
+                    </Link>
+                  )}
+                  {c.estado !== "rascunho" && c.estado !== "cancelado" && (
+                    <Link
+                      href={`/admin/contratos/${c.id}/vistoria`}
+                      className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
+                    >
+                      Ver vistoria
+                    </Link>
+                  )}
                   <button
                     className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                     onClick={() => setModal(c)}

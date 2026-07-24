@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { enviarFotoPrivada, enviarVideoPrivado, enviarAssinaturaPrivada } from "@/lib/uploads";
-import { submeterVistoriaEntrega, type DanoPrevio } from "@/actions/vistoriaActions";
+import { submeterVistoriaEntrega, submeterVistoriaRecolha, type DanoPrevio } from "@/actions/vistoriaActions";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 import { formatarPreco } from "@/lib/precos";
 
@@ -41,11 +41,14 @@ export default function CapturaEntrega({
   contrato,
   jaEntregue,
   regras,
+  tipo = "entrega",
 }: {
   contrato: ContratoInfo;
   jaEntregue: boolean;
   regras: { versao: string; hash: string; conteudo: string } | null;
+  tipo?: "entrega" | "recolha";
 }) {
+  const recolha = tipo === "recolha";
   const [km, setKm] = useState(contrato.km_atual != null ? String(contrato.km_atual) : "");
   const [combustivel, setCombustivel] = useState(100);
   const [fotos, setFotos] = useState<Record<string, string>>({});
@@ -64,7 +67,7 @@ export default function CapturaEntrega({
   if (jaEntregue) {
     return (
       <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
-        <p className="text-slate-700">Este contrato já tem uma vistoria de entrega.</p>
+        <p className="text-slate-700">Este contrato já tem uma vistoria de {recolha ? "recolha" : "entrega"}.</p>
         <Link href="/admin/contratos" className="mt-4 inline-block text-sm font-semibold text-emerald-600 hover:text-emerald-700">
           ← Voltar aos contratos
         </Link>
@@ -98,7 +101,7 @@ export default function CapturaEntrega({
     setErro(null);
     if (!km) return setErro("Indica a quilometragem.");
     if (!fotos.frente || !fotos.painel) return setErro("Tira pelo menos a foto da Frente e do Painel.");
-    if (regras && !regrasAceite) return setErro("O motorista tem de aceitar as regras do aluguer.");
+    if (!recolha && regras && !regrasAceite) return setErro("O motorista tem de aceitar as regras do aluguer.");
     if (aCarregar) return setErro("Espera que os ficheiros acabem de carregar.");
 
     setASubmeter(true);
@@ -108,7 +111,7 @@ export default function CapturaEntrega({
       if (!ra.success || !ra.path) { setErro("Erro ao enviar a assinatura."); setASubmeter(false); return; }
       assinatura_path = ra.path;
     }
-    const r = await submeterVistoriaEntrega({
+    const base = {
       contrato_id: contrato.id,
       km: Number(km),
       nivel_combustivel: combustivel,
@@ -118,10 +121,15 @@ export default function CapturaEntrega({
       checklist_itens: checklist,
       danos,
       notas: notas || null,
-      regras_versao: regras?.versao ?? null,
-      regras_hash: regras?.hash ?? null,
-      regras_aceite: regrasAceite,
-    });
+    };
+    const r = recolha
+      ? await submeterVistoriaRecolha(base)
+      : await submeterVistoriaEntrega({
+          ...base,
+          regras_versao: regras?.versao ?? null,
+          regras_hash: regras?.hash ?? null,
+          regras_aceite: regrasAceite,
+        });
     setASubmeter(false);
     if (!r.success) return setErro(r.error ?? "Erro ao submeter.");
     window.location.href = "/admin/contratos";
@@ -131,7 +139,7 @@ export default function CapturaEntrega({
     <div className="mx-auto max-w-2xl space-y-6 pb-24">
       <div>
         <Link href="/admin/contratos" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">← Contratos</Link>
-        <h1 className="mt-2 text-2xl font-semibold text-slate-950">Entrega da mota</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-slate-950">{recolha ? "Devolução da mota" : "Entrega da mota"}</h1>
         <p className="mt-1 text-sm text-slate-600">
           {contrato.numero} · {contrato.motorista_nome} · {contrato.veiculo}
         </p>
@@ -187,10 +195,14 @@ export default function CapturaEntrega({
       {/* Danos pré-existentes */}
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Danos pré-existentes</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{recolha ? "Danos na devolução" : "Danos pré-existentes"}</h2>
           <button type="button" onClick={() => setDanos((d) => [...d, { zona: "", nota: "" }])} className="text-xs font-semibold text-emerald-600 hover:text-emerald-700">+ Adicionar</button>
         </div>
-        <p className="text-xs text-slate-500">O que registares aqui na entrega nunca será cobrado na devolução.</p>
+        <p className="text-xs text-slate-500">
+          {recolha
+            ? "Regista o que encontras agora. Compara-se com a entrega no ecrã de vistoria; a cobrança do dano faz-se lá."
+            : "O que registares aqui na entrega nunca será cobrado na devolução."}
+        </p>
         {danos.length === 0 && <p className="text-sm text-slate-400">Sem danos registados.</p>}
         {danos.map((d, i) => (
           <div key={i} className="flex gap-2">
@@ -215,8 +227,8 @@ export default function CapturaEntrega({
         <textarea className={`${campo} h-16`} placeholder="Notas (opcional)" value={notas} onChange={(e) => setNotas(e.target.value)} />
       </section>
 
-      {/* Regras do aluguer */}
-      {regras ? (
+      {/* Regras do aluguer (só na entrega) */}
+      {!recolha && (regras ? (
         <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Regras do aluguer (v{regras.versao})
@@ -233,12 +245,12 @@ export default function CapturaEntrega({
         <section className="rounded-3xl bg-amber-50 p-4 text-sm text-amber-800">
           Ainda não publicaste as regras do aluguer — vai a <strong>Regras</strong> no menu para as criar.
         </section>
-      )}
+      ))}
 
       {/* Assinatura */}
       <section className="space-y-2 rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assinatura do motorista</h2>
-        <p className="text-xs text-slate-500">«Recebi a mota neste estado.»</p>
+        <p className="text-xs text-slate-500">{recolha ? "«Devolvi a mota neste estado.»" : "«Recebi a mota neste estado.»"}</p>
         <AssinaturaCanvas onChange={setAssinatura} />
       </section>
 
@@ -250,7 +262,7 @@ export default function CapturaEntrega({
           disabled={aSubmeter || !!aCarregar}
           className="w-full rounded-3xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-50"
         >
-          {aSubmeter ? "A submeter…" : "Submeter entrega e ativar contrato"}
+          {aSubmeter ? "A submeter…" : recolha ? "Submeter devolução e concluir" : "Submeter entrega e ativar contrato"}
         </button>
       </div>
     </div>

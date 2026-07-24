@@ -117,3 +117,142 @@ export async function submeterVistoriaEntrega(
   revalidatePath("/admin/motas");
   return { success: true };
 }
+
+/**
+ * Regista um dano NOVO na devolução como despesa imputada ao motorista — é o
+ * valor que sai da caução. Fica ligado ao contrato/veículo/motorista.
+ */
+export async function registarDanoRecolha(
+  contratoId: string,
+  valor: string,
+  descricao: string,
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  const valorNorm = valor.replace(",", ".").trim();
+  const n = Number(valorNorm);
+  if (!Number.isFinite(n) || n <= 0) return { success: false, error: "Indica um valor válido." };
+  if (!descricao.trim()) return { success: false, error: "Descreve o dano." };
+
+  const { data: c } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("veiculo_id, motorista_id")
+    .eq("id", contratoId)
+    .maybeSingle();
+  if (!c) return { success: false, error: "Contrato não encontrado." };
+
+  const { error } = await supabaseAdmin.from("despesa").insert({
+    veiculo_id: c.veiculo_id,
+    motorista_id: c.motorista_id,
+    contrato_id: contratoId,
+    categoria: "outro",
+    descricao: `Dano na devolução: ${descricao.trim()}`,
+    valor: valorNorm,
+    data_despesa: new Date().toISOString().slice(0, 10),
+    imputar_a: "motorista",
+    estado_pagamento: "pendente",
+  });
+  if (error) {
+    console.error("registarDanoRecolha error:", error);
+    return { success: false, error: "Erro ao registar o dano." };
+  }
+
+  revalidatePath("/admin/contratos");
+  revalidatePath("/admin/despesas");
+  return { success: true };
+}
+
+export interface SubmeterRecolhaInput {
+  contrato_id: string;
+  km: number | null;
+  nivel_combustivel: number | null;
+  video_path: string | null;
+  foto_paths: string[];
+  assinatura_path: string | null;
+  checklist_itens: Record<string, boolean>;
+  danos: DanoPrevio[];
+  notas: string | null;
+}
+
+/**
+ * Submete a vistoria de RECOLHA e conclui o contrato: grava a vistoria de
+ * recolha, regista a KM final, e termina o contrato (moto → disponível), anulando
+ * as semanas futuras por liquidar. A comparação com a entrega faz-se no ecrã de
+ * vistoria (URLs assinados das duas linhas).
+ */
+export async function submeterVistoriaRecolha(
+  input: SubmeterRecolhaInput,
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (!input.contrato_id) return { success: false, error: "Contrato em falta." };
+
+  const { data: c } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("id, veiculo_id")
+    .eq("id", input.contrato_id)
+    .maybeSingle();
+  if (!c) return { success: false, error: "Contrato não encontrado." };
+
+  const { data: ja } = await supabaseAdmin
+    .from("vistoria")
+    .select("id")
+    .eq("contrato_id", input.contrato_id)
+    .eq("tipo", "recolha")
+    .maybeSingle();
+  if (ja) return { success: false, error: "Este contrato já tem uma vistoria de recolha." };
+
+  const agora = new Date().toISOString();
+
+  const { error: vErr } = await supabaseAdmin.from("vistoria").insert({
+    contrato_id: input.contrato_id,
+    tipo: "recolha",
+    realizada_em: agora,
+    km: input.km,
+    nivel_combustivel: input.nivel_combustivel,
+    video_url: input.video_path,
+    foto_urls: input.foto_paths.length ? input.foto_paths : null,
+    checklist: { itens: input.checklist_itens, danos: input.danos },
+    notas: input.notas?.trim() || null,
+    assinatura_cliente_url: input.assinatura_path,
+  });
+  if (vErr) {
+    console.error("submeterVistoriaRecolha error:", vErr);
+    return { success: false, error: "Erro ao gravar a vistoria de recolha." };
+  }
+
+  if (input.km != null && c.veiculo_id) {
+    await supabaseAdmin.from("km_registo").insert({
+      veiculo_id: c.veiculo_id,
+      km: input.km,
+      data: agora.slice(0, 10),
+      fonte: "recolha",
+    });
+  }
+
+  // Conclui o contrato (data de fim = hoje) e liberta o veículo.
+  const upd: { estado: "concluido"; data_fim: string; km_fim?: number } = {
+    estado: "concluido",
+    data_fim: agora.slice(0, 10),
+  };
+  if (input.km != null) upd.km_fim = input.km;
+  await supabaseAdmin.from("contrato_aluguer").update(upd).eq("id", input.contrato_id);
+
+  await supabaseAdmin
+    .from("cobranca")
+    .update({ estado_liquidacao: "anulada" })
+    .eq("contrato_id", input.contrato_id)
+    .eq("estado_liquidacao", "por_liquidar")
+    .gt("periodo_inicio", agora.slice(0, 10));
+
+  if (c.veiculo_id) {
+    await supabaseAdmin
+      .from("moto")
+      .update({ estado_operacional: "disponivel" })
+      .eq("id", c.veiculo_id);
+  }
+
+  revalidatePath("/admin/contratos");
+  revalidatePath("/admin/motas");
+  return { success: true };
+}
