@@ -40,9 +40,11 @@ const campo = "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 tex
 export default function CapturaEntrega({
   contrato,
   jaEntregue,
+  regras,
 }: {
   contrato: ContratoInfo;
   jaEntregue: boolean;
+  regras: { versao: string; hash: string; conteudo: string } | null;
 }) {
   const [km, setKm] = useState(contrato.km_atual != null ? String(contrato.km_atual) : "");
   const [combustivel, setCombustivel] = useState(100);
@@ -55,6 +57,7 @@ export default function CapturaEntrega({
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [notas, setNotas] = useState("");
   const [assinatura, setAssinatura] = useState<Blob | null>(null);
+  const [regrasAceite, setRegrasAceite] = useState(false);
   const [aSubmeter, setASubmeter] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -95,6 +98,7 @@ export default function CapturaEntrega({
     setErro(null);
     if (!km) return setErro("Indica a quilometragem.");
     if (!fotos.frente || !fotos.painel) return setErro("Tira pelo menos a foto da Frente e do Painel.");
+    if (regras && !regrasAceite) return setErro("O motorista tem de aceitar as regras do aluguer.");
     if (aCarregar) return setErro("Espera que os ficheiros acabem de carregar.");
 
     setASubmeter(true);
@@ -114,6 +118,9 @@ export default function CapturaEntrega({
       checklist_itens: checklist,
       danos,
       notas: notas || null,
+      regras_versao: regras?.versao ?? null,
+      regras_hash: regras?.hash ?? null,
+      regras_aceite: regrasAceite,
     });
     setASubmeter(false);
     if (!r.success) return setErro(r.error ?? "Erro ao submeter.");
@@ -207,6 +214,26 @@ export default function CapturaEntrega({
         </div>
         <textarea className={`${campo} h-16`} placeholder="Notas (opcional)" value={notas} onChange={(e) => setNotas(e.target.value)} />
       </section>
+
+      {/* Regras do aluguer */}
+      {regras ? (
+        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Regras do aluguer (v{regras.versao})
+          </h2>
+          <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            {regras.conteudo}
+          </div>
+          <label className="flex items-start gap-3 rounded-2xl border border-slate-200 p-3 text-sm text-slate-700">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-600" checked={regrasAceite} onChange={(e) => setRegrasAceite(e.target.checked)} />
+            <span>O motorista leu e <strong>aceita as regras</strong> (v{regras.versao}).</span>
+          </label>
+        </section>
+      ) : (
+        <section className="rounded-3xl bg-amber-50 p-4 text-sm text-amber-800">
+          Ainda não publicaste as regras do aluguer — vai a <strong>Regras</strong> no menu para as criar.
+        </section>
+      )}
 
       {/* Assinatura */}
       <section className="space-y-2 rounded-3xl bg-white p-5 shadow-sm">

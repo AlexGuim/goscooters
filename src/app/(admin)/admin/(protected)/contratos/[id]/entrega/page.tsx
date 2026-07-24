@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { regrasAtivas } from "@/actions/regrasActions";
 import CapturaEntrega from "./CapturaEntrega";
 
 export default async function EntregaPage({
@@ -28,9 +29,12 @@ export default async function EntregaPage({
     supabaseAdmin.from("vistoria").select("id").eq("contrato_id", id).eq("tipo", "entrega").maybeSingle(),
   ]);
 
+  const regras = await regrasAtivas();
+
   return (
     <CapturaEntrega
       jaEntregue={!!ja}
+      regras={regras ? { versao: regras.versao, hash: regras.hash, conteudo: regras.conteudo } : null}
       contrato={{
         id: c.id,
         numero: c.numero,

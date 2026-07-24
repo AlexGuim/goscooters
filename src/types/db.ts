@@ -288,6 +288,16 @@ export type Acerto = {
   created_at: string;
 };
 
+export type RegrasAluguer = {
+  id: string;
+  versao: string;
+  conteudo: string;
+  hash: string;
+  ativa: boolean;
+  criado_por: string | null;
+  created_at: string;
+};
+
 export type AcertoLinha = {
   id: string;
   acerto_id: string;
@@ -579,6 +589,21 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<AcertoLinha, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      regras_aluguer: {
+        Row: RegrasAluguer;
+        Insert: Partial<Omit<RegrasAluguer, "id" | "created_at">> & {
+          versao: string;
+          conteudo: string;
+          hash: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<RegrasAluguer, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };

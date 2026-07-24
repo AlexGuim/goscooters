@@ -20,6 +20,10 @@ export interface SubmeterEntregaInput {
   checklist_itens: Record<string, boolean>;
   danos: DanoPrevio[];
   notas: string | null;
+  // Prova de aceitação das regras (versão + hash da versão exata mostrada).
+  regras_versao?: string | null;
+  regras_hash?: string | null;
+  regras_aceite?: boolean;
 }
 
 /**
@@ -61,7 +65,18 @@ export async function submeterVistoriaEntrega(
     // Guardamos o CAMINHO privado (não um URL público) — lê-se por URL assinado.
     video_url: input.video_path,
     foto_urls: input.foto_paths.length ? input.foto_paths : null,
-    checklist: { itens: input.checklist_itens, danos: input.danos },
+    checklist: {
+      itens: input.checklist_itens,
+      danos: input.danos,
+      regras: input.regras_versao
+        ? {
+            versao: input.regras_versao,
+            hash: input.regras_hash ?? null,
+            aceite: !!input.regras_aceite,
+            em: agora,
+          }
+        : null,
+    },
     notas: input.notas?.trim() || null,
     assinatura_cliente_url: input.assinatura_path,
   });

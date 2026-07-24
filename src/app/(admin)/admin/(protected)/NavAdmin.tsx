@@ -14,6 +14,7 @@ const LINKS: { href: string; rotulo: string }[] = [
   { href: "/admin/acertos", rotulo: "Acertos" },
   { href: "/admin/financeiro", rotulo: "Financeiro" },
   { href: "/admin/pedidos", rotulo: "Pedidos" },
+  { href: "/admin/regras", rotulo: "Regras" },
 ];
 
 export default function NavAdmin() {
