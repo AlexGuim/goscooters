@@ -94,14 +94,10 @@ export default function ContratosList({
       );
       return;
     }
-    const ate = window.prompt(
-      "Gerar cobranças até que data? (AAAA-MM-DD)",
-      horizontePadrao(),
-    );
-    if (!ate) return;
-
+    // Cobrança aberta: gera-se sempre até um horizonte rolante (8 semanas à
+    // frente), sem pedir data-limite. Correr de novo estende o horizonte.
     setAGerar(c.id);
-    const r = await gerarCobrancas(c.id, ate);
+    const r = await gerarCobrancas(c.id, horizontePadrao());
     setAGerar(null);
 
     if (r.success) {
@@ -216,10 +212,7 @@ export default function ContratosList({
                     </p>
                     <p className="text-xs text-slate-500">
                       {c.dia_vencimento ? DIAS[c.dia_vencimento] : "sem dia"}
-                      {" · "}
-                      {c.ancora_vencimento
-                        ? `${c.num_cobrancas} cobrança(s)`
-                        : "faturação por iniciar"}
+                      {!c.ancora_vencimento && " · faturação por iniciar"}
                     </p>
                   </div>
 
