@@ -2,42 +2,75 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
-// Ordem por uso diário: a cobrança é o ecrã que se abre todos os dias.
-const LINKS: { href: string; rotulo: string }[] = [
-  { href: "/admin/cobrancas", rotulo: "Cobrança" },
-  { href: "/admin/contratos", rotulo: "Contratos" },
-  { href: "/admin/motas", rotulo: "Frota" },
-  { href: "/admin/motoristas", rotulo: "Motoristas" },
-  { href: "/admin/proprietarios", rotulo: "Proprietários" },
-  { href: "/admin/despesas", rotulo: "Despesas" },
-  { href: "/admin/acertos", rotulo: "Acertos" },
-  { href: "/admin/financeiro", rotulo: "Financeiro" },
-  { href: "/admin/pedidos", rotulo: "Pedidos" },
-  { href: "/admin/regras", rotulo: "Regras" },
+// Menu por ÁREAS (deixa de ser uma lista plana de abas): Início e Notificações
+// ficam diretos; o resto agrupa-se em categorias com menu suspenso.
+const GRUPOS: { cat: string; itens: { href: string; rotulo: string }[] }[] = [
+  {
+    cat: "Operação",
+    itens: [
+      { href: "/admin/pedidos", rotulo: "Pedidos" },
+      { href: "/admin/contratos", rotulo: "Contratos (jornadas)" },
+      { href: "/admin/cobrancas", rotulo: "Cobrança" },
+    ],
+  },
+  {
+    cat: "Frota",
+    itens: [
+      { href: "/admin/motas", rotulo: "Motas" },
+      { href: "/admin/motoristas", rotulo: "Motoristas" },
+      { href: "/admin/proprietarios", rotulo: "Proprietários" },
+    ],
+  },
+  {
+    cat: "Financeiro",
+    itens: [
+      { href: "/admin/despesas", rotulo: "Despesas" },
+      { href: "/admin/acertos", rotulo: "Acertos" },
+      { href: "/admin/financeiro", rotulo: "Financeiro" },
+    ],
+  },
+  {
+    cat: "Config",
+    itens: [{ href: "/admin/regras", rotulo: "Regras" }],
+  },
 ];
 
 export default function NavAdmin({ naoLidas = 0 }: { naoLidas?: number }) {
   const pathname = usePathname();
+  const [aberto, setAberto] = useState<string | null>(null);
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const fora = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setAberto(null);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAberto(null);
+    };
+    document.addEventListener("mousedown", fora);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", fora);
+      document.removeEventListener("keydown", esc);
+    };
+  }, []);
+
   const ativoDe = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  const cls = (ativo: boolean) =>
+    `text-sm font-medium transition ${ativo ? "text-emerald-600" : "text-slate-600 hover:text-slate-950"}`;
 
   return (
-    <nav className="flex flex-wrap items-center gap-x-5 gap-y-2">
-      <Link
-        href="/admin"
-        aria-current={pathname === "/admin" ? "page" : undefined}
-        className={`text-sm font-medium transition ${
-          pathname === "/admin" ? "text-emerald-600" : "text-slate-600 hover:text-slate-950"
-        }`}
-      >
+    <nav ref={ref} className="flex flex-wrap items-center gap-x-5 gap-y-2">
+      <Link href="/admin" aria-current={pathname === "/admin" ? "page" : undefined} className={cls(pathname === "/admin")}>
         Início
       </Link>
+
       <Link
         href="/admin/notificacoes"
         aria-current={ativoDe("/admin/notificacoes") ? "page" : undefined}
-        className={`inline-flex items-center gap-1.5 text-sm font-medium transition ${
-          ativoDe("/admin/notificacoes") ? "text-emerald-600" : "text-slate-600 hover:text-slate-950"
-        }`}
+        className={`inline-flex items-center gap-1.5 ${cls(ativoDe("/admin/notificacoes"))}`}
       >
         Notificações
         {naoLidas > 0 && (
@@ -46,19 +79,45 @@ export default function NavAdmin({ naoLidas = 0 }: { naoLidas?: number }) {
           </span>
         )}
       </Link>
-      {LINKS.map((l) => {
-        const ativo = ativoDe(l.href);
+
+      {GRUPOS.map((g) => {
+        const catAtiva = g.itens.some((i) => ativoDe(i.href));
+        const estaAberto = aberto === g.cat;
         return (
-          <Link
-            key={l.href}
-            href={l.href}
-            aria-current={ativo ? "page" : undefined}
-            className={`text-sm font-medium transition ${
-              ativo ? "text-emerald-600" : "text-slate-600 hover:text-slate-950"
-            }`}
-          >
-            {l.rotulo}
-          </Link>
+          <div key={g.cat} className="relative">
+            <button
+              type="button"
+              onClick={() => setAberto(estaAberto ? null : g.cat)}
+              aria-haspopup="menu"
+              aria-expanded={estaAberto}
+              className={`inline-flex items-center gap-1 ${cls(catAtiva)}`}
+            >
+              {g.cat}
+              <span className={`text-[10px] transition-transform ${estaAberto ? "rotate-180" : ""}`} aria-hidden>
+                ▾
+              </span>
+            </button>
+            {estaAberto && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-50 mt-2 min-w-[190px] rounded-2xl border border-slate-200 bg-white p-1.5 shadow-lg"
+              >
+                {g.itens.map((i) => (
+                  <Link
+                    key={i.href}
+                    href={i.href}
+                    role="menuitem"
+                    onClick={() => setAberto(null)}
+                    className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
+                      ativoDe(i.href) ? "bg-emerald-50 text-emerald-700" : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {i.rotulo}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
         );
       })}
     </nav>
