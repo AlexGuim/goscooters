@@ -11,6 +11,7 @@ import "server-only";
 
 export interface CamposDocumento {
   nome: string | null;
+  nif: string | null; // NIF/nº de contribuinte (9 dígitos), se visível no documento
   doc_id_tipo: "cc" | "passaporte" | "titulo_residencia" | "aima" | null;
   doc_id_numero: string | null;
   doc_id_validade: string | null; // ISO AAAA-MM-DD
@@ -73,6 +74,7 @@ const PROMPT = `És um assistente que lê documentos de identidade e cartas de c
 Extrai APENAS o que conseguires ler com confiança e devolve um objeto JSON com EXATAMENTE estas chaves (usa null quando não souberes):
 {
   "nome": string|null,                 // nome completo da pessoa
+  "nif": string|null,                  // NIF / nº de contribuinte (9 dígitos). No Cartão de Cidadão está no VERSO ("Nº de Identificação Fiscal"). Só se estiver visível.
   "doc_id_tipo": "cc"|"passaporte"|"titulo_residencia"|"aima"|null,
   "doc_id_numero": string|null,        // nº do documento de identidade
   "doc_id_validade": string|null,      // validade do documento, formato AAAA-MM-DD

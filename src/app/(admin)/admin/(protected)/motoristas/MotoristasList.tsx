@@ -412,6 +412,14 @@ function DetalheMotorista({
   );
 }
 
+const DOC_TIPOS: { valor: DocIdTipo; rotulo: string }[] = [
+  { valor: "cc", rotulo: "Cartão de cidadão" },
+  { valor: "passaporte", rotulo: "Passaporte" },
+  { valor: "titulo_residencia", rotulo: "Título de residência" },
+  { valor: "aima", rotulo: "Documento AIMA" },
+];
+const docTipoRotulo = (t: DocIdTipo | null) => DOC_TIPOS.find((d) => d.valor === t)?.rotulo ?? "";
+
 const ESTADOS_MOTORISTA: { valor: MotoristaComAvaliacoes["estado"]; rotulo: string }[] = [
   { valor: "lead", rotulo: "Lead" },
   { valor: "ativo", rotulo: "Ativo" },
@@ -463,6 +471,13 @@ function FichaKYC({
     if (cc) campos.carta_categoria = cc;
     if (cp) campos.carta_pais = cp;
     if (cv) campos.carta_validade = cv;
+    // Documento de identidade (idem — colunas de fase1).
+    const dt = String(dados.get("doc_id_tipo") ?? "").trim();
+    const dn = String(dados.get("doc_id_numero") ?? "").trim();
+    const dv = String(dados.get("doc_id_validade") ?? "").trim();
+    campos.doc_id_tipo = (dt || null) as DocIdTipo | null;
+    campos.doc_id_numero = dn || null;
+    campos.doc_id_validade = dv || null;
     // Só envia o telefone se mudou — evita recalcular (e corromper) o E.164 de
     // um número estrangeiro que já estava correcto.
     if (telefoneNovo !== (motorista.telefone ?? "")) {
@@ -491,6 +506,7 @@ function FichaKYC({
       ["Telefone (E.164)", motorista.telefone_e164],
       ["País", motorista.pais_iso],
       ["NIF", motorista.nif ? `${motorista.nif}${motorista.nif_valido === false ? " (inválido)" : ""}` : null],
+      ["Documento", motorista.doc_id_numero ? `${docTipoRotulo(motorista.doc_id_tipo)} ${motorista.doc_id_numero}${motorista.doc_id_validade ? ` · val. ${motorista.doc_id_validade}` : ""}`.trim() : null],
       ["Estado", motorista.estado],
       ["Morada", [motorista.morada_linha1, motorista.codigo_postal, motorista.localidade].filter(Boolean).join(", ") || null],
       ["Carta", motorista.carta_numero ? `${motorista.carta_numero}${motorista.carta_categoria ? ` · ${motorista.carta_categoria}` : ""}${motorista.carta_pais ? ` · ${motorista.carta_pais}` : ""}${motorista.carta_validade ? ` · val. ${motorista.carta_validade}` : ""}` : null],
@@ -591,6 +607,27 @@ function FichaKYC({
         <label className={etiqueta}>
           <span>Localidade</span>
           <input className={campo} name="localidade" defaultValue={motorista.localidade ?? ""} />
+        </label>
+      </div>
+
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Documento de identidade</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className={etiqueta}>
+          <span>Tipo</span>
+          <select className={campo} name="doc_id_tipo" defaultValue={motorista.doc_id_tipo ?? ""}>
+            <option value="">—</option>
+            {DOC_TIPOS.map((d) => (
+              <option key={d.valor} value={d.valor}>{d.rotulo}</option>
+            ))}
+          </select>
+        </label>
+        <label className={etiqueta}>
+          <span>Nº do documento</span>
+          <input className={campo} name="doc_id_numero" defaultValue={motorista.doc_id_numero ?? ""} />
+        </label>
+        <label className={etiqueta}>
+          <span>Validade</span>
+          <input className={campo} type="date" name="doc_id_validade" defaultValue={motorista.doc_id_validade ?? ""} />
         </label>
       </div>
 

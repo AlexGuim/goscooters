@@ -16,6 +16,16 @@ type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
 const BUCKET_PRIVADO = "privado";
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
+/** NIF português: 9 dígitos com checksum mod-11. */
+function nifValidoPT(nif: string): boolean {
+  const d = (nif ?? "").replace(/\D/g, "");
+  if (d.length !== 9) return false;
+  let soma = 0;
+  for (let i = 0; i < 8; i++) soma += Number(d[i]) * (9 - i);
+  const c = 11 - (soma % 11);
+  return (c >= 10 ? 0 : c) === Number(d[8]);
+}
+
 /**
  * Valida um token de sessão de entrega: existe, não expirou e ainda está aberta.
  * Devolve a sessão ou null. O token vem em claro no URL; guardamos só o hash.
@@ -351,6 +361,7 @@ export async function lerDocumentoIAporToken(
 export interface ConcluirEntregaInput {
   token: string;
   nome?: string | null;
+  nif?: string | null;
   doc_id_tipo?: string | null;
   doc_id_numero?: string | null;
   doc_id_validade?: string | null;
@@ -394,6 +405,11 @@ export async function concluirPorToken(
   if (s.motorista_id) {
     const upd: MotoristaUpdate = {};
     if (input.nome?.trim()) upd.nome = input.nome.trim();
+    if (input.nif?.trim()) {
+      const d = input.nif.replace(/\D/g, "");
+      upd.nif = d;
+      upd.nif_valido = d.length === 9 ? nifValidoPT(d) : null;
+    }
     if (input.doc_id_tipo) upd.doc_id_tipo = input.doc_id_tipo as DocIdTipo;
     if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();
     if (input.doc_id_validade) upd.doc_id_validade = input.doc_id_validade;

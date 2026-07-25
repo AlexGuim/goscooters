@@ -56,6 +56,7 @@ const STR: Record<Lang, Record<string, string>> = {
     falhou_carta: "Não consegui ler a carta — preenche os campos à mão.",
     id_titulo: "Identidade",
     nome_completo: "Nome completo",
+    nif_label: "NIF (nº de contribuinte)",
     tipo_doc: "Tipo de documento",
     num_doc: "Nº do documento",
     validade_doc: "Validade do documento",
@@ -100,6 +101,7 @@ const STR: Record<Lang, Record<string, string>> = {
     falhou_carta: "I couldn't read the licence — please fill in the fields manually.",
     id_titulo: "Identity",
     nome_completo: "Full name",
+    nif_label: "Tax number (NIF)",
     tipo_doc: "Document type",
     num_doc: "Document number",
     validade_doc: "Document expiry",
@@ -147,6 +149,7 @@ export default function OnboardingEntrega({
   const [aCarregar, setACarregar] = useState<string | null>(null);
   // Dados
   const [nome, setNome] = useState(sessao.motorista_nome);
+  const [nif, setNif] = useState("");
   const [tipo, setTipo] = useState("cc");
   const [numero, setNumero] = useState("");
   const [validade, setValidade] = useState("");
@@ -184,10 +187,11 @@ export default function OnboardingEntrega({
   }, []);
 
   const aplicar = (c: {
-    nome?: string | null; numero?: string | null; validade?: string | null; tipo?: string | null;
+    nome?: string | null; nif?: string | null; numero?: string | null; validade?: string | null; tipo?: string | null;
     carta_numero?: string | null; carta_categoria?: string | null; carta_pais?: string | null; carta_validade?: string | null;
   }) => {
     if (c.nome) setNome(c.nome);
+    if (c.nif) setNif(c.nif.replace(/\D/g, ""));
     if (c.numero) setNumero(c.numero);
     if (c.validade) setValidade(c.validade);
     if (c.tipo && ["cc", "passaporte", "titulo_residencia", "aima"].includes(c.tipo)) setTipo(c.tipo);
@@ -210,8 +214,8 @@ export default function OnboardingEntrega({
       let ok = false;
       if (r.ok && r.dados) {
         if (grupo === "identidade") {
-          aplicar({ nome: r.dados.nome, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo });
-          ok = !!(r.dados.nome || r.dados.doc_id_numero || r.dados.doc_id_validade);
+          aplicar({ nome: r.dados.nome, nif: r.dados.nif, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo });
+          ok = !!(r.dados.nome || r.dados.nif || r.dados.doc_id_numero || r.dados.doc_id_validade);
         } else {
           aplicar({ carta_numero: r.dados.carta_numero, carta_categoria: r.dados.carta_categoria, carta_pais: r.dados.carta_pais, carta_validade: r.dados.carta_validade });
           ok = !!(r.dados.carta_numero || r.dados.carta_categoria || r.dados.carta_validade);
@@ -269,6 +273,7 @@ export default function OnboardingEntrega({
     const r = await concluirPorToken({
       token,
       nome: nome || null,
+      nif: nif.replace(/\D/g, "") || null,
       doc_id_tipo: tipo,
       doc_id_numero: numero || null,
       doc_id_validade: validade || null,
@@ -339,6 +344,10 @@ export default function OnboardingEntrega({
               <label className="block space-y-1.5 text-sm font-medium text-slate-700">
                 <span>{t.nome_completo}</span>
                 <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.nif_label}</span>
+                <input className={campo} inputMode="numeric" value={nif} onChange={(e) => setNif(e.target.value)} placeholder="9 dígitos" />
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block space-y-1.5 text-sm font-medium text-slate-700">
