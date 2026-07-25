@@ -39,7 +39,7 @@ const STR: Record<Lang, Record<string, string>> = {
   pt: {
     enviado_titulo: "Está tudo enviado!",
     obrigado: "Obrigado",
-    review_registo: "A GoScooters vai rever os teus dados e entra em contacto.",
+    review_registo: "A GoScooters vai rever os teus dados. O teu registo fica concluído na entrega da mota — combinamos contigo a data.",
     review_entrega: "A GoScooters vai rever e vemo-nos na entrega da tua mota.",
     titulo_registo: "Os teus dados",
     titulo_entrega: "Preparar a entrega",
@@ -83,7 +83,7 @@ const STR: Record<Lang, Record<string, string>> = {
   en: {
     enviado_titulo: "All done!",
     obrigado: "Thank you",
-    review_registo: "GoScooters will review your details and get in touch.",
+    review_registo: "GoScooters will review your details. Your registration is completed when you collect your scooter — we'll arrange the date with you.",
     review_entrega: "GoScooters will review and see you at your scooter handover.",
     titulo_registo: "Your details",
     titulo_entrega: "Prepare your handover",

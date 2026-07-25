@@ -17,6 +17,7 @@ import {
   eliminarDespesa,
 } from "@/actions/despesaActions";
 import { registarCoima, resolverCondutor } from "@/actions/coimaActions";
+import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface DespesaComNomes extends Despesa {
   veiculo_matricula: string | null;
@@ -92,6 +93,17 @@ export default function DespesasList({
     [filtradas],
   );
 
+  // Agrupadas por proprietário do veículo (secção colapsável por dono).
+  const grupos = useMemo(() => {
+    const m = new Map<string, { nome: string; itens: DespesaComNomes[] }>();
+    for (const d of filtradas) {
+      const nome = d.proprietario_nome ?? "GoScooters / estrutura";
+      if (!m.has(nome)) m.set(nome, { nome, itens: [] });
+      m.get(nome)!.itens.push(d);
+    }
+    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  }, [filtradas]);
+
   const handleSaved = (d: DespesaComNomes) => {
     setDespesas((atuais) => {
       const existe = atuais.some((x) => x.id === d.id);
@@ -159,9 +171,17 @@ export default function DespesasList({
           <p className="text-slate-600">Nenhuma despesa neste filtro.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
+        <div className="space-y-4">
+          {grupos.map((g) => {
+            const totalG = g.itens.reduce((s, d) => s + Number(d.valor_total), 0);
+            return (
+            <GrupoColapsavel
+              key={g.nome}
+              titulo={g.nome}
+              resumo={`${g.itens.length} · ${formatarPreco(totalG)}`}
+            >
           <div className="divide-y divide-slate-100">
-            {filtradas.map((d) => (
+            {g.itens.map((d) => (
               <div key={d.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -201,6 +221,9 @@ export default function DespesasList({
               </div>
             ))}
           </div>
+            </GrupoColapsavel>
+            );
+          })}
         </div>
       )}
 

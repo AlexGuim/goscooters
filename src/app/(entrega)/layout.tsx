@@ -6,8 +6,11 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Preparar a entrega | GoScooters",
-  robots: { index: false, follow: false },
+  title: "GoScooters",
+  description: "Aluguer de motas · Lisboa",
+  // NÃO usar noindex aqui: o crawler do WhatsApp/Facebook (facebookexternalhit)
+  // suprime o preview em páginas noindex. Os tokens são inadivinháveis e expiram,
+  // por isso o risco de indexação é desprezável (link inválido → "Link indisponível").
 };
 
 /** Layout raiz do self-service de entrega (link público, sem conta). */
