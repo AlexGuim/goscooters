@@ -52,7 +52,8 @@ export async function cobrancasDaSemana(de: string, ate: string): Promise<Cobran
       valor_devido: String(c.valor_devido),
       valor_pago: String(c.valor_pago),
       em_falta: String(c.em_falta),
-      em_atraso: Boolean(c.em_atraso),
+      // A caução é cobrada em mão na entrega — nunca "em atraso" (só por liquidar).
+      em_atraso: Boolean(c.em_atraso) && c.tipo !== "caucao",
       estado_liquidacao: c.estado_liquidacao as CobrancaPainel["estado_liquidacao"],
       tipo: (c.tipo as CobrancaPainel["tipo"]) ?? "renda",
     };

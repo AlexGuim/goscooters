@@ -90,7 +90,10 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
     const { data: atras } = await supabaseAdmin
       .from("vw_cobranca_estado")
       .select("motorista_id, em_falta")
-      .eq("em_atraso", true);
+      .eq("em_atraso", true)
+      // A caução não é uma "semana de renda em atraso" (é cobrada em mão na
+      // entrega) — não a contar como dívida vencida. Renda e extras mantêm-se.
+      .neq("tipo", "caucao");
     const porMot = new Map<string, { n: number; total: number }>();
     for (const c of atras ?? []) {
       const k = c.motorista_id as string;

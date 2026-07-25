@@ -80,7 +80,8 @@ export default function ContratosList({
 
   const filtrados = contratos.filter((c) => {
     if (filtro === "") return true;
-    if (filtro === "abertos") return c.estado === "ativo" || c.estado === "pendente_fecho";
+    if (filtro === "abertos")
+      return c.estado === "ativo" || c.estado === "pendente_fecho" || c.estado === "suspenso";
     return c.estado === filtro;
   });
 
@@ -179,6 +180,25 @@ export default function ContratosList({
     }
   };
 
+  const handleSuspender = async (c: ContratoComNomes, suspender: boolean) => {
+    if (
+      suspender &&
+      !window.confirm(
+        `Suspender o contrato ${c.numero}? Pausa a faturação (deixa de gerar novas cobranças) até retomares. As cobranças já geradas mantêm-se.`,
+      )
+    )
+      return;
+    const novo: ContratoEstado = suspender ? "suspenso" : "ativo";
+    setAGerar(c.id);
+    const r = await atualizarContrato(c.id, { estado: novo });
+    setAGerar(null);
+    if (r.success) {
+      setContratos((atuais) => atuais.map((x) => (x.id === c.id ? { ...x, estado: novo } : x)));
+    } else {
+      alert(r.error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -191,6 +211,7 @@ export default function ContratosList({
           <option value="">Todos</option>
           <option value="ativo">Ativos</option>
           <option value="pendente_fecho">Pendentes de fecho</option>
+          <option value="suspenso">Suspensos</option>
           <option value="concluido">Concluídos</option>
           <option value="cancelado">Cancelados</option>
         </select>
@@ -299,7 +320,7 @@ export default function ContratosList({
                           Entregar
                         </Link>
                       )}
-                      {aberto && (
+                      {(aberto || c.estado === "suspenso") && (
                         <Link
                           href={`/admin/contratos/${c.id}/recolha`}
                           className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
@@ -315,13 +336,31 @@ export default function ContratosList({
                           Ver vistoria
                         </Link>
                       )}
+                      {c.estado === "suspenso" && (
+                        <button
+                          className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                          onClick={() => handleSuspender(c, false)}
+                          disabled={aGerar === c.id}
+                        >
+                          Retomar
+                        </button>
+                      )}
                       <button
                         className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                         onClick={() => setModal(c)}
                       >
                         Editar
                       </button>
-                      {aberto && (
+                      {c.estado === "ativo" && (
+                        <button
+                          className="text-xs font-semibold text-amber-700 transition hover:text-amber-800 disabled:opacity-50"
+                          onClick={() => handleSuspender(c, true)}
+                          disabled={aGerar === c.id}
+                        >
+                          Suspender
+                        </button>
+                      )}
+                      {(aberto || c.estado === "suspenso") && (
                         <button
                           className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
                           onClick={() => handleTerminar(c)}

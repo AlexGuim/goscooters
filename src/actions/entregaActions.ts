@@ -68,6 +68,9 @@ export async function criarSessaoEntrega(
     motorista_id: c.motorista_id,
     estado: "enviado",
     expira_em: expira,
+    // Natureza FIXADA na criação (imutável): entrega exige regras/assinatura,
+    // mesmo que o contrato mude depois. Evita a incoerência render-vs-submit.
+    dados: { origem: "entrega" },
   });
   if (error) {
     console.error("criarSessaoEntrega error:", error);
@@ -160,19 +163,26 @@ export async function criarSessaoRegisto(input: {
   }
 
   // Abre a jornada: um pré-contrato à espera de mota (se ainda não houver um).
+  // A sessão de registo passa a estar ANCORADA a esse pré-contrato — é a espinha
+  // da jornada, não um registo solto. A distinção registo-vs-entrega deixa de ser
+  // "tem contrato?" e passa a ser "o contrato já tem mota?" (ver sessaoPorToken).
+  let preContratoId: string | null = null;
   const { data: preJa } = await supabaseAdmin
     .from("contrato_aluguer")
     .select("id")
     .eq("motorista_id", motoristaId)
     .eq("estado", "pre_contrato")
     .maybeSingle();
-  if (!preJa) {
-    const { data: pc } = await supabaseAdmin
+  if (preJa) {
+    preContratoId = preJa.id;
+  } else {
+    const { data: pc, error: ePc } = await supabaseAdmin
       .from("contrato_aluguer")
       .insert({ motorista_id: motoristaId, estado: "pre_contrato" })
       .select("id, numero")
       .maybeSingle();
     if (pc) {
+      preContratoId = pc.id;
       await notificar({
         tipo: "pre_contrato_sem_mota",
         titulo: "Pré-contrato à espera de mota",
@@ -181,6 +191,15 @@ export async function criarSessaoRegisto(input: {
         entidade: "contrato",
         entidade_id: pc.id,
       });
+    } else if (ePc?.code === "23505") {
+      // Corrida no índice único (um pré-contrato por motorista) — reutiliza-o.
+      const { data: re } = await supabaseAdmin
+        .from("contrato_aluguer")
+        .select("id")
+        .eq("motorista_id", motoristaId)
+        .eq("estado", "pre_contrato")
+        .maybeSingle();
+      preContratoId = re?.id ?? null;
     }
   }
 
@@ -188,10 +207,14 @@ export async function criarSessaoRegisto(input: {
   const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
   const { error } = await supabaseAdmin.from("entrega_sessao").insert({
     token_hash: hashToken(token),
-    contrato_id: null,
+    contrato_id: preContratoId,
     motorista_id: motoristaId,
     estado: "enviado",
     expira_em: expira,
+    // Natureza FIXADA na criação (imutável): registo só recolhe dados/KYC — nunca
+    // exige regras, mesmo que o pré-contrato receba mota entretanto (a entrega e as
+    // regras acontecem depois, num fluxo próprio). Ver sessaoPorToken/concluirPorToken.
+    dados: { origem: "registo" },
   });
   if (error) {
     console.error("criarSessaoRegisto sessao error:", error);
@@ -252,7 +275,12 @@ export async function sessaoPorToken(
       ? supabaseAdmin.from("contrato_aluguer").select("veiculo_id").eq("id", s.contrato_id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
-  const registo = !s.contrato_id;
+  // A natureza da sessão é FIXADA na criação (dados.origem), não inferida do estado
+  // mutável do contrato — senão finalizar o pré-contrato a meio da sessão trocava o
+  // fluxo debaixo do motorista. Retrocompat: sessões antigas sem origem inferem pela
+  // mota atual (registo antigo tinha contrato_id=null → c=null → registo=true).
+  const origem = (s.dados as { origem?: string } | null)?.origem;
+  const registo = origem ? origem === "registo" : !c?.veiculo_id;
   let veiculo = "a tua mota";
   if (c?.veiculo_id) {
     const { data: m } = await supabaseAdmin.from("moto").select("matricula, modelo").eq("id", c.veiculo_id).maybeSingle();
@@ -288,9 +316,11 @@ export async function sessaoPorToken(
 export async function consentirPorToken(token: string): Promise<{ ok: boolean; error?: string }> {
   const s = await sessaoValida(token);
   if (!s) return { ok: false, error: "Link inválido ou expirado." };
+  // Não rebaixar a jornada: se já houver documentos carregados, mantém esse estado.
+  const estado = s.estado === "docs_carregados" ? "docs_carregados" : "aberto";
   await supabaseAdmin
     .from("entrega_sessao")
-    .update({ consentimento_em: new Date().toISOString(), estado: "aberto" })
+    .update({ consentimento_em: new Date().toISOString(), estado })
     .eq("id", s.id);
   return { ok: true };
 }
@@ -315,6 +345,10 @@ export async function criarUploadPorToken(
   if (error || !data) {
     console.error("criarUploadPorToken error:", error);
     return { ok: false, error: "Erro ao preparar o upload." };
+  }
+  // Marca o avanço da jornada: documentos a serem carregados (estado intermédio).
+  if (s.estado === "aberto") {
+    await supabaseAdmin.from("entrega_sessao").update({ estado: "docs_carregados" }).eq("id", s.id);
   }
   return { ok: true, path: data.path, uploadToken: data.token };
 }
@@ -382,9 +416,24 @@ export async function concluirPorToken(
   const s = await sessaoValida(input.token);
   if (!s) return { ok: false, error: "Link inválido ou expirado." };
   if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento." };
-  // Só a preparação de uma entrega (com contrato) exige aceitar as regras; o
-  // registo puro recolhe apenas os dados.
-  const precisaRegras = !!s.contrato_id;
+  // Só a ENTREGA exige aceitar as regras; o registo puro recolhe apenas os dados.
+  // A natureza é a fixada na criação (dados.origem), coerente com o que a página
+  // renderizou — assim finalizar o pré-contrato a meio não estraga a conclusão.
+  const origem = (s.dados as { origem?: string } | null)?.origem;
+  let precisaRegras: boolean;
+  if (origem) {
+    precisaRegras = origem === "entrega";
+  } else if (s.contrato_id) {
+    // Retrocompat: sessões antigas sem origem — infere pela mota atual.
+    const { data: cc } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("veiculo_id")
+      .eq("id", s.contrato_id)
+      .maybeSingle();
+    precisaRegras = !!cc?.veiculo_id;
+  } else {
+    precisaRegras = false;
+  }
   if (precisaRegras && !input.regras_versao) return { ok: false, error: "Falta aceitar as regras." };
 
   // A prova das regras é carimbada pelo SERVIDOR (a versão/hash reais da regra

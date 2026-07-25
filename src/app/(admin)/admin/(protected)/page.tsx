@@ -18,7 +18,13 @@ export default async function AdminInicio() {
     await Promise.all([
       supabaseAdmin.from("notificacao").select("id", { count: "exact", head: true }).neq("estado", "feita"),
       contarContratos("pre_contrato"),
-      supabaseAdmin.from("vw_cobranca_estado").select("id", { count: "exact", head: true }).eq("em_atraso", true),
+      // "Em atraso" = renda/extras vencidos; a caução (cobrada em mão) não conta,
+      // para bater certo com a caixa de notificações e a lista de cobranças.
+      supabaseAdmin
+        .from("vw_cobranca_estado")
+        .select("id", { count: "exact", head: true })
+        .eq("em_atraso", true)
+        .neq("tipo", "caucao"),
       contarContratos("pendente_fecho"),
       contarContratos("ativo"),
       supabaseAdmin

@@ -57,6 +57,9 @@ export async function GET(request: NextRequest) {
     .from("vw_cobranca_estado")
     .select("*")
     .eq("data_vencimento", amanha)
+    // A caução não é renda (é cobrada em mão na entrega) — não a "dunar" com o
+    // texto de renda a vencer. Renda e extras (coimas) mantêm-se.
+    .neq("tipo", "caucao")
     .in("estado_liquidacao", ["por_liquidar", "parcial"]);
 
   if (error) {

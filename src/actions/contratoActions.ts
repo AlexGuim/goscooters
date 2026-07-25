@@ -165,13 +165,42 @@ export async function finalizarPreContrato(
     .update(upd)
     .eq("id", id)
     .eq("estado", "pre_contrato") // guarda: só finaliza um pré-contrato
-    .select("id, numero")
+    .select("id, numero, motorista_id")
     .maybeSingle();
   if (error) {
     console.error("finalizarPreContrato error:", error);
     return { success: false, error: "Erro ao finalizar o pré-contrato." };
   }
   if (!data) return { success: false, error: "Este contrato já não é um pré-contrato." };
+
+  // Materializa a caução como uma cobrança própria (tipo 'caucao') — fica visível
+  // nas dívidas para cobrar na entrega. Não conta como receita (o financeiro só
+  // considera 'renda') nem colide com o dano na recolha (despesa à parte). O
+  // guard de estado acima garante que isto corre uma só vez por contrato.
+  const valorCaucao = Number((input.caucao ?? "").toString().replace(",", "."));
+  if (Number.isFinite(valorCaucao) && valorCaucao > 0) {
+    const { data: jaCaucao } = await supabaseAdmin
+      .from("cobranca")
+      .select("id")
+      .eq("contrato_id", id)
+      .eq("tipo", "caucao")
+      .maybeSingle();
+    if (!jaCaucao) {
+      const { error: eCau } = await supabaseAdmin.from("cobranca").insert({
+        contrato_id: id,
+        motorista_id: data.motorista_id,
+        veiculo_id: input.veiculo_id,
+        proprietario_id,
+        periodo_inicio: input.data_inicio,
+        periodo_fim: input.data_inicio,
+        data_vencimento: input.data_inicio,
+        tipo: "caucao",
+        valor_devido: String(valorCaucao),
+        observacoes: "Caução do contrato (a cobrar na entrega)",
+      });
+      if (eCau) console.warn("finalizarPreContrato caução:", eCau.message);
+    }
+  }
 
   // Resolve a notificação de "à espera de mota" e cria "contrato pronto".
   await supabaseAdmin
