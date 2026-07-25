@@ -26,10 +26,44 @@ export function geminiConfigurado(): boolean {
   return !!process.env.GEMINI_API_KEY;
 }
 
-// O alias gemini-2.5-flash deixou de estar disponível para chaves novas; o
-// 2.0-flash é GA (visão + JSON, mais barato). Configurável por env para trocar
-// sem mexer no código (ex.: gemini-flash-latest, gemini-2.5-flash).
-const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const API = "https://generativelanguage.googleapis.com/v1beta";
+
+// Os aliases fixos (gemini-2.5-flash, gemini-2.0-flash) vão sendo descontinuados.
+// Em vez de adivinhar, perguntamos à API que modelos a chave tem e escolhemos um
+// (preferimos um "flash" estável). Fica em cache no processo. GEMINI_MODEL força
+// um nome específico e salta a descoberta.
+let modeloCache: string | null = null;
+
+async function descobrirModelo(key: string): Promise<string | null> {
+  if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
+  if (modeloCache) return modeloCache;
+  try {
+    const res = await fetch(`${API}/models?key=${key}&pageSize=200`);
+    if (!res.ok) {
+      console.error("Gemini ListModels", res.status, (await res.text()).slice(0, 400));
+      return null;
+    }
+    const json = await res.json();
+    const models: { name: string; supportedGenerationMethods?: string[] }[] = json?.models ?? [];
+    const geram = models.filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"));
+    const limpo = (m: { name: string }) => m.name.replace(/^models\//, "");
+    // Preferência: flash estável → qualquer flash → qualquer modelo com generateContent.
+    const escolhido =
+      geram.find((m) => /flash/i.test(m.name) && !/(lite|exp|thinking|preview|vision|8b|live|tts|image)/i.test(m.name)) ||
+      geram.find((m) => /flash/i.test(m.name)) ||
+      geram[0];
+    if (!escolhido) {
+      console.error("Gemini: nenhum modelo com generateContent disponível para esta chave.");
+      return null;
+    }
+    modeloCache = limpo(escolhido);
+    console.log("Gemini modelo escolhido:", modeloCache);
+    return modeloCache;
+  } catch (err) {
+    console.error("descobrirModelo falhou:", err);
+    return null;
+  }
+}
 
 const PROMPT = `És um assistente que lê documentos de identidade e cartas de condução a partir de fotografias (podem estar em várias línguas; a zona MRZ do cartão de cidadão está no verso).
 Extrai APENAS o que conseguires ler com confiança e devolve um objeto JSON com EXATAMENTE estas chaves (usa null quando não souberes):
@@ -70,6 +104,9 @@ export async function lerDocumentoGemini(
   const key = process.env.GEMINI_API_KEY;
   if (!key || imagens.length === 0) return null;
 
+  const modelo = await descobrirModelo(key);
+  if (!modelo) return null;
+
   const parts = [
     { text: PROMPT },
     ...imagens.map((i) => ({ inline_data: { mime_type: i.mime, data: i.base64 } })),
@@ -79,7 +116,7 @@ export async function lerDocumentoGemini(
   const timeout = setTimeout(() => controlador.abort(), 25000);
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${key}`,
+      `${API}/models/${modelo}:generateContent?key=${key}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,6 +130,7 @@ export async function lerDocumentoGemini(
     );
     if (!res.ok) {
       console.error("Gemini HTTP", res.status, (await res.text()).slice(0, 800));
+      if (res.status === 404) modeloCache = null; // modelo em cache inválido — redescobrir
       return null;
     }
     const json = await res.json();
