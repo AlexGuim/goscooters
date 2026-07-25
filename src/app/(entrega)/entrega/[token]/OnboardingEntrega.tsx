@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { enviarDocPorToken, enviarAssinaturaPorToken } from "@/lib/uploads";
 import { consentirPorToken, concluirPorToken, type SessaoPublica } from "@/actions/entregaActions";
 import { ocrFicheiro } from "@/lib/ocr";
@@ -8,11 +8,16 @@ import { interpretarDocumento } from "@/lib/documentos";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 
 const DOC_SLOTS = [
-  { key: "identidade", rotulo: "Documento de identidade" },
+  { key: "identidade", rotulo: "Documento de identidade (frente)" },
+  { key: "identidade_verso", rotulo: "Documento de identidade (verso)" },
   { key: "carta_frente", rotulo: "Carta de condução (frente)" },
   { key: "carta_verso", rotulo: "Carta de condução (verso)" },
   { key: "morada", rotulo: "Comprovativo de morada (opcional)" },
 ];
+
+// Slots do documento de identidade — usados para o OCR automático (a MRZ do
+// cartão de cidadão está no VERSO, por isso lê-se frente + verso).
+const SLOTS_IDENTIDADE = ["identidade", "identidade_verso"];
 
 const DOC_TIPOS = [
   { valor: "cc", rotulo: "Cartão de cidadão" },
@@ -43,8 +48,10 @@ export default function OnboardingEntrega({
   const [tipo, setTipo] = useState("cc");
   const [numero, setNumero] = useState("");
   const [validade, setValidade] = useState("");
-  const [identidadeFile, setIdentidadeFile] = useState<File | null>(null);
+  // Ficheiros de identidade (frente/verso) acumulados para o OCR automático.
+  const identidadeFilesRef = useRef<Record<string, File>>({});
   const [aLerOcr, setALerOcr] = useState(false);
+  const [ocrEstado, setOcrEstado] = useState<"idle" | "ok" | "falhou">("idle");
   // Carta de condução
   const [cartaNumero, setCartaNumero] = useState("");
   const [cartaCategoria, setCartaCategoria] = useState("");
@@ -69,27 +76,36 @@ export default function OnboardingEntrega({
   const carregarDoc = async (slot: string, file: File | undefined) => {
     if (!file) return;
     setErro(null);
-    if (slot === "identidade") setIdentidadeFile(file);
     setACarregar(slot);
     const r = await enviarDocPorToken(token, file);
     setACarregar(null);
-    if (r.success && r.path) setDocs((d) => ({ ...d, [slot]: r.path! }));
-    else setErro(r.error ?? "Erro ao carregar.");
+    if (r.success && r.path) {
+      setDocs((d) => ({ ...d, [slot]: r.path! }));
+      // Documento de identidade: guarda a imagem e corre logo o OCR (automático).
+      if (SLOTS_IDENTIDADE.includes(slot) && file.type.startsWith("image/")) {
+        identidadeFilesRef.current[slot] = file;
+        lerDocumento(Object.values(identidadeFilesRef.current));
+      }
+    } else setErro(r.error ?? "Erro ao carregar.");
   };
 
-  const lerDocumento = async () => {
-    if (!identidadeFile) return;
-    setErro(null);
+  // OCR automático da identidade: lê todas as imagens (frente+verso), junta o
+  // texto e extrai os campos. A MRZ pode estar em qualquer um dos lados.
+  const lerDocumento = async (files: File[]) => {
+    if (!files.length) return;
     setALerOcr(true);
+    setOcrEstado("idle");
     try {
-      const texto = await ocrFicheiro(identidadeFile);
-      const d = interpretarDocumento(texto);
+      const textos = await Promise.all(files.map((f) => ocrFicheiro(f)));
+      const d = interpretarDocumento(textos.join("\n"));
       if (d.nome) setNome(d.nome);
       if (d.numero) setNumero(d.numero);
       if (d.validade) setValidade(d.validade);
-      if (!d.nome && !d.numero) setErro("Não consegui ler o documento — confirma os campos à mão.");
+      if (d.tipo === "passaporte") setTipo("passaporte");
+      else if (d.tipo === "cc") setTipo("cc");
+      setOcrEstado(d.nome || d.numero ? "ok" : "falhou");
     } catch {
-      setErro("Não consegui ler o documento — confirma os campos à mão.");
+      setOcrEstado("falhou");
     } finally {
       setALerOcr(false);
     }
@@ -190,13 +206,13 @@ export default function OnboardingEntrega({
 
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Documentos</h2>
-        <p className="text-xs text-slate-500">Tira uma foto nítida de cada um. Identidade e frente da carta são obrigatórias.</p>
+        <p className="text-xs text-slate-500">Tira uma foto nítida ou escolhe do telemóvel. Identidade (frente e verso) e frente da carta são obrigatórias.</p>
         {DOC_SLOTS.map((s) => (
           <label key={s.key} className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-emerald-400">
-            <input type="file" accept="image/*,application/pdf" capture="environment" className="hidden" onChange={(e) => carregarDoc(s.key, e.target.files?.[0])} />
+            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => carregarDoc(s.key, e.target.files?.[0])} />
             <span>{s.rotulo}</span>
             <span className={docs[s.key] ? "text-emerald-600" : "text-slate-400"}>
-              {aCarregar === s.key ? "a carregar…" : docs[s.key] ? "✓" : "câmara"}
+              {aCarregar === s.key ? "a carregar…" : docs[s.key] ? "✓" : "foto / ficheiro"}
             </span>
           </label>
         ))}
@@ -204,16 +220,19 @@ export default function OnboardingEntrega({
 
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Os teus dados</h2>
-        {identidadeFile && (
-          <button
-            type="button"
-            onClick={lerDocumento}
-            disabled={aLerOcr}
-            className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
-          >
-            {aLerOcr ? "a ler o documento…" : "✨ Ler documento automaticamente (opcional)"}
-          </button>
-        )}
+        {aLerOcr ? (
+          <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
+            ✨ A ler o documento…
+          </p>
+        ) : ocrEstado === "ok" ? (
+          <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">
+            ✓ Preenchi os dados a partir do documento — confirma que estão certos.
+          </p>
+        ) : ocrEstado === "falhou" ? (
+          <p className="rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800">
+            Não consegui ler o documento automaticamente — preenche os campos à mão.
+          </p>
+        ) : null}
         <label className="block space-y-1.5 text-sm font-medium text-slate-700">
           <span>Nome completo</span>
           <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} />
