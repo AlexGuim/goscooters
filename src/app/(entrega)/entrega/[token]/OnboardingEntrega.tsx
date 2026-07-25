@@ -30,6 +30,7 @@ export default function OnboardingEntrega({
   token: string;
   sessao: SessaoPublica;
 }) {
+  const registo = sessao.registo;
   const [consentiu, setConsentiu] = useState(sessao.consentiu);
   const [aConsentir, setAConsentir] = useState(false);
   const [concluido, setConcluido] = useState(false);
@@ -135,7 +136,10 @@ export default function OnboardingEntrega({
           <div className="text-4xl">✓</div>
           <h1 className="mt-2 text-xl font-semibold text-slate-950">Está tudo enviado!</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Obrigado, {nome.split(" ")[0] || ""}. A GoScooters vai rever e vemo-nos na entrega da tua mota.
+            Obrigado, {nome.split(" ")[0] || ""}.{" "}
+            {registo
+              ? "A GoScooters vai rever os teus dados e entra em contacto."
+              : "A GoScooters vai rever e vemo-nos na entrega da tua mota."}
           </p>
         </div>
       </main>
@@ -146,11 +150,19 @@ export default function OnboardingEntrega({
     return (
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md space-y-5 rounded-3xl bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-semibold text-slate-950">Preparar a entrega</h1>
+          <h1 className="text-2xl font-semibold text-slate-950">
+            {registo ? "Registo do motorista" : "Preparar a entrega"}
+          </h1>
           <p className="text-sm text-slate-600">
-            Olá{sessao.motorista_nome ? ` ${sessao.motorista_nome.split(" ")[0]}` : ""}! Vamos preparar a
-            entrega da <strong>{sessao.veiculo}</strong>. Leva 2 minutos: carregas os teus documentos,
-            confirmas os dados e aceitas as regras.
+            Olá{sessao.motorista_nome ? ` ${sessao.motorista_nome.split(" ")[0]}` : ""}!{" "}
+            {registo ? (
+              "Vamos registar os teus dados. Leva 2 minutos: carregas os teus documentos e confirmas os dados."
+            ) : (
+              <>
+                Vamos preparar a entrega da <strong>{sessao.veiculo}</strong>. Leva 2 minutos:
+                carregas os teus documentos, confirmas os dados e aceitas as regras.
+              </>
+            )}
           </p>
           <p className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-500">
             Ao continuar, autorizas a GoScooters a tratar os teus documentos para a gestão do aluguer,
@@ -171,8 +183,10 @@ export default function OnboardingEntrega({
 
   return (
     <main className="mx-auto max-w-lg space-y-5 px-4 py-8 pb-28">
-      <h1 className="text-2xl font-semibold text-slate-950">Preparar a entrega</h1>
-      <p className="text-sm text-slate-600">{sessao.veiculo}</p>
+      <h1 className="text-2xl font-semibold text-slate-950">
+        {registo ? "Os teus dados" : "Preparar a entrega"}
+      </h1>
+      {!registo && <p className="text-sm text-slate-600">{sessao.veiculo}</p>}
 
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Documentos</h2>
@@ -257,11 +271,13 @@ export default function OnboardingEntrega({
         </section>
       )}
 
-      <section className="space-y-2 rounded-3xl bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assinatura</h2>
-        <p className="text-xs text-slate-500">Assina com o dedo.</p>
-        <AssinaturaCanvas onChange={setAssinatura} />
-      </section>
+      {!registo && (
+        <section className="space-y-2 rounded-3xl bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assinatura</h2>
+          <p className="text-xs text-slate-500">Assina com o dedo.</p>
+          <AssinaturaCanvas onChange={setAssinatura} />
+        </section>
+      )}
 
       {erro && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
 

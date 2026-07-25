@@ -16,7 +16,7 @@ import {
   gerarCobrancas,
   terminarContrato,
 } from "@/actions/contratoActions";
-import { criarSessaoEntrega } from "@/actions/entregaActions";
+import { criarSessaoEntrega, criarSessaoRegisto } from "@/actions/entregaActions";
 
 export interface ContratoComNomes extends ContratoAluguer {
   motorista_nome: string;
@@ -71,6 +71,7 @@ export default function ContratosList({
   const [contratos, setContratos] = useState(inicial);
   const [filtro, setFiltro] = useState<ContratoEstado | "abertos" | "">("abertos");
   const [modal, setModal] = useState<ContratoComNomes | "novo" | null>(null);
+  const [registo, setRegisto] = useState(false);
   const [aGerar, setAGerar] = useState<string | null>(null);
 
   const filtrados = contratos.filter((c) => {
@@ -168,12 +169,20 @@ export default function ContratosList({
           <option value="concluido">Concluídos</option>
           <option value="cancelado">Cancelados</option>
         </select>
-        <button
-          className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          onClick={() => setModal("novo")}
-        >
-          + Novo contrato
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+            onClick={() => setRegisto(true)}
+          >
+            Registar motorista (link)
+          </button>
+          <button
+            className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            onClick={() => setModal("novo")}
+          >
+            + Novo contrato
+          </button>
+        </div>
       </div>
 
       {filtrados.length === 0 ? (
@@ -288,6 +297,74 @@ export default function ContratosList({
           onSaved={handleSaved}
         />
       )}
+
+      {registo && <RegistoLinkModal onClose={() => setRegisto(false)} />}
+    </div>
+  );
+}
+
+function RegistoLinkModal({ onClose }: { onClose: () => void }) {
+  const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [aEnviar, setAEnviar] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+
+  const enviar = async () => {
+    setErro(null);
+    if (!telefone.trim()) return setErro("Indica o telefone do motorista.");
+    setAEnviar(true);
+    const r = await criarSessaoRegisto({ nome: nome.trim() || null, telefone: telefone.trim() });
+    setAEnviar(false);
+    if (!r.success) return setErro(r.error ?? "Erro ao criar o link.");
+    setLink(r.link ?? null);
+    // Se houver telefone E.164 na ficha, abre logo o WhatsApp com a mensagem pronta.
+    if (r.whatsapp) window.open(r.whatsapp, "_blank");
+  };
+
+  const campoIn = "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6" onClick={onClose}>
+      <div className="my-8 w-full max-w-md rounded-3xl bg-white p-6 shadow-lg sm:p-8" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-950">Registar motorista</h2>
+            <p className="text-sm text-slate-600">Envia-lhe o link — ele carrega o documento e o sistema preenche a ficha.</p>
+          </div>
+          <button className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100" onClick={onClose} type="button" aria-label="Fechar">×</button>
+        </div>
+
+        {link ? (
+          <div className="mt-6 space-y-3">
+            <p className="text-sm text-slate-700">Link criado (válido 72h). Se o WhatsApp não abriu, copia e envia:</p>
+            <input className={campoIn} readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
+            <button onClick={onClose} className="w-full rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
+              Concluído
+            </button>
+          </div>
+        ) : (
+          <div className="mt-6 space-y-4">
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+              <span>Nome (opcional)</span>
+              <input className={campoIn} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Fica por confirmar no registo" />
+            </label>
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+              <span>Telefone <span className="text-red-600">*</span></span>
+              <input className={campoIn} value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="+351 91 234 5678" />
+            </label>
+            {erro && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={onClose} className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50">
+                Cancelar
+              </button>
+              <button type="button" onClick={enviar} disabled={aEnviar} className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                {aEnviar ? "A criar…" : "Criar e enviar link"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

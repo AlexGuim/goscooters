@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { mensagemLinkEntrega } from "@/lib/mensagens";
+import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
 type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
@@ -84,6 +85,85 @@ export async function criarSessaoEntrega(
   return { success: true, link, whatsapp };
 }
 
+/**
+ * Cria uma sessão de REGISTO (sem contrato): o motorista regista-se por link
+ * antes de existir contrato — carrega o documento, o OCR pré-preenche e ele
+ * confirma. Reutiliza o motorista existente pelo telefone, ou cria um lead.
+ * As regras/assinatura ficam para a entrega (quando houver contrato e mota).
+ */
+export async function criarSessaoRegisto(input: {
+  nome?: string | null;
+  telefone: string;
+}): Promise<{ success: boolean; link?: string; whatsapp?: string | null; error?: string; motorista_id?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const telefone = input.telefone?.trim();
+  if (!telefone) return { success: false, error: "Indica o telefone do motorista." };
+  const digitos = normalizarTelefone(telefone);
+
+  // Reutiliza o motorista pelo telefone, ou cria um lead mínimo.
+  let motoristaId: string;
+  const { data: existente } = await supabaseAdmin
+    .from("motorista")
+    .select("id")
+    .eq("telefone_digitos", digitos)
+    .maybeSingle();
+  if (existente) {
+    motoristaId = existente.id;
+  } else {
+    const { data: novo, error: eNovo } = await supabaseAdmin
+      .from("motorista")
+      .insert({
+        nome: input.nome?.trim() || "Motorista (por confirmar)",
+        telefone,
+        telefone_digitos: digitos,
+        telefone_e164: paraE164(telefone),
+        estado: "lead",
+      })
+      .select("id")
+      .single();
+    if (eNovo || !novo) {
+      console.error("criarSessaoRegisto motorista error:", eNovo);
+      return { success: false, error: "Erro ao criar o motorista." };
+    }
+    motoristaId = novo.id;
+  }
+
+  const token = randomBytes(24).toString("base64url");
+  const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+  const { error } = await supabaseAdmin.from("entrega_sessao").insert({
+    token_hash: hashToken(token),
+    contrato_id: null,
+    motorista_id: motoristaId,
+    estado: "enviado",
+    expira_em: expira,
+  });
+  if (error) {
+    console.error("criarSessaoRegisto sessao error:", error);
+    return { success: false, error: "Erro ao criar a sessão (corre sql/fase4b_entrega_sessao)." };
+  }
+
+  const h = await headers();
+  const origin = h.get("origin") ?? `https://${h.get("host") ?? "goscooters.vercel.app"}`;
+  const link = `${origin}/entrega/${token}`;
+
+  let whatsapp: string | null = null;
+  const { data: m } = await supabaseAdmin
+    .from("motorista")
+    .select("nome, telefone_e164, idioma_preferido")
+    .eq("id", motoristaId)
+    .maybeSingle();
+  if (m?.telefone_e164) {
+    const num = m.telefone_e164.replace(/\D/g, "");
+    const texto = mensagemLinkEntrega(m.nome ?? "", link, m.idioma_preferido);
+    whatsapp = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+  }
+
+  revalidatePath("/admin/motoristas");
+  return { success: true, link, whatsapp, motorista_id: motoristaId };
+}
+
 // ── Público (validado por token, sem conta) ──────────────────────────────────
 
 export interface SessaoPublica {
@@ -91,6 +171,9 @@ export interface SessaoPublica {
   veiculo: string;
   consentiu: boolean;
   regras: { versao: string; hash: string; conteudo: string } | null;
+  // true = registo sem contrato (só recolha de dados; regras/assinatura ficam
+  // para a entrega). false = preparação de uma entrega concreta.
+  registo: boolean;
 }
 
 /** Dados para a página pública. Marca a sessão como 'aberta' na 1.ª visita. */
@@ -112,16 +195,21 @@ export async function sessaoPorToken(
       ? supabaseAdmin.from("contrato_aluguer").select("veiculo_id").eq("id", s.contrato_id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
+  const registo = !s.contrato_id;
   let veiculo = "a tua mota";
   if (c?.veiculo_id) {
     const { data: m } = await supabaseAdmin.from("moto").select("matricula, modelo").eq("id", c.veiculo_id).maybeSingle();
     if (m) veiculo = `${m.matricula ?? ""} ${m.modelo}`.trim();
   }
-  const { data: regras } = await supabaseAdmin
-    .from("regras_aluguer")
-    .select("versao, hash, conteudo")
-    .eq("ativa", true)
-    .maybeSingle();
+  // No registo (sem contrato) as regras do aluguer não se aplicam ainda — só se
+  // aceitam na entrega, para a mota concreta.
+  const { data: regras } = registo
+    ? { data: null }
+    : await supabaseAdmin
+        .from("regras_aluguer")
+        .select("versao, hash, conteudo")
+        .eq("ativa", true)
+        .maybeSingle();
 
   return {
     ok: true,
@@ -130,6 +218,7 @@ export async function sessaoPorToken(
       veiculo,
       consentiu: !!s.consentimento_em,
       regras: regras ?? null,
+      registo,
     },
   };
 }
@@ -192,7 +281,10 @@ export async function concluirPorToken(
   const s = await sessaoValida(input.token);
   if (!s) return { ok: false, error: "Link inválido ou expirado." };
   if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento." };
-  if (!input.regras_versao) return { ok: false, error: "Falta aceitar as regras." };
+  // Só a preparação de uma entrega (com contrato) exige aceitar as regras; o
+  // registo puro recolhe apenas os dados.
+  const precisaRegras = !!s.contrato_id;
+  if (precisaRegras && !input.regras_versao) return { ok: false, error: "Falta aceitar as regras." };
 
   // A prova das regras é carimbada pelo SERVIDOR (a versão/hash reais da regra
   // ativa), nunca pelo que o cliente diz — senão a prova seria repudiável.
@@ -201,7 +293,7 @@ export async function concluirPorToken(
     .select("versao, hash")
     .eq("ativa", true)
     .maybeSingle();
-  if (!regra) return { ok: false, error: "Regras não configuradas." };
+  if (precisaRegras && !regra) return { ok: false, error: "Regras não configuradas." };
 
   const h = await headers();
   const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;
@@ -236,14 +328,18 @@ export async function concluirPorToken(
   const dados = {
     docs: input.doc_paths,
     assinatura_path: input.assinatura_path,
-    regras: {
-      versao: regra.versao, // do servidor, não do cliente
-      hash: regra.hash,
-      aceite: true,
-      em: agora,
-      ip,
-      user_agent: ua,
-    },
+    // Prova de aceite só quando há regras (entrega); no registo fica null.
+    regras:
+      regra && input.regras_versao
+        ? {
+            versao: regra.versao, // do servidor, não do cliente
+            hash: regra.hash,
+            aceite: true,
+            em: agora,
+            ip,
+            user_agent: ua,
+          }
+        : null,
   };
   await supabaseAdmin
     .from("entrega_sessao")
