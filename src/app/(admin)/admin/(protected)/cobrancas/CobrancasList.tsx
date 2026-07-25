@@ -5,6 +5,7 @@ import type { CobrancaTipo, EstadoLiquidacao, PagamentoMetodo, PagamentoRecebido
 import { formatarPreco } from "@/lib/precos";
 import { registarPagamento, type AlocacaoInput } from "@/actions/pagamentoActions";
 import { cobrancasDaSemana } from "@/actions/cobrancaActions";
+import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface CobrancaPainel {
   id: string;
@@ -252,13 +253,11 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
           {grupos.map((g) => {
             const totalFalta = g.itens.reduce((s, c) => s + Number(c.em_falta), 0);
             return (
-        <div key={g.nome} className="overflow-hidden rounded-3xl bg-white shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-5 py-3">
-            <p className="text-sm font-semibold text-slate-700">{g.nome}</p>
-            <p className="text-xs font-medium text-slate-500">
-              {g.itens.length} cobrança(s) · {formatarPreco(totalFalta)}
-            </p>
-          </div>
+        <GrupoColapsavel
+          key={g.nome}
+          titulo={g.nome}
+          resumo={`${g.itens.length} cobrança(s) · ${formatarPreco(totalFalta)}`}
+        >
           <div className="divide-y divide-slate-100">
             {g.itens.map((c) => {
               const wa = linkWhatsapp(c);
@@ -316,7 +315,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
               );
             })}
           </div>
-        </div>
+        </GrupoColapsavel>
             );
           })}
         </div>

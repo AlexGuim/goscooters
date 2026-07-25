@@ -17,6 +17,7 @@ import {
   terminarContrato,
 } from "@/actions/contratoActions";
 import { criarSessaoEntrega, criarSessaoRegisto } from "@/actions/entregaActions";
+import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface ContratoComNomes extends ContratoAluguer {
   motorista_nome: string;
@@ -79,6 +80,17 @@ export default function ContratosList({
     if (filtro === "abertos") return c.estado === "ativo" || c.estado === "pendente_fecho";
     return c.estado === filtro;
   });
+
+  // Agrupados por proprietário da moto (secção colapsável por dono).
+  const grupos = (() => {
+    const m = new Map<string, { nome: string; itens: ContratoComNomes[] }>();
+    for (const c of filtrados) {
+      const nome = c.proprietario_nome ?? "Sem proprietário";
+      if (!m.has(nome)) m.set(nome, { nome, itens: [] });
+      m.get(nome)!.itens.push(c);
+    }
+    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  })();
 
   const handleSaved = (c: ContratoComNomes) => {
     setContratos((atuais) => {
@@ -191,13 +203,16 @@ export default function ContratosList({
         </div>
       ) : (
         <div className="space-y-3">
-          {filtrados.map((c) => {
+          {grupos.map((g) => (
+            <GrupoColapsavel key={g.nome} titulo={g.nome} resumo={`${g.itens.length} contrato(s)`}>
+              <div className="divide-y divide-slate-100">
+                {g.itens.map((c) => {
             const info = ESTADO_INFO[c.estado];
             const aberto = c.estado === "ativo" || c.estado === "pendente_fecho";
             return (
               <div
                 key={c.id}
-                className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5"
+                className="flex flex-wrap items-center justify-between gap-4 px-5 py-4"
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -210,7 +225,6 @@ export default function ContratosList({
                   <p className="text-sm text-slate-600">
                     {c.veiculo_matricula}
                     {c.veiculo_modelo ? ` · ${c.veiculo_modelo}` : ""}
-                    {c.proprietario_nome ? ` · ${c.proprietario_nome}` : ""}
                   </p>
                 </div>
 
@@ -283,7 +297,10 @@ export default function ContratosList({
                 </div>
               </div>
             );
-          })}
+                })}
+              </div>
+            </GrupoColapsavel>
+          ))}
         </div>
       )}
 
