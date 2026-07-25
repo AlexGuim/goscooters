@@ -52,6 +52,15 @@ function mimeDoCaminho(path: string): string {
   return "image/jpeg";
 }
 
+// Evita que o filtro de segurança bloqueie fotos de documentos (têm rostos e
+// dados pessoais). É um uso legítimo — desligamos os bloqueios.
+const SEM_BLOQUEIOS = [
+  "HARM_CATEGORY_HARASSMENT",
+  "HARM_CATEGORY_HATE_SPEECH",
+  "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+  "HARM_CATEGORY_DANGEROUS_CONTENT",
+].map((category) => ({ category, threshold: "BLOCK_NONE" }));
+
 export async function lerDocumentoGemini(
   imagens: { mime: string; base64: string }[],
 ): Promise<CamposDocumento | null> {
@@ -74,17 +83,29 @@ export async function lerDocumentoGemini(
         signal: controlador.signal,
         body: JSON.stringify({
           contents: [{ parts }],
+          safetySettings: SEM_BLOQUEIOS,
           generationConfig: { responseMimeType: "application/json", temperature: 0 },
         }),
       },
     );
     if (!res.ok) {
-      console.error("Gemini erro:", res.status, (await res.text()).slice(0, 500));
+      console.error("Gemini HTTP", res.status, (await res.text()).slice(0, 800));
       return null;
     }
     const json = await res.json();
-    const texto: string | undefined = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!texto) return null;
+    const cand = json?.candidates?.[0];
+    const texto: string | undefined = cand?.content?.parts?.[0]?.text;
+    if (!texto) {
+      console.error(
+        "Gemini sem texto:",
+        JSON.stringify({
+          finishReason: cand?.finishReason,
+          blockReason: json?.promptFeedback?.blockReason,
+          safety: cand?.safetyRatings,
+        }).slice(0, 800),
+      );
+      return null;
+    }
     const limpo = texto.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
     return JSON.parse(limpo) as CamposDocumento;
   } catch (err) {

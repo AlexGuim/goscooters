@@ -175,6 +175,9 @@ export interface SessaoPublica {
   // true = registo sem contrato (só recolha de dados; regras/assinatura ficam
   // para a entrega). false = preparação de uma entrega concreta.
   registo: boolean;
+  // Língua do formulário: 'pt' para motoristas de língua portuguesa, 'en' para
+  // os restantes (política do negócio).
+  idioma: "pt" | "en";
 }
 
 /** Dados para a página pública. Marca a sessão como 'aberta' na 1.ª visita. */
@@ -190,7 +193,7 @@ export async function sessaoPorToken(
 
   const [{ data: mot }, { data: c }] = await Promise.all([
     s.motorista_id
-      ? supabaseAdmin.from("motorista").select("nome").eq("id", s.motorista_id).maybeSingle()
+      ? supabaseAdmin.from("motorista").select("nome, idioma_preferido").eq("id", s.motorista_id).maybeSingle()
       : Promise.resolve({ data: null }),
     s.contrato_id
       ? supabaseAdmin.from("contrato_aluguer").select("veiculo_id").eq("id", s.contrato_id).maybeSingle()
@@ -212,6 +215,9 @@ export async function sessaoPorToken(
         .eq("ativa", true)
         .maybeSingle();
 
+  const idiomaMot = (mot as { idioma_preferido?: string | null } | null)?.idioma_preferido;
+  const idioma: "pt" | "en" = (idiomaMot || "pt").slice(0, 2).toLowerCase() === "pt" ? "pt" : "en";
+
   return {
     ok: true,
     sessao: {
@@ -220,6 +226,7 @@ export async function sessaoPorToken(
       consentiu: !!s.consentimento_em,
       regras: regras ?? null,
       registo,
+      idioma,
     },
   };
 }
@@ -268,28 +275,34 @@ export async function criarUploadPorToken(
 export async function lerDocumentoIAporToken(
   token: string,
   paths: string[],
-): Promise<{ ok: boolean; dados?: CamposDocumento; error?: string; semIA?: boolean }> {
+): Promise<{ ok: boolean; dados?: CamposDocumento; error?: string; semIA?: boolean; motivo?: string }> {
   const s = await sessaoValida(token);
-  if (!s) return { ok: false, error: "Link inválido ou expirado." };
-  if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento." };
-  if (!geminiConfigurado()) return { ok: false, semIA: true };
+  if (!s) return { ok: false, error: "Link inválido ou expirado.", motivo: "sessao" };
+  if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento.", motivo: "consentimento" };
+  if (!geminiConfigurado()) {
+    console.warn("lerDocumentoIA: GEMINI_API_KEY em falta — a usar Tesseract.");
+    return { ok: false, semIA: true, motivo: "sem_chave" };
+  }
 
   const imagens: { mime: string; base64: string }[] = [];
+  let rejeitados = 0;
   for (const p of paths.slice(0, 4)) {
     // Segurança: só as imagens desta sessão (o caminho tem o id da sessão).
-    if (!p.startsWith(`entregas/${s.id}/`)) continue;
+    if (!p.startsWith(`entregas/${s.id}/`)) { rejeitados++; continue; }
     const { data, error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).download(p);
-    if (error || !data) continue;
+    if (error || !data) { rejeitados++; continue; }
     const mime = mimeDoCaminho(p);
-    if (!mime.startsWith("image/") && mime !== "application/pdf") continue;
+    if (!mime.startsWith("image/") && mime !== "application/pdf") { rejeitados++; continue; }
     const buf = Buffer.from(await data.arrayBuffer());
     imagens.push({ mime, base64: buf.toString("base64") });
   }
-  if (!imagens.length) return { ok: false, error: "Sem imagens para ler." };
+  console.log(`lerDocumentoIA: ${imagens.length} imagem(ns), ${rejeitados} rejeitada(s), sessão ${s.id}`);
+  if (!imagens.length) return { ok: false, error: "Sem imagens para ler.", motivo: "sem_imagens" };
 
   const dados = await lerDocumentoGemini(imagens);
-  if (!dados) return { ok: false, error: "Não consegui ler o documento." };
-  return { ok: true, dados };
+  if (!dados) return { ok: false, error: "Não consegui ler o documento.", motivo: "gemini_falhou" };
+  console.log("lerDocumentoIA: leitura OK");
+  return { ok: true, dados, motivo: "ok" };
 }
 
 export interface ConcluirEntregaInput {
