@@ -26,7 +26,10 @@ export function geminiConfigurado(): boolean {
   return !!process.env.GEMINI_API_KEY;
 }
 
-const MODELO = "gemini-2.5-flash";
+// O alias gemini-2.5-flash deixou de estar disponível para chaves novas; o
+// 2.0-flash é GA (visão + JSON, mais barato). Configurável por env para trocar
+// sem mexer no código (ex.: gemini-flash-latest, gemini-2.5-flash).
+const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const PROMPT = `És um assistente que lê documentos de identidade e cartas de condução a partir de fotografias (podem estar em várias línguas; a zona MRZ do cartão de cidadão está no verso).
 Extrai APENAS o que conseguires ler com confiança e devolve um objeto JSON com EXATAMENTE estas chaves (usa null quando não souberes):
