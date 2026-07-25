@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { enviarDocPorToken, enviarAssinaturaPorToken } from "@/lib/uploads";
 import {
   consentirPorToken,
@@ -13,6 +13,7 @@ import { interpretarDocumento } from "@/lib/documentos";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 
 type Lang = "pt" | "en";
+type EstadoLeitura = "idle" | "lendo" | "ok" | "falhou";
 
 const DOC_SLOTS: { key: string; pt: string; en: string }[] = [
   { key: "identidade", pt: "Documento de identidade (frente)", en: "ID document (front)" },
@@ -24,8 +25,8 @@ const DOC_SLOTS: { key: string; pt: string; en: string }[] = [
 
 // A MRZ do cartão de cidadão está no VERSO, por isso lê-se frente + verso.
 const SLOTS_IDENTIDADE = ["identidade", "identidade_verso"];
-// Slots com imagem que alimentam a leitura automática (identidade + carta).
-const SLOTS_IMAGEM = ["identidade", "identidade_verso", "carta_frente", "carta_verso"];
+const SLOTS_CARTA = ["carta_frente", "carta_verso"];
+const SLOTS_IMAGEM = [...SLOTS_IDENTIDADE, ...SLOTS_CARTA];
 
 const DOC_TIPOS: { valor: string; pt: string; en: string }[] = [
   { valor: "cc", pt: "Cartão de cidadão", en: "ID card" },
@@ -40,22 +41,20 @@ const STR: Record<Lang, Record<string, string>> = {
     obrigado: "Obrigado",
     review_registo: "A GoScooters vai rever os teus dados e entra em contacto.",
     review_entrega: "A GoScooters vai rever e vemo-nos na entrega da tua mota.",
-    consent_titulo_registo: "Registo do motorista",
-    consent_titulo_entrega: "Preparar a entrega",
-    ola: "Olá",
-    consent_registo: "Vamos registar os teus dados. Leva 2 minutos: carregas os teus documentos e confirmas os dados.",
-    consent_entrega_pre: "Vamos preparar a entrega da ",
-    consent_entrega_post: ". Leva 2 minutos: carregas os teus documentos, confirmas os dados e aceitas as regras.",
-    consent_aviso: "Ao continuar, autorizas a GoScooters a tratar os teus documentos para a gestão do aluguer, conforme a política de privacidade.",
-    comecar: "Começar",
-    dados_titulo: "Os teus dados",
+    titulo_registo: "Os teus dados",
+    titulo_entrega: "Preparar a entrega",
+    aviso: "Ao enviar, autorizas a GoScooters a tratar os teus documentos para a gestão do aluguer, conforme a política de privacidade.",
     docs_titulo: "Documentos",
     docs_ajuda: "Tira uma foto nítida ou escolhe do telemóvel. Identidade (frente e verso) e frente da carta são obrigatórias.",
     a_carregar: "a carregar…",
     foto_ficheiro: "foto / ficheiro",
-    ocr_a_ler: "✨ A ler o documento…",
-    ocr_ok: "✓ Preenchi os dados a partir do documento — confirma que estão certos.",
-    ocr_falhou: "Não consegui ler o documento automaticamente — preenche os campos à mão.",
+    lendo_id: "✨ A ler o documento de identidade…",
+    lendo_carta: "✨ A ler a carta de condução…",
+    ok_id: "✓ Dados do documento preenchidos — confirma que estão certos.",
+    ok_carta: "✓ Dados da carta preenchidos — confirma que estão certos.",
+    falhou_id: "Não consegui ler o documento — preenche os campos à mão.",
+    falhou_carta: "Não consegui ler a carta — preenche os campos à mão.",
+    id_titulo: "Identidade",
     nome_completo: "Nome completo",
     tipo_doc: "Tipo de documento",
     num_doc: "Nº do documento",
@@ -86,22 +85,20 @@ const STR: Record<Lang, Record<string, string>> = {
     obrigado: "Thank you",
     review_registo: "GoScooters will review your details and get in touch.",
     review_entrega: "GoScooters will review and see you at your scooter handover.",
-    consent_titulo_registo: "Driver registration",
-    consent_titulo_entrega: "Prepare your handover",
-    ola: "Hi",
-    consent_registo: "Let's register your details. It takes 2 minutes: upload your documents and confirm the details.",
-    consent_entrega_pre: "Let's prepare the handover of ",
-    consent_entrega_post: ". It takes 2 minutes: upload your documents, confirm the details and accept the rules.",
-    consent_aviso: "By continuing, you authorise GoScooters to process your documents for rental management, in line with the privacy policy.",
-    comecar: "Start",
-    dados_titulo: "Your details",
+    titulo_registo: "Your details",
+    titulo_entrega: "Prepare your handover",
+    aviso: "By submitting, you authorise GoScooters to process your documents for rental management, in line with the privacy policy.",
     docs_titulo: "Documents",
     docs_ajuda: "Take a clear photo or pick from your phone. ID (front and back) and the front of your licence are required.",
     a_carregar: "uploading…",
     foto_ficheiro: "photo / file",
-    ocr_a_ler: "✨ Reading the document…",
-    ocr_ok: "✓ I filled in the details from the document — please check they are correct.",
-    ocr_falhou: "I couldn't read the document automatically — please fill in the fields manually.",
+    lendo_id: "✨ Reading your ID document…",
+    lendo_carta: "✨ Reading your driving licence…",
+    ok_id: "✓ ID details filled in — please check they are correct.",
+    ok_carta: "✓ Licence details filled in — please check they are correct.",
+    falhou_id: "I couldn't read the document — please fill in the fields manually.",
+    falhou_carta: "I couldn't read the licence — please fill in the fields manually.",
+    id_titulo: "Identity",
     nome_completo: "Full name",
     tipo_doc: "Document type",
     num_doc: "Document number",
@@ -143,8 +140,6 @@ export default function OnboardingEntrega({
   const t = STR[lang];
   const rotulo = (o: { pt: string; en: string }) => (lang === "en" ? o.en : o.pt);
 
-  const [consentiu, setConsentiu] = useState(sessao.consentiu);
-  const [aConsentir, setAConsentir] = useState(false);
   const [concluido, setConcluido] = useState(false);
 
   // Documentos
@@ -155,57 +150,43 @@ export default function OnboardingEntrega({
   const [tipo, setTipo] = useState("cc");
   const [numero, setNumero] = useState("");
   const [validade, setValidade] = useState("");
-  // Ficheiros de identidade (frente/verso) para o recurso Tesseract, e caminhos
-  // no bucket de todas as imagens (identidade+carta) para a leitura por IA.
-  const identidadeFilesRef = useRef<Record<string, File>>({});
-  const pathsRef = useRef<Record<string, string>>({});
-  const [aLerOcr, setALerOcr] = useState(false);
-  const [ocrEstado, setOcrEstado] = useState<"idle" | "ok" | "falhou">("idle");
-  const [ocrMotivo, setOcrMotivo] = useState<string | null>(null); // diagnóstico
-  // Carta de condução
   const [cartaNumero, setCartaNumero] = useState("");
   const [cartaCategoria, setCartaCategoria] = useState("");
   const [cartaPais, setCartaPais] = useState("");
   const [cartaValidade, setCartaValidade] = useState("");
-  // Regras + assinatura
+  // Estado da leitura automática, por documento.
+  const [estadoId, setEstadoId] = useState<EstadoLeitura>("idle");
+  const [estadoCarta, setEstadoCarta] = useState<EstadoLeitura>("idle");
+  // Ficheiros de identidade (recurso Tesseract) e caminhos no bucket (leitura IA).
+  const identidadeFilesRef = useRef<Record<string, File>>({});
+  const pathsRef = useRef<Record<string, string>>({});
+  // Regras + assinatura (só na entrega)
   const [regrasAceite, setRegrasAceite] = useState(false);
   const [assinatura, setAssinatura] = useState<Blob | null>(null);
 
   const [aSubmeter, setASubmeter] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const comecar = async () => {
-    setErro(null);
-    setAConsentir(true);
+  // Consentimento RGPD: registado automaticamente ao abrir (sem ecrã à parte).
+  const consentidoRef = useRef(sessao.consentiu);
+  const garantirConsentimento = async (): Promise<boolean> => {
+    if (consentidoRef.current) return true;
     const r = await consentirPorToken(token);
-    setAConsentir(false);
-    if (r.ok) setConsentiu(true);
-    else setErro(r.error ?? t.err_generico);
+    if (r.ok) { consentidoRef.current = true; return true; }
+    setErro(r.error ?? t.err_generico);
+    return false;
   };
+  useEffect(() => {
+    // Regista o consentimento no servidor ao abrir (sincroniza com o servidor).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    garantirConsentimento();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const carregarDoc = async (slot: string, file: File | undefined) => {
-    if (!file) return;
-    setErro(null);
-    setACarregar(slot);
-    const r = await enviarDocPorToken(token, file);
-    setACarregar(null);
-    if (r.success && r.path) {
-      setDocs((d) => ({ ...d, [slot]: r.path! }));
-      // Imagem de identidade/carta: guarda o caminho e corre a leitura automática.
-      if (SLOTS_IMAGEM.includes(slot) && file.type.startsWith("image/")) {
-        pathsRef.current[slot] = r.path;
-        if (SLOTS_IDENTIDADE.includes(slot)) identidadeFilesRef.current[slot] = file;
-        analisarDocumentos();
-      }
-    } else setErro(r.error ?? t.err_carregar);
-  };
-
-  // Preenche o formulário a partir dos campos lidos (só o que veio preenchido).
   const aplicar = (c: {
-    nome?: string | null; numero?: string | null; validade?: string | null;
-    tipo?: string | null; carta_numero?: string | null; carta_categoria?: string | null;
-    carta_pais?: string | null; carta_validade?: string | null;
-  }): boolean => {
+    nome?: string | null; numero?: string | null; validade?: string | null; tipo?: string | null;
+    carta_numero?: string | null; carta_categoria?: string | null; carta_pais?: string | null; carta_validade?: string | null;
+  }) => {
     if (c.nome) setNome(c.nome);
     if (c.numero) setNumero(c.numero);
     if (c.validade) setValidade(c.validade);
@@ -214,51 +195,61 @@ export default function OnboardingEntrega({
     if (c.carta_categoria) setCartaCategoria(c.carta_categoria);
     if (c.carta_pais) setCartaPais(c.carta_pais.toUpperCase());
     if (c.carta_validade) setCartaValidade(c.carta_validade);
-    return !!(c.nome || c.numero || c.carta_numero);
   };
 
-  // Leitura automática: tenta o Gemini (servidor, lê identidade+carta); se não
-  // houver chave ou falhar, recorre ao OCR do browser (Tesseract) na identidade.
-  const analisarDocumentos = async () => {
-    const paths = Object.values(pathsRef.current);
+  // Lê um grupo (identidade OU carta). O Gemini extrai só os campos presentes na
+  // imagem; a identidade recorre ao Tesseract se a IA falhar (tem MRZ).
+  const analisarGrupo = async (grupo: "identidade" | "carta") => {
+    const slots = grupo === "identidade" ? SLOTS_IDENTIDADE : SLOTS_CARTA;
+    const paths = slots.map((s) => pathsRef.current[s]).filter(Boolean);
     if (!paths.length) return;
-    setALerOcr(true);
-    setOcrEstado("idle");
+    const setEstado = grupo === "identidade" ? setEstadoId : setEstadoCarta;
+    setEstado("lendo");
     try {
       const r = await lerDocumentoIAporToken(token, paths);
+      let ok = false;
       if (r.ok && r.dados) {
-        const ok = aplicar({
-          nome: r.dados.nome,
-          numero: r.dados.doc_id_numero,
-          validade: r.dados.doc_id_validade,
-          tipo: r.dados.doc_id_tipo,
-          carta_numero: r.dados.carta_numero,
-          carta_categoria: r.dados.carta_categoria,
-          carta_pais: r.dados.carta_pais,
-          carta_validade: r.dados.carta_validade,
-        });
-        setOcrMotivo(r.motivo ?? "ok");
-        setOcrEstado(ok ? "ok" : "falhou");
-        return;
+        if (grupo === "identidade") {
+          aplicar({ nome: r.dados.nome, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo });
+          ok = !!(r.dados.nome || r.dados.doc_id_numero || r.dados.doc_id_validade);
+        } else {
+          aplicar({ carta_numero: r.dados.carta_numero, carta_categoria: r.dados.carta_categoria, carta_pais: r.dados.carta_pais, carta_validade: r.dados.carta_validade });
+          ok = !!(r.dados.carta_numero || r.dados.carta_categoria || r.dados.carta_validade);
+        }
+      } else if (grupo === "identidade") {
+        const files = Object.values(identidadeFilesRef.current);
+        if (files.length) {
+          const textos = await Promise.all(files.map((f) => ocrFicheiro(f)));
+          const d = interpretarDocumento(textos.join("\n"));
+          aplicar({ nome: d.nome, numero: d.numero, validade: d.validade, tipo: d.tipo });
+          ok = !!(d.nome || d.numero);
+        }
       }
-      // Sem IA (sem chave) ou falha → Tesseract nas imagens de identidade.
-      setOcrMotivo(r.motivo ?? (r.semIA ? "sem_chave" : "ia"));
-      const files = Object.values(identidadeFilesRef.current);
-      if (files.length) {
-        const textos = await Promise.all(files.map((f) => ocrFicheiro(f)));
-        const d = interpretarDocumento(textos.join("\n"));
-        const ok = aplicar({ nome: d.nome, numero: d.numero, validade: d.validade, tipo: d.tipo });
-        if (ok) setOcrMotivo("tesseract");
-        setOcrEstado(ok ? "ok" : "falhou");
-      } else {
-        setOcrEstado("falhou");
-      }
+      setEstado(ok ? "ok" : "falhou");
     } catch {
-      setOcrMotivo("excecao");
-      setOcrEstado("falhou");
-    } finally {
-      setALerOcr(false);
+      setEstado("falhou");
     }
+  };
+
+  const carregarDoc = async (slot: string, file: File | undefined) => {
+    if (!file) return;
+    setErro(null);
+    if (!(await garantirConsentimento())) return;
+    setACarregar(slot);
+    const r = await enviarDocPorToken(token, file);
+    setACarregar(null);
+    if (r.success && r.path) {
+      setDocs((d) => ({ ...d, [slot]: r.path! }));
+      if (SLOTS_IMAGEM.includes(slot) && file.type.startsWith("image/")) {
+        pathsRef.current[slot] = r.path;
+        if (SLOTS_IDENTIDADE.includes(slot)) {
+          identidadeFilesRef.current[slot] = file;
+          analisarGrupo("identidade");
+        } else {
+          analisarGrupo("carta");
+        }
+      }
+    } else setErro(r.error ?? t.err_carregar);
   };
 
   const submeter = async () => {
@@ -310,45 +301,19 @@ export default function OnboardingEntrega({
     );
   }
 
-  if (!consentiu) {
-    return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-md space-y-5 rounded-3xl bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-semibold text-slate-950">
-            {registo ? t.consent_titulo_registo : t.consent_titulo_entrega}
-          </h1>
-          <p className="text-sm text-slate-600">
-            {t.ola}{sessao.motorista_nome ? ` ${sessao.motorista_nome.split(" ")[0]}` : ""}!{" "}
-            {registo ? (
-              t.consent_registo
-            ) : (
-              <>
-                {t.consent_entrega_pre}
-                <strong>{sessao.veiculo}</strong>
-                {t.consent_entrega_post}
-              </>
-            )}
-          </p>
-          <p className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-500">{t.consent_aviso}</p>
-          {erro && <p className="text-sm text-red-700">{erro}</p>}
-          <button
-            onClick={comecar}
-            disabled={aConsentir}
-            className="w-full rounded-3xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-          >
-            {aConsentir ? "..." : t.comecar}
-          </button>
-        </div>
-      </main>
-    );
-  }
+  const estadoTexto = (e: EstadoLeitura, doc: "id" | "carta") => {
+    if (e === "lendo") return <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{doc === "id" ? t.lendo_id : t.lendo_carta}</p>;
+    if (e === "ok") return <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{doc === "id" ? t.ok_id : t.ok_carta}</p>;
+    return <p className="rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800">{doc === "id" ? t.falhou_id : t.falhou_carta}</p>;
+  };
 
   return (
     <main className="mx-auto max-w-lg space-y-5 px-4 py-8 pb-28">
-      <h1 className="text-2xl font-semibold text-slate-950">
-        {registo ? t.dados_titulo : t.consent_titulo_entrega}
-      </h1>
-      {!registo && <p className="text-sm text-slate-600">{sessao.veiculo}</p>}
+      <div>
+        <h1 className="text-2xl font-semibold text-slate-950">{registo ? t.titulo_registo : t.titulo_entrega}</h1>
+        {!registo && <p className="text-sm text-slate-600">{sessao.veiculo}</p>}
+        <p className="mt-1 text-xs text-slate-400">{t.aviso}</p>
+      </div>
 
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.docs_titulo}</h2>
@@ -364,63 +329,67 @@ export default function OnboardingEntrega({
         ))}
       </section>
 
-      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.dados_titulo}</h2>
-        {aLerOcr ? (
-          <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{t.ocr_a_ler}</p>
-        ) : ocrEstado === "ok" ? (
-          <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{t.ocr_ok}</p>
-        ) : ocrEstado === "falhou" ? (
-          <p className="rounded-2xl bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800">
-            {t.ocr_falhou}
-            {ocrMotivo ? <span className="block text-xs font-normal text-amber-600">diagnóstico: {ocrMotivo}</span> : null}
-          </p>
-        ) : null}
-        <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-          <span>{t.nome_completo}</span>
-          <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} />
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            <span>{t.tipo_doc}</span>
-            <select className={campo} value={tipo} onChange={(e) => setTipo(e.target.value)}>
-              {DOC_TIPOS.map((d) => <option key={d.valor} value={d.valor}>{rotulo(d)}</option>)}
-            </select>
-          </label>
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            <span>{t.num_doc}</span>
-            <input className={campo} value={numero} onChange={(e) => setNumero(e.target.value)} />
-          </label>
-        </div>
-        <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-          <span>{t.validade_doc}</span>
-          <input className={campo} type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
-        </label>
-      </section>
+      {/* Identidade — só aparece depois de ler (ou falhar) */}
+      {estadoId !== "idle" && (
+        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.id_titulo}</h2>
+          {estadoTexto(estadoId, "id")}
+          {estadoId !== "lendo" && (
+            <>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.nome_completo}</span>
+                <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                  <span>{t.tipo_doc}</span>
+                  <select className={campo} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                    {DOC_TIPOS.map((d) => <option key={d.valor} value={d.valor}>{rotulo(d)}</option>)}
+                  </select>
+                </label>
+                <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                  <span>{t.num_doc}</span>
+                  <input className={campo} value={numero} onChange={(e) => setNumero(e.target.value)} />
+                </label>
+              </div>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.validade_doc}</span>
+                <input className={campo} type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
+              </label>
+            </>
+          )}
+        </section>
+      )}
 
-      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.carta_titulo}</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            <span>{t.num_carta}</span>
-            <input className={campo} value={cartaNumero} onChange={(e) => setCartaNumero(e.target.value)} />
-          </label>
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            <span>{t.categoria}</span>
-            <input className={campo} value={cartaCategoria} onChange={(e) => setCartaCategoria(e.target.value)} placeholder="A1, A, B…" />
-          </label>
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            <span>{t.pais_emissor}</span>
-            <input className={campo} value={cartaPais} onChange={(e) => setCartaPais(e.target.value)} placeholder="PT, BR…" maxLength={2} />
-          </label>
-          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
-            <span>{t.validade}</span>
-            <input className={campo} type="date" value={cartaValidade} onChange={(e) => setCartaValidade(e.target.value)} />
-          </label>
-        </div>
-      </section>
+      {/* Carta — só aparece depois de ler (ou falhar) */}
+      {estadoCarta !== "idle" && (
+        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.carta_titulo}</h2>
+          {estadoTexto(estadoCarta, "carta")}
+          {estadoCarta !== "lendo" && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.num_carta}</span>
+                <input className={campo} value={cartaNumero} onChange={(e) => setCartaNumero(e.target.value)} />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.categoria}</span>
+                <input className={campo} value={cartaCategoria} onChange={(e) => setCartaCategoria(e.target.value)} placeholder="A1, A, B…" />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.pais_emissor}</span>
+                <input className={campo} value={cartaPais} onChange={(e) => setCartaPais(e.target.value)} placeholder="PT, BR…" maxLength={2} />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>{t.validade}</span>
+                <input className={campo} type="date" value={cartaValidade} onChange={(e) => setCartaValidade(e.target.value)} />
+              </label>
+            </div>
+          )}
+        </section>
+      )}
 
-      {sessao.regras && (
+      {!registo && sessao.regras && (
         <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.regras_titulo}</h2>
           <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
