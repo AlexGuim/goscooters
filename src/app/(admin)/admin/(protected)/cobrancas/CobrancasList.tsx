@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CobrancaTipo, EstadoLiquidacao, PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import { registarPagamento, type AlocacaoInput } from "@/actions/pagamentoActions";
+import { cobrancasDaSemana } from "@/actions/cobrancaActions";
 
 export interface CobrancaPainel {
   id: string;
@@ -40,6 +41,22 @@ const TIPO_ROTULO: Partial<Record<CobrancaTipo, string>> = {
   extra: "coima / extra",
 };
 
+// "Resolvida" = já não é dívida (paga ou isenta).
+const resolvida = (c: CobrancaPainel) =>
+  c.estado_liquidacao === "liquidada" || c.estado_liquidacao === "isenta";
+
+// Semana de calendário domingo→sábado, deslocada por `offset` semanas.
+function limitesSemana(agoraMs: number, offset: number) {
+  const fmt = (x: Date) =>
+    `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  const h = new Date(agoraMs);
+  const dom = new Date(h);
+  dom.setDate(h.getDate() - h.getDay() + offset * 7); // getDay: 0=domingo
+  const sab = new Date(dom);
+  sab.setDate(dom.getDate() + 6);
+  return { de: fmt(dom), ate: fmt(sab), deCurta: dataCurta(fmt(dom)), ateCurta: dataCurta(fmt(sab)) };
+}
+
 function linkWhatsapp(c: CobrancaPainel): string | null {
   const num = (c.motorista_e164 || c.motorista_telefone || "").replace(/\D/g, "");
   if (!num) return null;
@@ -57,6 +74,11 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   const [pagar, setPagar] = useState<CobrancaPainel | null>(null);
   // Captura o "agora" uma vez (montagem) para o cálculo ser puro no render.
   const [agora] = useState(() => Date.now());
+  // Vista: "dividas" (só em aberto) | "semana" (folha de conferência dom→sáb).
+  const [vista, setVista] = useState<"dividas" | "semana">("dividas");
+  const [semanaOffset, setSemanaOffset] = useState(0);
+  const [roster, setRoster] = useState<CobrancaPainel[]>([]);
+  const [aCarregarSemana, setACarregarSemana] = useState(false);
 
   // Janela de datas em formato ISO local (comparação por string, imune a fuso).
   const janela = useMemo(() => {
@@ -65,13 +87,8 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
     const h = new Date(agora);
     const mais7 = new Date(h);
     mais7.setDate(h.getDate() + 7);
-    // Semana corrente segunda→domingo (convenção PT/ISO: 1=segunda … 7=domingo).
-    const dow = (h.getDay() + 6) % 7; // 0=segunda … 6=domingo
-    const seg = new Date(h);
-    seg.setDate(h.getDate() - dow);
-    const dom = new Date(seg);
-    dom.setDate(seg.getDate() + 6);
-    return { hoje: fmt(h), ate7: fmt(mais7), segunda: fmt(seg), domingo: fmt(dom) };
+    const sem = limitesSemana(agora, 0); // semana corrente domingo→sábado
+    return { hoje: fmt(h), ate7: fmt(mais7), domingo: sem.de, sabado: sem.ate };
   }, [agora]);
 
   const em7dias = useCallback(
@@ -84,7 +101,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   const estaSemana = useCallback(
     (d: string) => {
       const s = d.slice(0, 10);
-      return s >= janela.segunda && s <= janela.domingo;
+      return s >= janela.domingo && s <= janela.sabado;
     },
     [janela],
   );
@@ -118,6 +135,20 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
     return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
   }, [filtradas]);
 
+  // Folha semanal (dom→sáb): todas as cobranças da semana, incluindo as pagas.
+  const janelaSemana = useMemo(() => limitesSemana(agora, semanaOffset), [agora, semanaOffset]);
+  const carregarSemana = useCallback(async () => {
+    setACarregarSemana(true);
+    const r = await cobrancasDaSemana(janelaSemana.de, janelaSemana.ate);
+    setRoster(r);
+    setACarregarSemana(false);
+  }, [janelaSemana.de, janelaSemana.ate]);
+  useEffect(() => {
+    // Busca a folha semanal ao entrar na vista ou mudar de semana (fetch → servidor).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (vista === "semana") carregarSemana();
+  }, [vista, carregarSemana]);
+
   // Remove da lista (ou atualiza) as cobranças que ficaram liquidadas após pagar.
   const aposPagamento = (idsLiquidados: Set<string>, parciais: Map<string, number>) => {
     setCobrancas((atuais) =>
@@ -129,10 +160,47 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
             : c,
         ),
     );
+    // Na folha semanal, reflete logo o pagamento (a cobrança passa a paga).
+    if (vista === "semana") carregarSemana();
   };
+
+  // Roster ordenado: em atraso primeiro, depois por pagar, por fim as resolvidas.
+  const rosterOrdenado = useMemo(() => {
+    const ordem = (c: CobrancaPainel) => (resolvida(c) ? 2 : c.em_atraso ? 0 : 1);
+    return [...roster].sort(
+      (a, b) => ordem(a) - ordem(b) || a.motorista_nome.localeCompare(b.motorista_nome, "pt"),
+    );
+  }, [roster]);
+  const rosterResumo = useMemo(() => {
+    let total = 0, recebido = 0, pagas = 0, porPagarV = 0, porPagarN = 0;
+    for (const c of roster) {
+      total += Number(c.valor_devido);
+      recebido += Number(c.valor_pago);
+      if (resolvida(c)) pagas++;
+      else { porPagarV += Number(c.em_falta); porPagarN++; }
+    }
+    return { total, recebido, pagas, porPagarV, porPagarN, n: roster.length };
+  }, [roster]);
 
   return (
     <div className="space-y-6">
+      {/* Abas */}
+      <div className="flex gap-2">
+        {([["dividas", "Dívidas em aberto"], ["semana", "Semana (conferência)"]] as const).map(([v, r]) => (
+          <button
+            key={v}
+            onClick={() => setVista(v)}
+            className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
+              vista === v ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+
+      {vista === "dividas" ? (
+        <div className="space-y-6">
       {/* Resumo */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-3xl bg-white p-5 shadow-sm">
@@ -251,6 +319,119 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
         </div>
             );
           })}
+        </div>
+      )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Navegação de semana (domingo → sábado) */}
+          <div className="flex items-center justify-between gap-3 rounded-3xl bg-white p-4 shadow-sm">
+            <button
+              onClick={() => setSemanaOffset((o) => o - 1)}
+              className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+              aria-label="Semana anterior"
+            >
+              ←
+            </button>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-950">
+                {janelaSemana.deCurta} – {janelaSemana.ateCurta}
+              </p>
+              <button
+                onClick={() => setSemanaOffset(0)}
+                className="text-xs font-medium text-emerald-600 transition hover:text-emerald-700"
+              >
+                {semanaOffset === 0 ? "esta semana" : "voltar a esta semana"}
+              </button>
+            </div>
+            <button
+              onClick={() => setSemanaOffset((o) => o + 1)}
+              className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+              aria-label="Semana seguinte"
+            >
+              →
+            </button>
+          </div>
+
+          {/* Resumo da semana */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">Recebido</p>
+              <p className="mt-1 text-2xl font-bold text-emerald-600">{formatarPreco(rosterResumo.recebido)}</p>
+              <p className="text-xs text-slate-500">de {formatarPreco(rosterResumo.total)}</p>
+            </div>
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">Pagas</p>
+              <p className="mt-1 text-2xl font-bold text-slate-950">{rosterResumo.pagas}/{rosterResumo.n}</p>
+              <p className="text-xs text-slate-500">cobranças</p>
+            </div>
+            <div className="rounded-3xl bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">Por pagar</p>
+              <p className="mt-1 text-2xl font-bold text-red-600">{formatarPreco(rosterResumo.porPagarV)}</p>
+              <p className="text-xs text-slate-500">{rosterResumo.porPagarN} cobrança(s)</p>
+            </div>
+          </div>
+
+          {/* Lista da semana (pagas + por pagar) */}
+          {aCarregarSemana ? (
+            <div className="rounded-3xl bg-white p-10 text-center shadow-sm">
+              <p className="text-slate-500">A carregar…</p>
+            </div>
+          ) : rosterOrdenado.length === 0 ? (
+            <div className="rounded-3xl bg-white p-10 text-center shadow-sm">
+              <p className="text-slate-600">Nenhuma cobrança vence nesta semana.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-3xl bg-white shadow-sm">
+              {rosterOrdenado.map((c) => {
+                const feito = resolvida(c);
+                const wa = linkWhatsapp(c);
+                return (
+                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-slate-950">{c.motorista_nome}</p>
+                        {c.estado_liquidacao === "liquidada" ? (
+                          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✓ pago</span>
+                        ) : c.estado_liquidacao === "isenta" ? (
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">isento</span>
+                        ) : c.estado_liquidacao === "parcial" ? (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                            parcial · falta {formatarPreco(c.em_falta)}
+                          </span>
+                        ) : c.em_atraso ? (
+                          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">em atraso</span>
+                        ) : (
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">por pagar</span>
+                        )}
+                        {c.tipo !== "renda" && (
+                          <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
+                            {TIPO_ROTULO[c.tipo] ?? c.tipo}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-500">{c.veiculo_matricula} · vence {dataCurta(c.data_vencimento)}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className={`font-semibold ${feito ? "text-slate-400 line-through" : "text-slate-950"}`}>
+                        {formatarPreco(c.valor_devido)}
+                      </span>
+                      {!feito && wa && (
+                        <a href={wa} target="_blank" rel="noreferrer" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                          Lembrete
+                        </a>
+                      )}
+                      {!feito && (
+                        <button onClick={() => setPagar(c)} className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700">
+                          Registar pagamento
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

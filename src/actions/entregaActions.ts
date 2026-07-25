@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import { mensagemLinkEntrega } from "@/lib/mensagens";
+import { mensagemLinkEntrega, mensagemLinkRegisto } from "@/lib/mensagens";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
@@ -156,7 +156,7 @@ export async function criarSessaoRegisto(input: {
     .maybeSingle();
   if (m?.telefone_e164) {
     const num = m.telefone_e164.replace(/\D/g, "");
-    const texto = mensagemLinkEntrega(m.nome ?? "", link, m.idioma_preferido);
+    const texto = mensagemLinkRegisto(m.nome ?? "", link, m.idioma_preferido);
     whatsapp = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
   }
 
