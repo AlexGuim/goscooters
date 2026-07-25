@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { mensagemLinkEntrega, mensagemLinkRegisto } from "@/lib/mensagens";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
+import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
 type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
@@ -256,6 +257,39 @@ export async function criarUploadPorToken(
     return { ok: false, error: "Erro ao preparar o upload." };
   }
   return { ok: true, path: data.path, uploadToken: data.token };
+}
+
+/**
+ * Lê os documentos já carregados (por caminho no bucket) com o Gemini e devolve
+ * os campos para pré-preencher o formulário. Autorizado pelo token da sessão e
+ * restrito às imagens dessa sessão. Se não houver chave (GEMINI_API_KEY), devolve
+ * semIA=true e o cliente recorre ao OCR do browser.
+ */
+export async function lerDocumentoIAporToken(
+  token: string,
+  paths: string[],
+): Promise<{ ok: boolean; dados?: CamposDocumento; error?: string; semIA?: boolean }> {
+  const s = await sessaoValida(token);
+  if (!s) return { ok: false, error: "Link inválido ou expirado." };
+  if (!s.consentimento_em) return { ok: false, error: "Falta o consentimento." };
+  if (!geminiConfigurado()) return { ok: false, semIA: true };
+
+  const imagens: { mime: string; base64: string }[] = [];
+  for (const p of paths.slice(0, 4)) {
+    // Segurança: só as imagens desta sessão (o caminho tem o id da sessão).
+    if (!p.startsWith(`entregas/${s.id}/`)) continue;
+    const { data, error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).download(p);
+    if (error || !data) continue;
+    const mime = mimeDoCaminho(p);
+    if (!mime.startsWith("image/") && mime !== "application/pdf") continue;
+    const buf = Buffer.from(await data.arrayBuffer());
+    imagens.push({ mime, base64: buf.toString("base64") });
+  }
+  if (!imagens.length) return { ok: false, error: "Sem imagens para ler." };
+
+  const dados = await lerDocumentoGemini(imagens);
+  if (!dados) return { ok: false, error: "Não consegui ler o documento." };
+  return { ok: true, dados };
 }
 
 export interface ConcluirEntregaInput {
