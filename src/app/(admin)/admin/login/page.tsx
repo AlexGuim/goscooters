@@ -36,7 +36,7 @@ async function handleLogin(
     };
   }
 
-  window.location.href = "/admin/motas";
+  window.location.href = "/admin";
   return {};
 }
 

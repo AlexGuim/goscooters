@@ -24,6 +24,15 @@ export default function NavAdmin({ naoLidas = 0 }: { naoLidas?: number }) {
   return (
     <nav className="flex flex-wrap items-center gap-x-5 gap-y-2">
       <Link
+        href="/admin"
+        aria-current={pathname === "/admin" ? "page" : undefined}
+        className={`text-sm font-medium transition ${
+          pathname === "/admin" ? "text-emerald-600" : "text-slate-600 hover:text-slate-950"
+        }`}
+      >
+        Início
+      </Link>
+      <Link
         href="/admin/notificacoes"
         aria-current={ativoDe("/admin/notificacoes") ? "page" : undefined}
         className={`inline-flex items-center gap-1.5 text-sm font-medium transition ${

@@ -99,7 +99,7 @@ export async function proxy(request: NextRequest) {
 
   // Já autenticado não tem nada que fazer no ecrã de login.
   if (isLoginPage && user) {
-    return NextResponse.redirect(new URL("/admin/motas", request.url));
+    return NextResponse.redirect(new URL("/admin", request.url));
   }
 
   // Portal do parceiro: trava otimista (a autorização a sério é o requirePartner

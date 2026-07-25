@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { enviarLembrete, smsConfigurado, whatsappConfigurado } from "@/lib/sms";
 import { formatarPreco } from "@/lib/precos";
 import { textoLembrete } from "@/lib/lembretes";
+import { varrerDerivadas } from "@/lib/notificacoesDerivadas";
 
 /**
  * Rotina diária de lembretes de pagamento (chamada pelo Vercel Cron).
@@ -45,6 +46,10 @@ export async function GET(request: NextRequest) {
     else geradas += n ?? 0;
   }
 
+  // Recalcula as notificações DERIVADAS do estado (caixa do gestor): contrato sem
+  // faturação, à espera de recolha, KYC incompleto, cobranças em atraso.
+  const derivadas = await varrerDerivadas();
+
   // "Amanhã" (aproximação UTC — algumas horas de desvio são irrelevantes num lembrete).
   const amanha = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 
@@ -61,7 +66,7 @@ export async function GET(request: NextRequest) {
 
   const alvo = cobrancas ?? [];
   if (alvo.length === 0) {
-    return NextResponse.json({ ok: true, amanha, geradas, total: 0, mensagem: "Nada vence amanhã." });
+    return NextResponse.json({ ok: true, amanha, geradas, derivadas: derivadas.inseridas, total: 0, mensagem: "Nada vence amanhã." });
   }
 
   // Telefones e nomes dos motoristas envolvidos.
@@ -116,6 +121,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     amanha,
     geradas,
+    derivadas: derivadas.inseridas,
     total: alvo.length,
     enviados,
     canal: whatsappConfigurado() ? "whatsapp" : smsConfigurado() ? "sms" : "nenhum",
