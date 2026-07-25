@@ -3,22 +3,26 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { notificar } from "@/lib/notificacoes";
 import type { ContratoEstado, Database, Periodicidade } from "@/types/db";
 
 type ContratoUpdate = Database["public"]["Tables"]["contrato_aluguer"]["Update"];
 
 export interface CriarContratoInput {
   motorista_id: string;
-  veiculo_id: string;
+  // Opcionais: um 'pre_contrato' nasce só com o motorista. A partir de 'rascunho'
+  // são obrigatórios (validado abaixo + invariante contrato_pronto_se_ativo).
+  veiculo_id?: string | null;
   proprietario_id?: string | null;
-  periodicidade: Periodicidade;
+  periodicidade?: Periodicidade;
   dia_vencimento?: number | null;
-  preco_periodo: string;
+  preco_periodo?: string | null;
   caucao?: string | null;
-  data_inicio: string;
+  data_inicio?: string | null;
   ancora_vencimento?: string | null;
   estado: ContratoEstado;
   observacoes?: string | null;
+  pedido_aluguer_id?: string | null;
 }
 
 function validar(
@@ -38,8 +42,13 @@ export async function criarContrato(
   if (!auth.ok) return { success: false, error: auth.error };
 
   if (!input.motorista_id) return { success: false, error: "Cliente é obrigatório." };
-  if (!input.veiculo_id) return { success: false, error: "Veículo é obrigatório." };
-  if (!input.data_inicio) return { success: false, error: "Data de início é obrigatória." };
+  // Só o pré-contrato pode nascer sem mota/preço/data.
+  const preContrato = input.estado === "pre_contrato";
+  if (!preContrato) {
+    if (!input.veiculo_id) return { success: false, error: "Veículo é obrigatório." };
+    if (!input.data_inicio) return { success: false, error: "Data de início é obrigatória." };
+    if (!input.preco_periodo) return { success: false, error: "Preço é obrigatório." };
+  }
   const erro = validar(input);
   if (erro) return { success: false, error: erro };
 
@@ -49,22 +58,175 @@ export async function criarContrato(
     .select("id, numero")
     .single();
 
-  if (error) {
+  if (error || !data) {
+    // Corrida no índice único (um pré-contrato por motorista): reutiliza o aberto.
+    if (preContrato && error?.code === "23505") {
+      const { data: re } = await supabaseAdmin
+        .from("contrato_aluguer")
+        .select("id, numero")
+        .eq("motorista_id", input.motorista_id)
+        .eq("estado", "pre_contrato")
+        .maybeSingle();
+      if (re) return { success: true, id: re.id, numero: re.numero };
+    }
     console.error("criarContrato error:", error);
     return { success: false, error: "Erro ao criar contrato." };
   }
 
-  // Um contrato ativo ocupa o veículo.
+  // Um contrato ativo ocupa o veículo e promove o motorista lead→ativo (a
+  // promoção deixa de estar acoplada só à vistoria de entrega).
   if (input.estado === "ativo") {
+    if (input.veiculo_id) {
+      await supabaseAdmin
+        .from("moto")
+        .update({ estado_operacional: "ocupado" })
+        .eq("id", input.veiculo_id);
+    }
     await supabaseAdmin
-      .from("moto")
-      .update({ estado_operacional: "ocupado" })
-      .eq("id", input.veiculo_id);
+      .from("motorista")
+      .update({ estado: "ativo" })
+      .eq("id", input.motorista_id)
+      .eq("estado", "lead");
+  }
+
+  // Uma jornada aberta sem mota gera um item na caixa do gestor.
+  if (preContrato) {
+    await notificar({
+      tipo: "pre_contrato_sem_mota",
+      titulo: "Pré-contrato à espera de mota",
+      detalhe: `Jornada ${data.numero} aberta — atribuir mota, preço e data.`,
+      href: "/admin/contratos",
+      entidade: "contrato",
+      entidade_id: data.id,
+    });
   }
 
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/motas");
   return { success: true, id: data.id, numero: data.numero };
+}
+
+export interface FinalizarPreContratoInput {
+  veiculo_id: string;
+  proprietario_id?: string | null;
+  periodicidade?: Periodicidade;
+  dia_vencimento?: number | null;
+  preco_periodo: string;
+  caucao?: string | null;
+  data_inicio: string;
+  ancora_vencimento?: string | null;
+  observacoes?: string | null;
+}
+
+/**
+ * Finaliza um pré-contrato: dá-lhe mota+preço+data e passa-o a 'rascunho' (pronto
+ * a entregar). Congela o proprietário a partir do veículo. Só age sobre um
+ * 'pre_contrato' (guarda de transição), resolve a notificação de "à espera de
+ * mota" e cria a de "contrato pronto — agendar entrega".
+ */
+export async function finalizarPreContrato(
+  id: string,
+  input: FinalizarPreContratoInput,
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (!input.veiculo_id) return { success: false, error: "Veículo é obrigatório." };
+  if (!input.data_inicio) return { success: false, error: "Data de início é obrigatória." };
+  if (!input.preco_periodo) return { success: false, error: "Preço é obrigatório." };
+  const erro = validar(input);
+  if (erro) return { success: false, error: erro };
+
+  // Snapshot do proprietário à data (do veículo, se não vier explícito).
+  let proprietario_id = input.proprietario_id ?? null;
+  if (!proprietario_id) {
+    const { data: v } = await supabaseAdmin
+      .from("moto")
+      .select("proprietario_id")
+      .eq("id", input.veiculo_id)
+      .maybeSingle();
+    proprietario_id = v?.proprietario_id ?? null;
+  }
+
+  const upd: ContratoUpdate = {
+    veiculo_id: input.veiculo_id,
+    proprietario_id,
+    preco_periodo: input.preco_periodo,
+    data_inicio: input.data_inicio,
+    estado: "rascunho",
+  };
+  if (input.periodicidade) upd.periodicidade = input.periodicidade;
+  if (input.dia_vencimento !== undefined) upd.dia_vencimento = input.dia_vencimento;
+  if (input.caucao !== undefined) upd.caucao = input.caucao;
+  if (input.ancora_vencimento !== undefined) upd.ancora_vencimento = input.ancora_vencimento;
+  if (input.observacoes !== undefined) upd.observacoes = input.observacoes;
+
+  const { data, error } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .update(upd)
+    .eq("id", id)
+    .eq("estado", "pre_contrato") // guarda: só finaliza um pré-contrato
+    .select("id, numero")
+    .maybeSingle();
+  if (error) {
+    console.error("finalizarPreContrato error:", error);
+    return { success: false, error: "Erro ao finalizar o pré-contrato." };
+  }
+  if (!data) return { success: false, error: "Este contrato já não é um pré-contrato." };
+
+  // Resolve a notificação de "à espera de mota" e cria "contrato pronto".
+  await supabaseAdmin
+    .from("notificacao")
+    .update({ estado: "feita", feita_em: new Date().toISOString() })
+    .eq("entidade_id", id)
+    .eq("tipo", "pre_contrato_sem_mota")
+    .neq("estado", "feita");
+  await notificar({
+    tipo: "contrato_pronto",
+    titulo: "Contrato pronto — agendar entrega",
+    detalhe: `Contrato ${data.numero} finalizado. Enviar link de entrega / agendar.`,
+    href: "/admin/contratos",
+    entidade: "contrato",
+    entidade_id: id,
+  });
+
+  revalidatePath("/admin/contratos");
+  revalidatePath("/admin/motas");
+  return { success: true };
+}
+
+/**
+ * Descarta um pré-contrato abandonado (cliente desapareceu antes de haver mota):
+ * passa-o a 'cancelado' (o invariante isenta 'cancelado') e resolve a notificação
+ * de "à espera de mota". Só age sobre um 'pre_contrato' (guarda de transição).
+ */
+export async function descartarPreContrato(
+  id: string,
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const { data, error } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .update({ estado: "cancelado" })
+    .eq("id", id)
+    .eq("estado", "pre_contrato")
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("descartarPreContrato error:", error);
+    return { success: false, error: "Erro ao descartar o pré-contrato." };
+  }
+  if (!data) return { success: false, error: "Este contrato já não é um pré-contrato." };
+
+  await supabaseAdmin
+    .from("notificacao")
+    .update({ estado: "feita", feita_em: new Date().toISOString() })
+    .eq("entidade_id", id)
+    .eq("tipo", "pre_contrato_sem_mota")
+    .neq("estado", "feita");
+
+  revalidatePath("/admin/contratos");
+  return { success: true };
 }
 
 export async function atualizarContrato(
@@ -99,6 +261,23 @@ export async function atualizarContrato(
         .from("moto")
         .update({ estado_operacional: "ocupado" })
         .eq("id", updates.veiculo_id);
+    }
+  }
+
+  // Ativar por edição também promove o motorista lead→ativo (como criarContrato
+  // e a vistoria de entrega). O motorista_id lê-se do contrato se não vier.
+  if (updates.estado === "ativo") {
+    const { data: c } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("motorista_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (c?.motorista_id) {
+      await supabaseAdmin
+        .from("motorista")
+        .update({ estado: "ativo" })
+        .eq("id", c.motorista_id)
+        .eq("estado", "lead");
     }
   }
 

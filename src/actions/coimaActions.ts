@@ -8,6 +8,7 @@ import { textoCoima } from "@/lib/lembretes";
 import { enviarLembrete } from "@/lib/sms";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
+import { notificar } from "@/lib/notificacoes";
 
 export interface RegistarCoimaInput {
   veiculo_id: string | null;
@@ -221,6 +222,15 @@ export async function registarCoima(
       res.notificado = "nenhum";
     }
   }
+
+  await notificar({
+    tipo: "coima_reembolso",
+    titulo: "Coima registada — reembolso a cobrar ao motorista",
+    detalhe: `${formatarPreco(valorTotal)}${res.motorista_nome ? ` · ${res.motorista_nome}` : ""}`,
+    href: "/admin/cobrancas",
+    entidade: "despesa",
+    entidade_id: despesa.id,
+  });
 
   revalidatePath("/admin/despesas");
   revalidatePath("/admin/cobrancas");

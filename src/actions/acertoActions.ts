@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { dataCurtaBR } from "@/lib/datas";
+import { formatarPreco } from "@/lib/precos";
+import { notificar } from "@/lib/notificacoes";
 import type { AcertoLinhaTipo } from "@/types/db";
 
 /**
@@ -336,6 +338,15 @@ export async function fecharAcerto(
       return { success: false, error: "Acerto criado, mas falharam as linhas." };
     }
   }
+
+  await notificar({
+    tipo: "acerto_por_pagar",
+    titulo: "Acerto fechado — por acertar com o parceiro",
+    detalhe: `${p.proprietario_nome} · ${competencia} · líquido ${formatarPreco(p.liquido)}`,
+    href: `/admin/acertos/${acerto.id}`,
+    entidade: "acerto",
+    entidade_id: acerto.id,
+  });
 
   revalidatePath("/admin/acertos");
   return { success: true, id: acerto.id };

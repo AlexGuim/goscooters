@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { mensagemLinkEntrega, mensagemLinkRegisto } from "@/lib/mensagens";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
+import { notificar } from "@/lib/notificacoes";
 import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
@@ -130,11 +131,47 @@ export async function criarSessaoRegisto(input: {
       })
       .select("id")
       .single();
-    if (eNovo || !novo) {
+    if (novo) {
+      motoristaId = novo.id;
+    } else if (eNovo?.code === "23505") {
+      // Corrida no telefone único — reutiliza o registo criado entretanto.
+      const { data: re } = await supabaseAdmin
+        .from("motorista")
+        .select("id")
+        .eq("telefone_digitos", digitos)
+        .maybeSingle();
+      if (!re) return { success: false, error: "Erro ao criar o motorista." };
+      motoristaId = re.id;
+      await supabaseAdmin.from("motorista").update({ idioma_preferido: idioma }).eq("id", motoristaId);
+    } else {
       console.error("criarSessaoRegisto motorista error:", eNovo);
       return { success: false, error: "Erro ao criar o motorista." };
     }
-    motoristaId = novo.id;
+  }
+
+  // Abre a jornada: um pré-contrato à espera de mota (se ainda não houver um).
+  const { data: preJa } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("id")
+    .eq("motorista_id", motoristaId)
+    .eq("estado", "pre_contrato")
+    .maybeSingle();
+  if (!preJa) {
+    const { data: pc } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .insert({ motorista_id: motoristaId, estado: "pre_contrato" })
+      .select("id, numero")
+      .maybeSingle();
+    if (pc) {
+      await notificar({
+        tipo: "pre_contrato_sem_mota",
+        titulo: "Pré-contrato à espera de mota",
+        detalhe: `Registo por link aberto (${pc.numero}) — atribuir mota, preço e data.`,
+        href: "/admin/contratos",
+        entidade: "contrato",
+        entidade_id: pc.id,
+      });
+    }
   }
 
   const token = randomBytes(24).toString("base64url");
@@ -398,6 +435,18 @@ export async function concluirPorToken(
     .from("entrega_sessao")
     .update({ estado: "concluido", concluido_em: agora, dados })
     .eq("id", s.id);
+
+  // Avisa o gestor que há documentos/KYC por validar.
+  if (s.motorista_id) {
+    await notificar({
+      tipo: "kyc_por_validar",
+      titulo: "Documentos por validar — rever KYC",
+      detalhe: input.nome?.trim() ? `Registo concluído: ${input.nome.trim()}` : "Registo por link concluído.",
+      href: "/admin/motoristas",
+      entidade: "motorista",
+      entidade_id: s.motorista_id,
+    });
+  }
 
   return { ok: true };
 }

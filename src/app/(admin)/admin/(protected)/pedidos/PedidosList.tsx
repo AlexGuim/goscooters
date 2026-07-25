@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { PedidoAluguer, PedidoEstado } from "@/types/db";
 import Link from "next/link";
-import { updatePedidoEstado } from "@/actions/pedidoActions";
+import { updatePedidoEstado, converterPedidoEmJornada } from "@/actions/pedidoActions";
 import { duracaoPorExtenso } from "@/lib/precos";
 import pt from "@/dictionaries/pt.json";
 
@@ -28,6 +28,16 @@ const estadoColors: Record<PedidoEstado, string> = {
 export default function PedidosList({ initialPedidos, avisos }: PedidosListProps) {
   const [pedidos, setPedidos] = useState(initialPedidos);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [aConverter, setAConverter] = useState<string | null>(null);
+
+  const handleConverter = async (pedidoId: string) => {
+    setAConverter(pedidoId);
+    const r = await converterPedidoEmJornada(pedidoId);
+    setAConverter(null);
+    if (!r.success) return alert(r.error);
+    // Abre a jornada (pré-contrato) para atribuir mota/preço/data.
+    window.location.href = "/admin/contratos";
+  };
 
   const handleEstadoChange = async (pedidoId: string, novoEstado: PedidoEstado) => {
     const result = await updatePedidoEstado(pedidoId, novoEstado);
@@ -142,7 +152,23 @@ export default function PedidosList({ initialPedidos, avisos }: PedidosListProps
                   <span className="flex-none font-semibold text-emerald-700">Ver ficha →</span>
                 </Link>
               )}
-              <div className="mt-4 flex gap-2 border-t border-slate-200 pt-4">
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+                {pedido.estado === "fechado" ? (
+                  <Link
+                    href="/admin/contratos"
+                    className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
+                  >
+                    Ver jornada
+                  </Link>
+                ) : (
+                  <button
+                    onClick={() => handleConverter(pedido.id)}
+                    disabled={aConverter === pedido.id}
+                    className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {aConverter === pedido.id ? "A abrir…" : "Converter em cliente"}
+                  </button>
+                )}
                 <a
                   className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
                   href={`https://wa.me/${pedido.telefone.replace(/\D/g, "")}`}

@@ -1,5 +1,6 @@
 import NavAdmin from "./NavAdmin";
 import { requireAdmin } from "@/lib/dal";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import LogoutButton from "./LogoutButton";
 
 /**
@@ -19,6 +20,14 @@ export default async function ProtectedAdminLayout({
 }) {
   const user = await requireAdmin();
 
+  // Contagem de notificações por ler para o badge (tolerante se fase5 não migrada).
+  let naoLidas = 0;
+  const { count } = await supabaseAdmin
+    .from("notificacao")
+    .select("id", { count: "exact", head: true })
+    .eq("estado", "nova");
+  naoLidas = count ?? 0;
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white">
@@ -29,7 +38,7 @@ export default async function ProtectedAdminLayout({
               <p className="text-sm text-slate-600">{user.email}</p>
             </div>
             <div className="flex items-center gap-4">
-              <NavAdmin />
+              <NavAdmin naoLidas={naoLidas} />
               <LogoutButton />
             </div>
           </div>

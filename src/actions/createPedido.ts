@@ -3,6 +3,7 @@
 import { after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { notificarNovoPedido } from "@/lib/notifications";
+import { notificar } from "@/lib/notificacoes";
 import { PERIODOS, duracaoPorExtenso } from "@/lib/precos";
 import { getDicionario } from "@/lib/dictionaries";
 import { isLocale, preencher, type Locale } from "@/lib/i18n";
@@ -120,6 +121,15 @@ export async function createPedido(
         dataInicio: input.dataInicio || null,
         duracaoTexto,
         mensagem: input.mensagem?.trim() || null,
+      });
+      // Item acionável na caixa do gestor (além do email/Telegram).
+      await notificar({
+        tipo: "novo_pedido",
+        titulo: "Novo pedido de aluguer",
+        detalhe: `${input.nome.trim()} · ${motoModelo}`,
+        href: "/admin/pedidos",
+        entidade: "pedido",
+        entidade_id: data.id,
       });
     });
 

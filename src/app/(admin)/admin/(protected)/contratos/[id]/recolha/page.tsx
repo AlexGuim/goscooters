@@ -43,7 +43,7 @@ export default async function RecolhaPage({
       contrato={{
         id: c.id,
         numero: c.numero,
-        preco_periodo: c.preco_periodo,
+        preco_periodo: c.preco_periodo ?? "",
         caucao: c.caucao,
         motorista_nome: mot?.nome ?? "—",
         veiculo: moto ? `${moto.matricula ?? "?"} · ${moto.modelo}` : "—",

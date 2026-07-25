@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { notificar } from "@/lib/notificacoes";
 
 export interface DanoPrevio {
   zona: string;
@@ -59,6 +60,11 @@ export async function submeterVistoriaEntrega(
     .eq("id", input.contrato_id)
     .maybeSingle();
   if (!c) return { success: false, error: "Contrato não encontrado." };
+  // Não se entrega um pré-contrato: sem mota, a ativação violaria o invariante e
+  // deixaria a vistoria órfã (o contrato nunca ficaria ativo).
+  if (c.estado === "pre_contrato" || !c.veiculo_id) {
+    return { success: false, error: "Contrato ainda sem mota atribuída — finaliza o pré-contrato primeiro." };
+  }
 
   const { data: jaExiste } = await supabaseAdmin
     .from("vistoria")
@@ -111,7 +117,14 @@ export async function submeterVistoriaEntrega(
 
   const upd: { estado: "ativo"; km_inicio?: number } = { estado: "ativo" };
   if (input.km != null) upd.km_inicio = input.km;
-  await supabaseAdmin.from("contrato_aluguer").update(upd).eq("id", input.contrato_id);
+  const { error: ativErr } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .update(upd)
+    .eq("id", input.contrato_id);
+  if (ativErr) {
+    console.error("submeterVistoriaEntrega ativar error:", ativErr);
+    return { success: false, error: "Erro ao ativar o contrato." };
+  }
 
   if (c.veiculo_id) {
     await supabaseAdmin
@@ -171,6 +184,15 @@ export async function registarDanoRecolha(
     console.error("registarDanoRecolha error:", error);
     return { success: false, error: "Erro ao registar o dano." };
   }
+
+  await notificar({
+    tipo: "dano_recolha",
+    titulo: "Dano na recolha — deduzir da caução",
+    detalhe: descricao.trim(),
+    href: `/admin/contratos/${contratoId}/vistoria`,
+    entidade: "contrato",
+    entidade_id: contratoId,
+  });
 
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/despesas");

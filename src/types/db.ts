@@ -15,12 +15,15 @@ export type DocIdTipo = "cc" | "passaporte" | "titulo_residencia" | "aima";
 // ── Contratos e cobrança (Fase 2) ───────────────────────────────────────────
 export type Periodicidade = "semanal" | "quinzenal" | "mensal" | "diaria";
 export type ContratoEstado =
+  | "pre_contrato" // jornada aberta só com o motorista (sem mota/preço/data)
   | "rascunho"
   | "ativo"
   | "pendente_fecho"
   | "suspenso"
   | "concluido"
   | "cancelado";
+
+export type NotificacaoEstado = "nova" | "lida" | "feita";
 export type VistoriaTipo = "entrega" | "recolha" | "intermedia";
 export type KmFonte = "entrega" | "recolha" | "manutencao" | "manual";
 export type CobrancaTipo = "renda" | "caucao" | "extra";
@@ -153,16 +156,18 @@ export type ContratoAluguer = {
   numero: string;
   pedido_aluguer_id: string | null;
   motorista_id: string;
-  veiculo_id: string;
+  // Nulos enquanto 'pre_contrato'; obrigatórios a partir de 'rascunho'
+  // (invariante contrato_pronto_se_ativo).
+  veiculo_id: string | null;
   /** Dono congelado à data — preserva o histórico se o veículo mudar de dono. */
   proprietario_id: string | null;
   periodicidade: Periodicidade;
   /** Dia da semana do vencimento em ISO (1=segunda … 7=domingo). */
   dia_vencimento: number | null;
-  preco_periodo: string;
+  preco_periodo: string | null;
   caucao: string | null;
   ancora_vencimento: string | null;
-  data_inicio: string;
+  data_inicio: string | null;
   data_fim_prevista: string | null;
   data_fim: string | null;
   km_inicio: number | null;
@@ -175,6 +180,21 @@ export type ContratoAluguer = {
   import_notion_id: string | null;
   created_at: string;
   updated_at: string | null;
+};
+
+/** Notificação interna e acionável do gestor (caixa/inbox). */
+export type Notificacao = {
+  id: string;
+  tipo: string; // slug do evento (ex.: 'pre_contrato_sem_mota')
+  titulo: string;
+  detalhe: string | null;
+  href: string | null; // deep-link para a ação
+  entidade: string | null;
+  entidade_id: string | null;
+  estado: NotificacaoEstado;
+  feita_por: string | null;
+  feita_em: string | null;
+  created_at: string;
 };
 
 export type Vistoria = {
@@ -484,13 +504,11 @@ export interface Database {
       contrato_aluguer: {
         Row: ContratoAluguer;
         // numero (default), km_rodados (gerado) e updated_at (default) nunca se inserem.
+        // Só motorista_id é obrigatório — um pré-contrato nasce sem mota/preço/data.
         Insert: Partial<
           Omit<ContratoAluguer, "id" | "created_at" | "updated_at" | "numero" | "km_rodados">
         > & {
           motorista_id: string;
-          veiculo_id: string;
-          data_inicio: string;
-          preco_periodo: string;
           id?: string;
           created_at?: string;
         };
@@ -647,6 +665,20 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<EntregaSessao, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      notificacao: {
+        Row: Notificacao;
+        Insert: Partial<Omit<Notificacao, "id" | "created_at">> & {
+          tipo: string;
+          titulo: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Notificacao, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };

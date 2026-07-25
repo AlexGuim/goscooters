@@ -34,8 +34,8 @@ async function getDados(): Promise<{
     (c: ContratoAluguer) => ({
       ...c,
       motorista_nome: nomeMot.get(c.motorista_id) ?? "—",
-      veiculo_matricula: infoMoto.get(c.veiculo_id)?.matricula ?? "—",
-      veiculo_modelo: infoMoto.get(c.veiculo_id)?.modelo ?? "",
+      veiculo_matricula: c.veiculo_id ? infoMoto.get(c.veiculo_id)?.matricula ?? "—" : "—",
+      veiculo_modelo: c.veiculo_id ? infoMoto.get(c.veiculo_id)?.modelo ?? "" : "",
       proprietario_nome: c.proprietario_id ? nomeDono.get(c.proprietario_id) ?? null : null,
       num_cobrancas: numCob.get(c.id) ?? 0,
     }),

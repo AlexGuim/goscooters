@@ -13,6 +13,8 @@ import type {
 import {
   criarContrato,
   atualizarContrato,
+  finalizarPreContrato,
+  descartarPreContrato,
   gerarCobrancas,
   terminarContrato,
 } from "@/actions/contratoActions";
@@ -39,6 +41,7 @@ const campo =
 const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 
 const ESTADO_INFO: Record<ContratoEstado, { rotulo: string; cor: string }> = {
+  pre_contrato: { rotulo: "Pré-contrato", cor: "bg-indigo-100 text-indigo-700" },
   rascunho: { rotulo: "Rascunho", cor: "bg-slate-100 text-slate-600" },
   ativo: { rotulo: "Ativo", cor: "bg-emerald-100 text-emerald-700" },
   pendente_fecho: { rotulo: "Pendente de fecho", cor: "bg-amber-100 text-amber-800" },
@@ -144,6 +147,16 @@ export default function ContratosList({
     }
   };
 
+  const handleDescartar = async (c: ContratoComNomes) => {
+    if (!window.confirm(`Descartar a jornada ${c.numero}? Fica cancelada.`)) return;
+    const r = await descartarPreContrato(c.id);
+    if (r.success) {
+      setContratos((atuais) => atuais.map((x) => (x.id === c.id ? { ...x, estado: "cancelado" } : x)));
+    } else {
+      alert(r.error);
+    }
+  };
+
   const handleTerminar = async (c: ContratoComNomes) => {
     const hoje = new Date().toISOString().slice(0, 10);
     const dataFim = window.prompt(
@@ -230,69 +243,94 @@ export default function ContratosList({
 
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="text-right text-sm">
-                    <p className="font-semibold text-slate-950">
-                      €{c.preco_periodo}/{PERIODICIDADE_ROTULO[c.periodicidade]}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {c.dia_vencimento ? DIAS[c.dia_vencimento] : "sem dia"}
-                      {!c.ancora_vencimento && " · faturação por iniciar"}
-                    </p>
+                    {c.preco_periodo ? (
+                      <>
+                        <p className="font-semibold text-slate-950">
+                          €{c.preco_periodo}/{PERIODICIDADE_ROTULO[c.periodicidade]}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {c.dia_vencimento ? DIAS[c.dia_vencimento] : "sem dia"}
+                          {!c.ancora_vencimento && " · faturação por iniciar"}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs font-medium text-indigo-600">mota/preço por atribuir</p>
+                    )}
                   </div>
 
-                  {aberto && (
-                    <button
-                      className="rounded-2xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                      onClick={() => handleGerar(c)}
-                      disabled={aGerar === c.id}
-                    >
-                      {aGerar === c.id ? "A gerar..." : "Gerar cobranças"}
-                    </button>
-                  )}
-                  <button
-                    className="text-xs font-semibold text-slate-600 transition hover:text-slate-900 disabled:opacity-50"
-                    onClick={() => handleLink(c)}
-                    disabled={aGerar === c.id}
-                  >
-                    Link ao motorista
-                  </button>
-                  {c.estado !== "concluido" && c.estado !== "cancelado" && (
-                    <Link
-                      href={`/admin/contratos/${c.id}/entrega`}
-                      className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                    >
-                      Entregar
-                    </Link>
-                  )}
-                  {aberto && (
-                    <Link
-                      href={`/admin/contratos/${c.id}/recolha`}
-                      className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
-                    >
-                      Devolver
-                    </Link>
-                  )}
-                  {c.estado !== "rascunho" && c.estado !== "cancelado" && (
-                    <Link
-                      href={`/admin/contratos/${c.id}/vistoria`}
-                      className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
-                    >
-                      Ver vistoria
-                    </Link>
-                  )}
-                  <button
-                    className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
-                    onClick={() => setModal(c)}
-                  >
-                    Editar
-                  </button>
-                  {aberto && (
-                    <button
-                      className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
-                      onClick={() => handleTerminar(c)}
-                      disabled={aGerar === c.id}
-                    >
-                      Terminar
-                    </button>
+                  {c.estado === "pre_contrato" ? (
+                    <>
+                      <button
+                        className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700"
+                        onClick={() => setModal(c)}
+                      >
+                        Finalizar
+                      </button>
+                      <button
+                        className="text-xs font-semibold text-red-600 transition hover:text-red-700"
+                        onClick={() => handleDescartar(c)}
+                      >
+                        Descartar
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {aberto && (
+                        <button
+                          className="rounded-2xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                          onClick={() => handleGerar(c)}
+                          disabled={aGerar === c.id}
+                        >
+                          {aGerar === c.id ? "A gerar..." : "Gerar cobranças"}
+                        </button>
+                      )}
+                      <button
+                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900 disabled:opacity-50"
+                        onClick={() => handleLink(c)}
+                        disabled={aGerar === c.id}
+                      >
+                        Link ao motorista
+                      </button>
+                      {c.estado !== "concluido" && c.estado !== "cancelado" && (
+                        <Link
+                          href={`/admin/contratos/${c.id}/entrega`}
+                          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                        >
+                          Entregar
+                        </Link>
+                      )}
+                      {aberto && (
+                        <Link
+                          href={`/admin/contratos/${c.id}/recolha`}
+                          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+                        >
+                          Devolver
+                        </Link>
+                      )}
+                      {c.estado !== "rascunho" && c.estado !== "cancelado" && (
+                        <Link
+                          href={`/admin/contratos/${c.id}/vistoria`}
+                          className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
+                        >
+                          Ver vistoria
+                        </Link>
+                      )}
+                      <button
+                        className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
+                        onClick={() => setModal(c)}
+                      >
+                        Editar
+                      </button>
+                      {aberto && (
+                        <button
+                          className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
+                          onClick={() => handleTerminar(c)}
+                          disabled={aGerar === c.id}
+                        >
+                          Terminar
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -445,10 +483,25 @@ function ContratoForm({
       return;
     }
 
+    // Finalizar um pré-contrato: atribui mota/preço/data e passa-o a 'rascunho'.
+    const ehPreContrato = aEditar && contrato!.estado === "pre_contrato";
+
     try {
-      const r = aEditar
-        ? await atualizarContrato(contrato!.id, base)
-        : await criarContrato(base);
+      const r = ehPreContrato
+        ? await finalizarPreContrato(contrato!.id, {
+            veiculo_id: base.veiculo_id,
+            proprietario_id: base.proprietario_id,
+            periodicidade: base.periodicidade,
+            dia_vencimento: base.dia_vencimento,
+            preco_periodo: base.preco_periodo,
+            caucao: base.caucao,
+            data_inicio: base.data_inicio,
+            ancora_vencimento: base.ancora_vencimento,
+            observacoes: base.observacoes,
+          })
+        : aEditar
+          ? await atualizarContrato(contrato!.id, base)
+          : await criarContrato(base);
       setAGravar(false);
       if (!r.success) {
         setErro(r.error ?? "Erro ao gravar.");
@@ -459,6 +512,7 @@ function ContratoForm({
       onSaved({
         ...(contrato ?? ({ num_cobrancas: 0, created_at: new Date().toISOString() } as ContratoComNomes)),
         ...(base as Partial<ContratoAluguer>),
+        estado: ehPreContrato ? "rascunho" : base.estado,
         id,
         numero,
         motorista_nome: motoristas.find((m) => m.id === base.motorista_id)?.nome ?? "—",
@@ -594,7 +648,13 @@ function ContratoForm({
               Cancelar
             </button>
             <button type="submit" disabled={aGravar} className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
-              {aGravar ? "A gravar..." : aEditar ? "Guardar" : "Criar contrato"}
+              {aGravar
+                ? "A gravar..."
+                : contrato?.estado === "pre_contrato"
+                  ? "Finalizar contrato"
+                  : aEditar
+                    ? "Guardar"
+                    : "Criar contrato"}
             </button>
           </div>
         </form>

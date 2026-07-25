@@ -48,6 +48,6 @@ export async function contratoDoVeiculoNaData(
     motorista_id: c.motorista_id,
     motorista_nome: m?.nome ?? "—",
     proprietario_id: c.proprietario_id ?? null,
-    veiculo_id: c.veiculo_id,
+    veiculo_id: c.veiculo_id ?? veiculoId,
   };
 }
