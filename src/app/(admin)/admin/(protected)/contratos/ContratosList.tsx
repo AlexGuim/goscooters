@@ -323,6 +323,7 @@ export default function ContratosList({
 function RegistoLinkModal({ onClose }: { onClose: () => void }) {
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [idioma, setIdioma] = useState("pt");
   const [aEnviar, setAEnviar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
@@ -331,7 +332,7 @@ function RegistoLinkModal({ onClose }: { onClose: () => void }) {
     setErro(null);
     if (!telefone.trim()) return setErro("Indica o telefone do motorista.");
     setAEnviar(true);
-    const r = await criarSessaoRegisto({ nome: nome.trim() || null, telefone: telefone.trim() });
+    const r = await criarSessaoRegisto({ nome: nome.trim() || null, telefone: telefone.trim(), idioma });
     setAEnviar(false);
     if (!r.success) return setErro(r.error ?? "Erro ao criar o link.");
     setLink(r.link ?? null);
@@ -369,6 +370,13 @@ function RegistoLinkModal({ onClose }: { onClose: () => void }) {
             <label className="block space-y-1.5 text-sm font-medium text-slate-700">
               <span>Telefone <span className="text-red-600">*</span></span>
               <input className={campoIn} value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="+351 91 234 5678" />
+            </label>
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+              <span>Idioma do link e do formulário</span>
+              <select className={campoIn} value={idioma} onChange={(e) => setIdioma(e.target.value)}>
+                <option value="pt">Português</option>
+                <option value="en">English (outras línguas)</option>
+              </select>
             </label>
             {erro && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
             <div className="flex gap-3 pt-1">

@@ -183,6 +183,17 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
     return { total, recebido, pagas, porPagarV, porPagarN, n: roster.length };
   }, [roster]);
 
+  // Folha semanal agrupada por proprietário (mantém a ordem de rosterOrdenado).
+  const rosterGrupos = useMemo(() => {
+    const m = new Map<string, { nome: string; itens: CobrancaPainel[] }>();
+    for (const c of rosterOrdenado) {
+      const nome = c.proprietario_nome ?? "Sem proprietário";
+      if (!m.has(nome)) m.set(nome, { nome, itens: [] });
+      m.get(nome)!.itens.push(c);
+    }
+    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  }, [rosterOrdenado]);
+
   return (
     <div className="space-y-6">
       {/* Abas */}
@@ -381,12 +392,22 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
               <p className="text-slate-600">Nenhuma cobrança vence nesta semana.</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-3xl bg-white shadow-sm">
-              {rosterOrdenado.map((c) => {
-                const feito = resolvida(c);
-                const wa = linkWhatsapp(c);
+            <div className="space-y-4">
+              {rosterGrupos.map((g) => {
+                const pagasG = g.itens.filter(resolvida).length;
+                const porPagarG = g.itens.filter((c) => !resolvida(c)).reduce((s, c) => s + Number(c.em_falta), 0);
                 return (
-                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+                  <GrupoColapsavel
+                    key={g.nome}
+                    titulo={g.nome}
+                    resumo={`${pagasG}/${g.itens.length} pagas · ${formatarPreco(porPagarG)} por pagar`}
+                  >
+                    <div className="divide-y divide-slate-100">
+                      {g.itens.map((c) => {
+                        const feito = resolvida(c);
+                        const wa = linkWhatsapp(c);
+                        return (
+                          <div key={c.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-slate-950">{c.motorista_nome}</p>
@@ -427,6 +448,10 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                       )}
                     </div>
                   </div>
+                        );
+                      })}
+                    </div>
+                  </GrupoColapsavel>
                 );
               })}
             </div>

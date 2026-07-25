@@ -95,6 +95,7 @@ export async function criarSessaoEntrega(
 export async function criarSessaoRegisto(input: {
   nome?: string | null;
   telefone: string;
+  idioma?: string | null;
 }): Promise<{ success: boolean; link?: string; whatsapp?: string | null; error?: string; motorista_id?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
@@ -102,6 +103,8 @@ export async function criarSessaoRegisto(input: {
   const telefone = input.telefone?.trim();
   if (!telefone) return { success: false, error: "Indica o telefone do motorista." };
   const digitos = normalizarTelefone(telefone);
+  // A escolha do idioma determina a língua da mensagem E do formulário (pt|en).
+  const idioma = (input.idioma || "pt").slice(0, 2).toLowerCase() === "pt" ? "pt" : "en";
 
   // Reutiliza o motorista pelo telefone, ou cria um lead mínimo.
   let motoristaId: string;
@@ -112,6 +115,8 @@ export async function criarSessaoRegisto(input: {
     .maybeSingle();
   if (existente) {
     motoristaId = existente.id;
+    // A escolha do admin manda: atualiza a língua no registo existente.
+    await supabaseAdmin.from("motorista").update({ idioma_preferido: idioma }).eq("id", motoristaId);
   } else {
     const { data: novo, error: eNovo } = await supabaseAdmin
       .from("motorista")
@@ -120,6 +125,7 @@ export async function criarSessaoRegisto(input: {
         telefone,
         telefone_digitos: digitos,
         telefone_e164: paraE164(telefone),
+        idioma_preferido: idioma,
         estado: "lead",
       })
       .select("id")
