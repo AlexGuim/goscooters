@@ -483,11 +483,46 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
 }
 
 // Livro-razão dos pagamentos: corrigir o recebedor ou estornar um lançamento errado.
+const rotuloMes = (m: string) =>
+  new Date(m + "-01T00:00:00").toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+
 function LivroPagamentos() {
   const [pags, setPags] = useState<PagamentoLista[]>([]);
   const [aCarregar, setACarregar] = useState(true);
   const [aAgir, setAAgir] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [fMes, setFMes] = useState("");
+  const [fMotorista, setFMotorista] = useState("");
+  const [fMoto, setFMoto] = useState("");
+  const [fParceiro, setFParceiro] = useState("");
+
+  const opcoes = useMemo(() => {
+    const meses = new Set<string>(), mots = new Set<string>(), motos = new Set<string>(), parceiros = new Set<string>();
+    for (const p of pags) {
+      meses.add(p.data_recebimento.slice(0, 7));
+      mots.add(p.motorista_nome);
+      p.matriculas.forEach((m) => motos.add(m));
+      p.proprietarios.forEach((pr) => parceiros.add(pr));
+    }
+    return {
+      meses: [...meses].sort().reverse(),
+      motoristas: [...mots].sort((a, b) => a.localeCompare(b, "pt")),
+      motos: [...motos].sort(),
+      parceiros: [...parceiros].sort((a, b) => a.localeCompare(b, "pt")),
+    };
+  }, [pags]);
+
+  const filtrados = useMemo(
+    () =>
+      pags.filter(
+        (p) =>
+          (!fMes || p.data_recebimento.slice(0, 7) === fMes) &&
+          (!fMotorista || p.motorista_nome === fMotorista) &&
+          (!fMoto || p.matriculas.includes(fMoto)) &&
+          (!fParceiro || p.proprietarios.includes(fParceiro)),
+      ),
+    [pags, fMes, fMotorista, fMoto, fParceiro],
+  );
 
   const carregar = useCallback(async () => {
     setACarregar(true);
@@ -538,7 +573,36 @@ function LivroPagamentos() {
         por pagar). Um pagamento já num acerto fechado fica trancado.
       </p>
       {erro && <p className="text-sm text-red-700">{erro}</p>}
-      {pags.map((p) => (
+      <div className="flex flex-wrap gap-2">
+        <select value={fMes} onChange={(e) => setFMes(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500">
+          <option value="">Todos os meses</option>
+          {opcoes.meses.map((m) => <option key={m} value={m}>{rotuloMes(m)}</option>)}
+        </select>
+        <select value={fParceiro} onChange={(e) => setFParceiro(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500">
+          <option value="">Todos os parceiros</option>
+          {opcoes.parceiros.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={fMotorista} onChange={(e) => setFMotorista(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500">
+          <option value="">Todos os motoristas</option>
+          {opcoes.motoristas.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select value={fMoto} onChange={(e) => setFMoto(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500">
+          <option value="">Todas as motos</option>
+          {opcoes.motos.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        {(fMes || fParceiro || fMotorista || fMoto) && (
+          <button
+            onClick={() => { setFMes(""); setFParceiro(""); setFMotorista(""); setFMoto(""); }}
+            className="rounded-2xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900"
+          >
+            Limpar
+          </button>
+        )}
+      </div>
+      {!filtrados.length && (
+        <p className="rounded-2xl bg-white p-6 text-center text-slate-600 shadow-sm">Nenhum pagamento neste filtro.</p>
+      )}
+      {filtrados.map((p) => (
         <div key={p.id} className="rounded-2xl bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

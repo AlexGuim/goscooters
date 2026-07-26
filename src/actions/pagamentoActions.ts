@@ -117,6 +117,8 @@ export interface PagamentoLista {
   data_recebimento: string;
   recebido_por: PagamentoRecebidoPor;
   semanas: string[];
+  matriculas: string[]; // motos abrangidas (para o filtro por moto)
+  proprietarios: string[]; // parceiros abrangidos (para o filtro por parceiro)
   bloqueado: boolean;
 }
 
@@ -153,25 +155,36 @@ export async function listarPagamentos(): Promise<PagamentoLista[]> {
   ]);
   const veicIds = [...new Set((cobs ?? []).map((c) => c.veiculo_id).filter(Boolean) as string[])];
   const { data: motos } = veicIds.length
-    ? await supabaseAdmin.from("moto").select("id, matricula").in("id", veicIds)
-    : { data: [] as { id: string; matricula: string | null }[] };
+    ? await supabaseAdmin.from("moto").select("id, matricula, proprietario_id").in("id", veicIds)
+    : { data: [] as { id: string; matricula: string | null; proprietario_id: string | null }[] };
   const matDe = new Map((motos ?? []).map((m) => [m.id, m.matricula]));
+  const propDeMoto = new Map((motos ?? []).map((m) => [m.id, m.proprietario_id]));
+  const propIds = [...new Set((motos ?? []).map((m) => m.proprietario_id).filter(Boolean) as string[])];
+  const { data: props } = propIds.length
+    ? await supabaseAdmin.from("proprietario").select("id, nome").in("id", propIds)
+    : { data: [] as { id: string; nome: string }[] };
+  const nomeProp = new Map((props ?? []).map((p) => [p.id, p.nome]));
   const cobInfo = new Map((cobs ?? []).map((c) => [c.id, c]));
 
   // Qualquer cobrança com acerto_linha já foi congelada (fechado/pago/parcial).
   const bloqueadas = new Set<string>((linhasAcerto ?? []).map((l) => l.cobranca_id as string));
 
   const semanasPorPag = new Map<string, string[]>();
+  const matPorPag = new Map<string, Set<string>>();
+  const propPorPag = new Map<string, Set<string>>();
   const bloqPorPag = new Map<string, boolean>();
   for (const a of allocs ?? []) {
+    const pid = a.pagamento_id as string;
     const c = cobInfo.get(a.cobranca_id as string);
-    const label = c
-      ? `${matDe.get(c.veiculo_id) ?? ""} ${dataCurta(c.periodo_inicio)}–${dataCurta(c.periodo_fim)}`.trim()
-      : "";
-    const arr = semanasPorPag.get(a.pagamento_id as string) ?? [];
+    const mat = c ? matDe.get(c.veiculo_id) ?? null : null;
+    const label = c ? `${mat ?? ""} ${dataCurta(c.periodo_inicio)}–${dataCurta(c.periodo_fim)}`.trim() : "";
+    const arr = semanasPorPag.get(pid) ?? [];
     if (label) arr.push(label);
-    semanasPorPag.set(a.pagamento_id as string, arr);
-    if (bloqueadas.has(a.cobranca_id as string)) bloqPorPag.set(a.pagamento_id as string, true);
+    semanasPorPag.set(pid, arr);
+    if (mat) (matPorPag.get(pid) ?? matPorPag.set(pid, new Set()).get(pid)!).add(mat);
+    const prop = c ? nomeProp.get(propDeMoto.get(c.veiculo_id) ?? "") : null;
+    if (prop) (propPorPag.get(pid) ?? propPorPag.set(pid, new Set()).get(pid)!).add(prop);
+    if (bloqueadas.has(a.cobranca_id as string)) bloqPorPag.set(pid, true);
   }
 
   return pags.map((p) => ({
@@ -182,6 +195,8 @@ export async function listarPagamentos(): Promise<PagamentoLista[]> {
     data_recebimento: p.data_recebimento as string,
     recebido_por: (p.recebido_por as PagamentoRecebidoPor) ?? "goscooters",
     semanas: semanasPorPag.get(p.id) ?? [],
+    matriculas: [...(matPorPag.get(p.id) ?? [])],
+    proprietarios: [...(propPorPag.get(p.id) ?? [])],
     bloqueado: bloqPorPag.get(p.id) ?? false,
   }));
 }
