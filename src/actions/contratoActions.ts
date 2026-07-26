@@ -307,10 +307,29 @@ export async function atualizarContrato(
       await ocuparMota(updates.veiculo_id);
     }
   }
-  // Se o veículo do contrato foi TROCADO, liberta a mota antiga — senão ficaria
-  // presa como 'ocupado'/'alugada' e apareceria como fantasma no catálogo.
+  // Se o veículo do contrato foi TROCADO, liberta a mota antiga (senão ficaria
+  // presa como 'ocupado'/'alugada' e apareceria como fantasma no catálogo) e
+  // reaponta as cobranças FUTURAS por liquidar (rendas ainda não usadas) para a
+  // nova mota e o seu dono — senão continuavam a apontar para a mota/parceiro
+  // antigos no painel de cobrança, no financeiro e no acerto. As passadas/pagas
+  // ficam como histórico (a mota que rodou nessa semana); as futuras por liquidar
+  // nunca estão num acerto fechado (esse só congela rendas passadas pagas). A
+  // caução/coima (tipo != renda) não migram — são eventos ligados à mota da altura.
   if (updates.veiculo_id && atualVeiculo && atualVeiculo !== updates.veiculo_id) {
     await libertarMota(atualVeiculo);
+    const hoje = new Date().toISOString().slice(0, 10);
+    const { data: novaMota } = await supabaseAdmin
+      .from("moto")
+      .select("proprietario_id")
+      .eq("id", updates.veiculo_id)
+      .maybeSingle();
+    await supabaseAdmin
+      .from("cobranca")
+      .update({ veiculo_id: updates.veiculo_id, proprietario_id: novaMota?.proprietario_id ?? null })
+      .eq("contrato_id", id)
+      .eq("tipo", "renda")
+      .in("estado_liquidacao", ["por_liquidar", "parcial"])
+      .gt("periodo_inicio", hoje);
   }
 
   // Ativar por edição também promove o motorista lead→ativo (como criarContrato
@@ -332,6 +351,7 @@ export async function atualizarContrato(
 
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/motas");
+  revalidatePath("/admin/cobrancas");
   return { success: true };
 }
 

@@ -186,6 +186,10 @@ export default function OnboardingEntrega({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-preenchimento aditivo: só sobrepõe um campo quando a leitura traz valor,
+  // para uma leitura falhada não apagar o que já foi lido de outra página do MESMO
+  // documento (frente/verso). O onboarding é de UMA pessoa por sessão, por isso não
+  // há risco de "colar" dados de outro motorista (ao contrário do admin).
   const aplicar = (c: {
     nome?: string | null; nif?: string | null; numero?: string | null; validade?: string | null; tipo?: string | null;
     carta_numero?: string | null; carta_categoria?: string | null; carta_pais?: string | null; carta_validade?: string | null;

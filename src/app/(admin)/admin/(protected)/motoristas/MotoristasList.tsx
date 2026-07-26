@@ -696,6 +696,9 @@ function FormMotorista({
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  // Campos preenchidos pela ÚLTIMA leitura de documento (proveniência): só estes
+  // são limpos antes de uma nova leitura, para não apagar o que foi digitado à mão.
+  const autoRef = useRef<Set<string>>(new Set());
   const [aLerDoc, setALerDoc] = useState(false);
   const [statusOcr, setStatusOcr] = useState<string | null>(null);
 
@@ -707,6 +710,15 @@ function FormMotorista({
     if (!form) return;
     setALerDoc(true);
     setStatusOcr("A ler o documento…");
+    // Limpa APENAS os campos que a leitura ANTERIOR preencheu — senão uma leitura
+    // errada/falhada deixa colados os dados do documento anterior (contamina a
+    // pessoa errada). Os campos digitados à mão nunca entram aqui, por isso não
+    // se perdem. O NIF é sempre manual (não vem do OCR).
+    for (const name of autoRef.current) {
+      const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (el) el.value = "";
+    }
+    autoRef.current.clear();
     try {
       const texto = await ocrFicheiro(file, (fase, pct) => setStatusOcr(`${fase} ${pct}%`));
       const d = interpretarDocumento(texto);
@@ -715,6 +727,7 @@ function FormMotorista({
         const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
         if (!el) return false;
         el.value = valor;
+        autoRef.current.add(name); // marca como preenchido por OCR (limpo na próxima leitura)
         return true;
       };
       const preenchidos: string[] = [];
