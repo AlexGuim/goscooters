@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CobrancaTipo, EstadoLiquidacao, PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
-import { registarPagamento, type AlocacaoInput } from "@/actions/pagamentoActions";
+import {
+  registarPagamento,
+  listarPagamentos,
+  alterarRecebidoPor,
+  estornarPagamento,
+  type AlocacaoInput,
+  type PagamentoLista,
+} from "@/actions/pagamentoActions";
 import { cobrancasDaSemana } from "@/actions/cobrancaActions";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
 
@@ -76,7 +83,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   // Captura o "agora" uma vez (montagem) para o cálculo ser puro no render.
   const [agora] = useState(() => Date.now());
   // Vista: "dividas" (só em aberto) | "semana" (folha de conferência dom→sáb).
-  const [vista, setVista] = useState<"dividas" | "semana">("dividas");
+  const [vista, setVista] = useState<"dividas" | "semana" | "pagamentos">("dividas");
   const [semanaOffset, setSemanaOffset] = useState(0);
   const [roster, setRoster] = useState<CobrancaPainel[]>([]);
   const [aCarregarSemana, setACarregarSemana] = useState(false);
@@ -198,7 +205,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
     <div className="space-y-6">
       {/* Abas */}
       <div className="flex gap-2">
-        {([["dividas", "Dívidas em aberto"], ["semana", "Semana (conferência)"]] as const).map(([v, r]) => (
+        {([["dividas", "Dívidas em aberto"], ["semana", "Semana (conferência)"], ["pagamentos", "Pagamentos"]] as const).map(([v, r]) => (
           <button
             key={v}
             onClick={() => setVista(v)}
@@ -211,7 +218,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
         ))}
       </div>
 
-      {vista === "dividas" ? (
+      {vista === "dividas" && (
         <div className="space-y-6">
       {/* Resumo */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -332,7 +339,8 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
         </div>
       )}
         </div>
-      ) : (
+      )}
+      {vista === "semana" && (
         <div className="space-y-4">
           {/* Navegação de semana (domingo → sábado) */}
           <div className="flex items-center justify-between gap-3 rounded-3xl bg-white p-4 shadow-sm">
@@ -458,6 +466,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
           )}
         </div>
       )}
+      {vista === "pagamentos" && <LivroPagamentos />}
 
       {pagar && (
         <FormPagamento
@@ -469,6 +478,107 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
           onPago={aposPagamento}
         />
       )}
+    </div>
+  );
+}
+
+// Livro-razão dos pagamentos: corrigir o recebedor ou estornar um lançamento errado.
+function LivroPagamentos() {
+  const [pags, setPags] = useState<PagamentoLista[]>([]);
+  const [aCarregar, setACarregar] = useState(true);
+  const [aAgir, setAAgir] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const carregar = useCallback(async () => {
+    setACarregar(true);
+    setPags(await listarPagamentos());
+    setACarregar(false);
+  }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregar();
+  }, [carregar]);
+
+  const mudarRecebedor = async (p: PagamentoLista, novo: PagamentoRecebidoPor) => {
+    setErro(null);
+    setAAgir(p.id);
+    const r = await alterarRecebidoPor(p.id, novo);
+    setAAgir(null);
+    if (r.success) setPags((atuais) => atuais.map((x) => (x.id === p.id ? { ...x, recebido_por: novo } : x)));
+    else setErro(r.error ?? "Erro.");
+  };
+
+  const estornar = async (p: PagamentoLista) => {
+    if (
+      !window.confirm(
+        `Estornar o pagamento de ${formatarPreco(p.valor)} de ${p.motorista_nome} (${dataCurta(p.data_recebimento)})?\n\nAs semanas que cobria voltam a ficar por pagar.`,
+      )
+    )
+      return;
+    setErro(null);
+    setAAgir(p.id);
+    const r = await estornarPagamento(p.id);
+    setAAgir(null);
+    if (r.success) setPags((atuais) => atuais.filter((x) => x.id !== p.id));
+    else setErro(r.error ?? "Erro.");
+  };
+
+  if (aCarregar) return <p className="text-sm text-slate-500">A carregar pagamentos…</p>;
+  if (!pags.length)
+    return (
+      <p className="rounded-3xl bg-white p-6 text-center text-slate-600 shadow-sm">
+        Ainda não há pagamentos registados.
+      </p>
+    );
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        Últimos pagamentos. Corrige o recebedor ou estorna um lançamento errado (as semanas voltam a ficar
+        por pagar). Um pagamento já num acerto fechado fica trancado.
+      </p>
+      {erro && <p className="text-sm text-red-700">{erro}</p>}
+      {pags.map((p) => (
+        <div key={p.id} className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-slate-950">
+                {p.motorista_nome} · {formatarPreco(p.valor)}
+              </p>
+              <p className="text-xs text-slate-500">
+                {dataCurta(p.data_recebimento)}
+                {p.semanas.length ? ` · ${p.semanas.join(" · ")}` : " · sem alocação"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {p.bloqueado ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+                  🔒 em acerto fechado
+                </span>
+              ) : (
+                <>
+                  <select
+                    value={p.recebido_por}
+                    disabled={aAgir === p.id}
+                    onChange={(e) => mudarRecebedor(p, e.target.value as PagamentoRecebidoPor)}
+                    className="rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 outline-none focus:border-emerald-500 disabled:opacity-50"
+                  >
+                    <option value="goscooters">Recebido: GoScooters</option>
+                    <option value="proprietario">Recebido: parceiro</option>
+                  </select>
+                  <button
+                    onClick={() => estornar(p)}
+                    disabled={aAgir === p.id}
+                    className="rounded-2xl px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Estornar
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
