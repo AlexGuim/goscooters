@@ -479,3 +479,71 @@ export async function gerarCobrancas(
   revalidatePath("/admin/cobrancas");
   return { success: true, geradas: data ?? 0 };
 }
+
+/**
+ * Corrige "buracos" e desalinhamentos nas semanas de um contrato: apaga as rendas
+ * ainda POR PAGAR (sem pagamentos, seguro), fixa a âncora na cadência das semanas
+ * já pagas (para não as orfanar) e regenera de forma contínua até ao horizonte que
+ * já existia. As pagas/parciais ficam intactas (histórico). Resolve os casos em que
+ * uma re-ancoragem anterior deixou a sequência com um vazio (ex.: 01/07 paga, depois
+ * salta para 14/07). Idempotente: num contrato já alinhado não muda nada.
+ */
+export async function realinharCobrancasContrato(
+  contratoId: string,
+): Promise<{ success: boolean; error?: string; geradas?: number; apagadas?: number }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const { data: cobs } = await supabaseAdmin
+    .from("cobranca")
+    .select("id, periodo_inicio, periodo_fim, estado_liquidacao, valor_pago")
+    .eq("contrato_id", contratoId)
+    .eq("tipo", "renda")
+    .order("periodo_inicio", { ascending: true });
+
+  // Âncora = 1.ª semana JÁ PAGA (para a cadência a incluir); senão a 1.ª existente;
+  // senão a data_inicio do contrato.
+  const pagas = (cobs ?? []).filter((c) => Number(c.valor_pago) > 0);
+  let ancora: string | null = pagas[0]?.periodo_inicio ?? cobs?.[0]?.periodo_inicio ?? null;
+  if (!ancora) {
+    const { data: ct } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("data_inicio")
+      .eq("id", contratoId)
+      .maybeSingle();
+    ancora = ct?.data_inicio ?? null;
+  }
+  if (!ancora) return { success: false, error: "Contrato sem data para ancorar as semanas." };
+
+  // Horizonte: cobre o que já existia, com uma folga mínima para a frente.
+  const folga = new Date(Date.now() + 56 * 86400000).toISOString().slice(0, 10);
+  const maxFim = (cobs ?? []).reduce((m, c) => (c.periodo_fim > m ? c.periodo_fim : m), ancora);
+  const horizonte = maxFim > folga ? maxFim : folga;
+
+  // Apaga só as POR PAGAR (não têm pagamentos → seguro). As pagas/parciais ficam.
+  const porPagar = (cobs ?? [])
+    .filter((c) => c.estado_liquidacao === "por_liquidar")
+    .map((c) => c.id);
+  if (porPagar.length) {
+    const { error: eDel } = await supabaseAdmin.from("cobranca").delete().in("id", porPagar);
+    if (eDel) {
+      console.error("realinhar delete error:", eDel);
+      return { success: false, error: "Erro ao limpar as semanas por pagar." };
+    }
+  }
+
+  await supabaseAdmin.from("contrato_aluguer").update({ ancora_vencimento: ancora }).eq("id", contratoId);
+
+  const { data: geradas, error } = await supabaseAdmin.rpc("fn_gerar_cobrancas", {
+    p_contrato_id: contratoId,
+    p_ate: horizonte,
+  });
+  if (error) {
+    console.error("realinhar rpc error:", error);
+    return { success: false, error: "Erro ao regenerar as semanas." };
+  }
+
+  revalidatePath("/admin/contratos");
+  revalidatePath("/admin/cobrancas");
+  return { success: true, geradas: geradas ?? 0, apagadas: porPagar.length };
+}

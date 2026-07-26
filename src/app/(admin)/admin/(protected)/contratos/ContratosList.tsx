@@ -17,6 +17,7 @@ import {
   descartarPreContrato,
   gerarCobrancas,
   terminarContrato,
+  realinharCobrancasContrato,
 } from "@/actions/contratoActions";
 import { criarSessaoEntrega, criarSessaoRegisto } from "@/actions/entregaActions";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
@@ -129,6 +130,28 @@ export default function ContratosList({
         ),
       );
       alert(`${r.geradas ?? 0} cobrança(s) nova(s) gerada(s).`);
+    } else {
+      alert(r.error);
+    }
+  };
+
+  const handleRealinhar = async (c: ContratoComNomes) => {
+    if (
+      !window.confirm(
+        `Corrigir as semanas de ${c.motorista_nome} (${c.numero})?\n\nApaga as semanas ainda POR PAGAR e regenera-as de forma contínua a partir da cadência das já pagas — resolve buracos/desalinhamentos. As pagas ficam intactas.`,
+      )
+    )
+      return;
+    setAGerar(c.id);
+    const r = await realinharCobrancasContrato(c.id);
+    setAGerar(null);
+    if (r.success) {
+      setContratos((atuais) =>
+        atuais.map((x) =>
+          x.id === c.id ? { ...x, num_cobrancas: x.num_cobrancas - (r.apagadas ?? 0) + (r.geradas ?? 0) } : x,
+        ),
+      );
+      alert(`Semanas corrigidas: ${r.apagadas ?? 0} apagada(s), ${r.geradas ?? 0} regerada(s).`);
     } else {
       alert(r.error);
     }
@@ -309,6 +332,16 @@ export default function ContratosList({
                           disabled={aGerar === c.id}
                         >
                           {aGerar === c.id ? "A gerar..." : "Gerar cobranças"}
+                        </button>
+                      )}
+                      {aberto && (
+                        <button
+                          className="text-xs font-semibold text-amber-700 transition hover:text-amber-800 disabled:opacity-50"
+                          onClick={() => handleRealinhar(c)}
+                          disabled={aGerar === c.id}
+                          title="Apaga as semanas por pagar e regenera contínuo (resolve buracos)"
+                        >
+                          Corrigir semanas
                         </button>
                       )}
                       <button
