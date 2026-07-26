@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { notificar } from "@/lib/notificacoes";
+import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 
 export interface DanoPrevio {
   zona: string;
@@ -64,6 +65,10 @@ export async function submeterVistoriaEntrega(
   // deixaria a vistoria órfã (o contrato nunca ficaria ativo).
   if (c.estado === "pre_contrato" || !c.veiculo_id) {
     return { success: false, error: "Contrato ainda sem mota atribuída — finaliza o pré-contrato primeiro." };
+  }
+  // Nem se reativa um contrato terminal por uma vistoria de entrega.
+  if (c.estado === "concluido" || c.estado === "cancelado") {
+    return { success: false, error: "Contrato terminado — não pode receber uma entrega." };
   }
 
   const { data: jaExiste } = await supabaseAdmin
@@ -127,10 +132,7 @@ export async function submeterVistoriaEntrega(
   }
 
   if (c.veiculo_id) {
-    await supabaseAdmin
-      .from("moto")
-      .update({ estado_operacional: "ocupado" })
-      .eq("id", c.veiculo_id);
+    await ocuparMota(c.veiculo_id);
   }
   if (c.motorista_id) {
     // Promove só se ainda for lead — não mexe num já ativo/bloqueado.
@@ -227,10 +229,15 @@ export async function submeterVistoriaRecolha(
 
   const { data: c } = await supabaseAdmin
     .from("contrato_aluguer")
-    .select("id, veiculo_id")
+    .select("id, veiculo_id, estado")
     .eq("id", input.contrato_id)
     .maybeSingle();
   if (!c) return { success: false, error: "Contrato não encontrado." };
+  // Só se recolhe um contrato que esteve entregue (aberto). Recolher um rascunho/
+  // pré-contrato (nunca entregue) ou um já terminado não faz sentido.
+  if (!["ativo", "pendente_fecho", "suspenso"].includes(c.estado)) {
+    return { success: false, error: "Só um contrato aberto (ativo/pendente/suspenso) pode ser recolhido." };
+  }
 
   const { data: ja } = await supabaseAdmin
     .from("vistoria")
@@ -284,10 +291,7 @@ export async function submeterVistoriaRecolha(
     .gt("periodo_inicio", agora.slice(0, 10));
 
   if (c.veiculo_id) {
-    await supabaseAdmin
-      .from("moto")
-      .update({ estado_operacional: "disponivel" })
-      .eq("id", c.veiculo_id);
+    await libertarMota(c.veiculo_id);
   }
 
   revalidatePath("/admin/contratos");

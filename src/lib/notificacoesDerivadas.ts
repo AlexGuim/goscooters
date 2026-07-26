@@ -1,6 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatarPreco } from "@/lib/precos";
+import { kycCompleto } from "@/lib/kyc";
 
 /**
  * Notificações DERIVADAS do estado (recalculadas, não são eventos pontuais).
@@ -68,17 +69,18 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
       });
     }
 
-    // 3. Motorista ativo com KYC incompleto (sem NIF ou sem carta).
+    // 3. Motorista ativo com KYC incompleto (definição única: ver src/lib/kyc.ts).
     const { data: kyc } = await supabaseAdmin
       .from("motorista")
-      .select("id, nome, nif, carta_numero")
+      .select("id, nome, nif, nif_valido, doc_id_numero, carta_numero, morada_linha1")
       .eq("estado", "ativo");
     for (const m of kyc ?? []) {
-      if (!m.nif || !m.carta_numero) {
+      const { completo, faltam } = kycCompleto(m);
+      if (!completo) {
         add({
           tipo: "kyc_incompleto",
           titulo: "KYC incompleto num motorista ativo",
-          detalhe: `${m.nome} — falta ${!m.nif ? "NIF" : ""}${!m.nif && !m.carta_numero ? " e " : ""}${!m.carta_numero ? "carta" : ""}`,
+          detalhe: `${m.nome} — falta ${faltam.join(", ")}`,
           href: "/admin/motoristas",
           entidade: "motorista",
           entidade_id: m.id,

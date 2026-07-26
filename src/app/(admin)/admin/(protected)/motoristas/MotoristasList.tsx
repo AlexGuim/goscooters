@@ -6,6 +6,7 @@ import { normalizarTelefone } from "@/lib/telefone";
 import { IDIOMAS } from "@/lib/lembretes";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento, iso3ParaIso2 } from "@/lib/documentos";
+import { kycCompleto } from "@/lib/kyc";
 import {
   criarMotorista,
   atualizarMotorista,
@@ -513,6 +514,7 @@ function FichaKYC({
       ["Idioma", IDIOMAS.find((i) => i.valor === motorista.idioma_preferido)?.rotulo ?? motorista.idioma_preferido],
       ["IBAN", motorista.iban],
     ];
+    const kyc = kycCompleto(motorista);
     return (
       <div className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between">
@@ -526,6 +528,15 @@ function FichaKYC({
             Editar ficha
           </button>
         </div>
+        {kyc.completo ? (
+          <p className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            ✓ KYC completo
+          </p>
+        ) : (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            KYC incompleto — falta: {kyc.faltam.join(", ")}
+          </p>
+        )}
         {motorista.precisa_revisao && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Este registo veio da importação e precisa de ser confirmado. Ao guardar

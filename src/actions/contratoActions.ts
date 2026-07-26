@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { notificar } from "@/lib/notificacoes";
+import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 import type { ContratoEstado, Database, Periodicidade } from "@/types/db";
 
 type ContratoUpdate = Database["public"]["Tables"]["contrato_aluguer"]["Update"];
@@ -77,10 +78,7 @@ export async function criarContrato(
   // promoção deixa de estar acoplada só à vistoria de entrega).
   if (input.estado === "ativo") {
     if (input.veiculo_id) {
-      await supabaseAdmin
-        .from("moto")
-        .update({ estado_operacional: "ocupado" })
-        .eq("id", input.veiculo_id);
+      await ocuparMota(input.veiculo_id);
     }
     await supabaseAdmin
       .from("motorista")
@@ -268,6 +266,28 @@ export async function atualizarContrato(
   const erro = validar(updates as Partial<CriarContratoInput>);
   if (erro) return { success: false, error: erro };
 
+  // Estado atual do contrato: serve a guarda de transição (uma edição não deve
+  // reabrir um contrato terminal nem saltar de/para pré-contrato) e a limpeza da
+  // mota antiga se o veículo for trocado. Só lê quando o estado ou o veículo mudam.
+  let atualVeiculo: string | null = null;
+  if (updates.estado || updates.veiculo_id) {
+    const { data: atual } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("estado, veiculo_id")
+      .eq("id", id)
+      .maybeSingle();
+    atualVeiculo = atual?.veiculo_id ?? null;
+    const de = atual?.estado;
+    if (updates.estado && de && de !== updates.estado) {
+      if (de === "concluido" || de === "cancelado") {
+        return { success: false, error: "Contrato terminado — não pode ser reaberto por edição." };
+      }
+      if (de === "pre_contrato") {
+        return { success: false, error: "Pré-contrato: usa Finalizar ou Descartar, não a edição de estado." };
+      }
+    }
+  }
+
   const { error } = await supabaseAdmin
     .from("contrato_aluguer")
     .update(updates)
@@ -278,19 +298,19 @@ export async function atualizarContrato(
     return { success: false, error: "Erro ao atualizar contrato." };
   }
 
-  // Ao concluir/cancelar, liberta o veículo.
+  // Ao concluir/cancelar liberta o veículo; ao (re)ativar ocupa-o. Os helpers
+  // mantêm o catálogo do site em sincronia (disponivel<->alugada).
   if (updates.estado && updates.veiculo_id) {
     if (updates.estado === "concluido" || updates.estado === "cancelado") {
-      await supabaseAdmin
-        .from("moto")
-        .update({ estado_operacional: "disponivel" })
-        .eq("id", updates.veiculo_id);
+      await libertarMota(updates.veiculo_id);
     } else if (updates.estado === "ativo") {
-      await supabaseAdmin
-        .from("moto")
-        .update({ estado_operacional: "ocupado" })
-        .eq("id", updates.veiculo_id);
+      await ocuparMota(updates.veiculo_id);
     }
+  }
+  // Se o veículo do contrato foi TROCADO, liberta a mota antiga — senão ficaria
+  // presa como 'ocupado'/'alugada' e apareceria como fantasma no catálogo.
+  if (updates.veiculo_id && atualVeiculo && atualVeiculo !== updates.veiculo_id) {
+    await libertarMota(atualVeiculo);
   }
 
   // Ativar por edição também promove o motorista lead→ativo (como criarContrato
@@ -339,15 +359,21 @@ export async function terminarContrato(
     .maybeSingle();
 
   // 1.º concluir: fecha já a janela de geração rolante (fn_gerar_cobrancas só
-  // gera para ativo/pendente_fecho), evitando corridas com o cron.
-  const { error } = await supabaseAdmin
+  // gera para ativo/pendente_fecho), evitando corridas com o cron. A guarda de
+  // estado torna a ação idempotente e impede concluir um pré-contrato/rascunho
+  // (nunca entregue) ou re-concluir (reescrevendo data_fim).
+  const { data: terminado, error } = await supabaseAdmin
     .from("contrato_aluguer")
     .update({ estado: "concluido", data_fim: dataFim })
-    .eq("id", id);
+    .eq("id", id)
+    .in("estado", ["ativo", "pendente_fecho", "suspenso"])
+    .select("id")
+    .maybeSingle();
   if (error) {
     console.error("terminarContrato error:", error);
     return { success: false, error: "Erro ao terminar o contrato." };
   }
+  if (!terminado) return { success: false, error: "Só um contrato aberto (ativo/pendente/suspenso) pode ser terminado." };
 
   // 2.º anular as semanas FUTURAS por liquidar (início depois do fim). As já
   // pagas/parciais mantêm-se (dinheiro real ou dívida por uma semana usada).
@@ -365,10 +391,7 @@ export async function terminarContrato(
   }
 
   if (c?.veiculo_id) {
-    await supabaseAdmin
-      .from("moto")
-      .update({ estado_operacional: "disponivel" })
-      .eq("id", c.veiculo_id);
+    await libertarMota(c.veiculo_id);
   }
 
   revalidatePath("/admin/contratos");

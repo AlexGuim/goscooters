@@ -96,11 +96,15 @@ function formatEstado(moto: Moto, dic: Dicionario) {
     return { label: dic.detalhe.disponivel, color: "bg-emerald-100 text-emerald-700" };
   }
 
-  if (moto.estado === "alugada" && moto.disponivel_em) {
-    return {
-      label: `${dic.detalhe["disponivelA partir"]} ${moto.disponivel_em}`,
-      color: "bg-amber-100 text-amber-700",
-    };
+  if (moto.estado === "alugada") {
+    // Mostra "disponível a partir de X" só se X estiver no futuro; caso contrário
+    // (sem data ou data já passada) mostra apenas "Alugada" — sempre traduzido.
+    const hoje = new Date().toISOString().slice(0, 10);
+    const label =
+      moto.disponivel_em && moto.disponivel_em > hoje
+        ? `${dic.detalhe["disponivelA partir"]} ${moto.disponivel_em}`
+        : dic.detalhe.alugada;
+    return { label, color: "bg-amber-100 text-amber-700" };
   }
 
   return { label: moto.estado, color: "bg-slate-100 text-slate-700" };

@@ -154,9 +154,11 @@ export default async function MotoPage({ params }: PageProps) {
                 <div className="rounded-3xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
                   {moto.estado === "disponivel" ? (
                     <p className="font-semibold text-emerald-700">{dic.detalhe.disponivel}</p>
-                  ) : moto.estado === "alugada" && moto.disponivel_em ? (
+                  ) : moto.estado === "alugada" ? (
                     <p className="font-semibold text-amber-700">
-                      {dic.detalhe["disponivelA partir"]} {moto.disponivel_em}
+                      {moto.disponivel_em && moto.disponivel_em > new Date().toISOString().slice(0, 10)
+                        ? `${dic.detalhe["disponivelA partir"]} ${moto.disponivel_em}`
+                        : dic.detalhe.alugada}
                     </p>
                   ) : (
                     <p className="font-semibold text-slate-700">{moto.estado}</p>
