@@ -505,9 +505,9 @@ export async function concluirPorToken(
   if (s.motorista_id) {
     await notificar({
       tipo: "kyc_por_validar",
-      titulo: "Documentos por validar — rever KYC",
+      titulo: "Documentos por validar — identidade",
       detalhe: input.nome?.trim() ? `Registo concluído: ${input.nome.trim()}` : "Registo por link concluído.",
-      href: "/admin/motoristas",
+      href: `/admin/motoristas?m=${s.motorista_id}`,
       entidade: "motorista",
       entidade_id: s.motorista_id,
     });

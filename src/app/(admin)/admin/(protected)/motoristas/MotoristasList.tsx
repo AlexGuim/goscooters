@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Avaliacao, AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
 import { normalizarTelefone } from "@/lib/telefone";
 import { IDIOMAS } from "@/lib/lembretes";
@@ -42,14 +43,29 @@ function contar(avaliacoes: Avaliacao[], tipo: AvaliacaoTipo) {
 
 export default function MotoristasList({
   inicial,
+  foco = null,
+  preContratos = {},
 }: {
   inicial: MotoristaComAvaliacoes[];
+  foco?: string | null;
+  preContratos?: Record<string, { id: string; numero: string }>;
 }) {
   const [motoristas, setMotoristas] = useState(inicial);
   const [procura, setProcura] = useState("");
   const [soRevisao, setSoRevisao] = useState(false);
+  // "Em cadastro" (lead) vs Ativos vs Todos. Por omissão mostra os Ativos.
+  const [filtroEstado, setFiltroEstado] = useState<"" | "lead" | "ativo">("ativo");
   const [aCriar, setACriar] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
+
+  // Deep-link da notificação (?m=<id>): abre a ficha certa e mostra Todos para
+  // o motorista não ficar escondido pelo filtro de estado.
+  useEffect(() => {
+    if (!foco) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpandido(foco);
+    setFiltroEstado("");
+  }, [foco]);
 
   const numRevisao = motoristas.filter((m) => m.precisa_revisao).length;
 
@@ -61,17 +77,24 @@ export default function MotoristasList({
     const revisaoAtiva = soRevisao && numRevisao > 0;
     return motoristas.filter((m) => {
       if (revisaoAtiva && !m.precisa_revisao) return false;
+      // O filtro de estado só se aplica quando NÃO há procura — senão procurar por
+      // nome/telefone podia esconder um lead/inativo/bloqueado e levar a re-registar
+      // (ou re-registar alguém que foi bloqueado por causa).
+      if (filtroEstado && !termo && m.estado !== filtroEstado) return false;
       if (!termo) return true;
       return (
         m.nome.toLowerCase().includes(termo) ||
         (digitos && m.telefone_digitos.includes(digitos))
       );
     });
-  }, [motoristas, procura, soRevisao, numRevisao]);
+  }, [motoristas, procura, soRevisao, numRevisao, filtroEstado]);
 
   const handleCriado = (m: MotoristaComAvaliacoes) => {
     setMotoristas((atuais) => [m, ...atuais]);
     setACriar(false);
+    // Um motorista nasce 'lead'; com o filtro por omissão 'Ativos' ficaria
+    // escondido (parecia que a criação falhou) — mostra Todos e abre a ficha.
+    setFiltroEstado("");
     setExpandido(m.id);
   };
 
@@ -110,6 +133,25 @@ export default function MotoristasList({
             value={procura}
             onChange={(e) => setProcura(e.target.value)}
           />
+          <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1">
+            {(
+              [
+                { v: "lead", r: "Em cadastro" },
+                { v: "ativo", r: "Ativos" },
+                { v: "", r: "Todos" },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.v}
+                onClick={() => setFiltroEstado(o.v)}
+                className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition ${
+                  filtroEstado === o.v ? "bg-slate-900 text-white" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                {o.r}
+              </button>
+            ))}
+          </div>
           {numRevisao > 0 && (
             <button
               onClick={() => setSoRevisao((v) => !v)}
@@ -200,6 +242,7 @@ export default function MotoristasList({
                 {expandido === m.id && (
                   <DetalheMotorista
                     motorista={m}
+                    preContrato={preContratos[m.id]}
                     onAvaliacoes={(avs) => atualizarLocal(m.id, avs)}
                     onAtualizado={(campos) => atualizarCampos(m.id, campos)}
                     onEliminar={() => handleEliminar(m)}
@@ -220,11 +263,13 @@ export default function MotoristasList({
 
 function DetalheMotorista({
   motorista,
+  preContrato,
   onAvaliacoes,
   onAtualizado,
   onEliminar,
 }: {
   motorista: MotoristaComAvaliacoes;
+  preContrato?: { id: string; numero: string };
   onAvaliacoes: (avs: Avaliacao[]) => void;
   onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
   onEliminar: () => void;
@@ -289,7 +334,7 @@ function DetalheMotorista({
 
   return (
     <div className="space-y-6 border-t border-slate-200 bg-slate-50 px-6 py-5">
-      <FichaKYC motorista={motorista} onAtualizado={onAtualizado} />
+      <FichaKYC motorista={motorista} preContrato={preContrato} onAtualizado={onAtualizado} />
 
       {motorista.notas && (
         <p className="rounded-2xl bg-white p-4 text-sm text-slate-700 shadow-sm">
@@ -430,9 +475,11 @@ const ESTADOS_MOTORISTA: { valor: MotoristaComAvaliacoes["estado"]; rotulo: stri
 
 function FichaKYC({
   motorista,
+  preContrato,
   onAtualizado,
 }: {
   motorista: MotoristaComAvaliacoes;
+  preContrato?: { id: string; numero: string };
   onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
 }) {
   const [aEditar, setAEditar] = useState(false);
@@ -530,12 +577,21 @@ function FichaKYC({
         </div>
         {kyc.completo ? (
           <p className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            ✓ KYC completo
+            ✓ Identidade completa
           </p>
         ) : (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            KYC incompleto — falta: {kyc.faltam.join(", ")}
+            Identidade incompleta — falta: {kyc.faltam.join(", ")}
           </p>
+        )}
+        {preContrato && (
+          <Link
+            href="/admin/contratos?f=preenchimento"
+            className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
+          >
+            <span>Próximo passo: finalizar o contrato {preContrato.numero} — atribuir mota, preço e data.</span>
+            <span aria-hidden>→</span>
+          </Link>
         )}
         {motorista.precisa_revisao && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">

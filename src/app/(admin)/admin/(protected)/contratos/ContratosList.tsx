@@ -34,6 +34,7 @@ interface Props {
   motoristas: Pick<Motorista, "id" | "nome" | "telefone">[];
   motos: Pick<Moto, "id" | "matricula" | "modelo" | "proprietario_id">[];
   proprietarios: Pick<Proprietario, "id" | "nome">[];
+  filtroInicial?: "preenchimento";
 }
 
 const campo =
@@ -71,9 +72,12 @@ export default function ContratosList({
   motoristas,
   motos,
   proprietarios,
+  filtroInicial,
 }: Props) {
   const [contratos, setContratos] = useState(inicial);
-  const [filtro, setFiltro] = useState<ContratoEstado | "abertos" | "">("abertos");
+  const [filtro, setFiltro] = useState<ContratoEstado | "abertos" | "preenchimento" | "">(
+    filtroInicial ?? "abertos",
+  );
   const [modal, setModal] = useState<ContratoComNomes | "novo" | null>(null);
   const [registo, setRegisto] = useState(false);
   const [aGerar, setAGerar] = useState<string | null>(null);
@@ -82,6 +86,7 @@ export default function ContratosList({
     if (filtro === "") return true;
     if (filtro === "abertos")
       return c.estado === "ativo" || c.estado === "pendente_fecho" || c.estado === "suspenso";
+    if (filtro === "preenchimento") return c.estado === "pre_contrato" || c.estado === "rascunho";
     return c.estado === filtro;
   });
 
@@ -205,9 +210,10 @@ export default function ContratosList({
         <select
           className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-emerald-500"
           value={filtro}
-          onChange={(e) => setFiltro(e.target.value as ContratoEstado | "abertos" | "")}
+          onChange={(e) => setFiltro(e.target.value as ContratoEstado | "abertos" | "preenchimento" | "")}
         >
           <option value="abertos">Abertos (ativos + pendentes)</option>
+          <option value="preenchimento">Em preenchimento (pré-contratos + rascunhos)</option>
           <option value="">Todos</option>
           <option value="ativo">Ativos</option>
           <option value="pendente_fecho">Pendentes de fecho</option>

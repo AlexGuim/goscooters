@@ -49,9 +49,16 @@ async function getDados(): Promise<{
   };
 }
 
-export default async function ContratosAdminPage() {
+export default async function ContratosAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ f?: string }>;
+}) {
   await requireAdmin();
-  const { contratos, motoristas, motos, proprietarios } = await getDados();
+  const [{ f }, { contratos, motoristas, motos, proprietarios }] = await Promise.all([
+    searchParams,
+    getDados(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -67,6 +74,7 @@ export default async function ContratosAdminPage() {
         motoristas={motoristas}
         motos={motos}
         proprietarios={proprietarios}
+        filtroInicial={f === "preenchimento" ? "preenchimento" : undefined}
       />
     </div>
   );

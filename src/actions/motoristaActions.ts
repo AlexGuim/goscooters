@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
+import { kycCompleto } from "@/lib/kyc";
 import type { AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
 
 /** NIF português: 9 dígitos com checksum mod-11. */
@@ -199,12 +200,45 @@ export async function atualizarMotorista(
     derivados.nif_valido = d.length === 9 ? nifValidoPT(updates.nif ?? "") : null;
   }
 
+  const CAMPOS_KYC = "nif, nif_valido, doc_id_numero, carta_numero, morada_linha1";
+  // KYC ANTES de gravar — para saber se foi ESTA gravação a completar a identidade
+  // (só aí faz sentido resolver o evento "por validar", que exige revisão humana).
+  const { data: kycAntes } = await supabaseAdmin
+    .from("motorista")
+    .select(CAMPOS_KYC)
+    .eq("id", id)
+    .maybeSingle();
+  const completoAntes = kycAntes ? kycCompleto(kycAntes).completo : false;
+
   const dados: Partial<Motorista> = { ...updates, ...derivados };
   const { error } = await supabaseAdmin.from("motorista").update(dados).eq("id", id);
 
   if (error) {
     console.error("atualizarMotorista error:", error);
     return { success: false, error: "Erro ao atualizar motorista." };
+  }
+
+  // Se a identidade ficou completa, atualiza a caixa do gestor sem ele ter de voltar
+  // às notificações e clicar "Feito" (a notificação é só um atalho para a ficha).
+  const { data: kycDepois } = await supabaseAdmin
+    .from("motorista")
+    .select(CAMPOS_KYC)
+    .eq("id", id)
+    .maybeSingle();
+  if (kycDepois && kycCompleto(kycDepois).completo) {
+    // kyc_incompleto é DERIVADA (reconciliada pelo cron): REMOVE-a em vez de a marcar
+    // 'feita' — assim, se a identidade voltar a ficar incompleta, o cron re-alerta.
+    await supabaseAdmin.from("notificacao").delete().eq("entidade_id", id).eq("tipo", "kyc_incompleto");
+    // kyc_por_validar é um EVENTO que exige revisão humana: só o resolve se foi ESTA
+    // gravação a completar a identidade (não uma edição de notas de um já completo).
+    if (!completoAntes) {
+      await supabaseAdmin
+        .from("notificacao")
+        .update({ estado: "feita", feita_em: new Date().toISOString(), feita_por: auth.user?.id ?? null })
+        .eq("entidade_id", id)
+        .eq("tipo", "kyc_por_validar")
+        .neq("estado", "feita");
+    }
   }
 
   revalidatePath("/admin/motoristas");

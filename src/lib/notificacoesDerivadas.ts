@@ -79,9 +79,9 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
       if (!completo) {
         add({
           tipo: "kyc_incompleto",
-          titulo: "KYC incompleto num motorista ativo",
+          titulo: "Identidade incompleta (motorista ativo)",
           detalhe: `${m.nome} — falta ${faltam.join(", ")}`,
-          href: "/admin/motoristas",
+          href: `/admin/motoristas?m=${m.id}`,
           entidade: "motorista",
           entidade_id: m.id,
         });
