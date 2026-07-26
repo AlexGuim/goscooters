@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import { dataCurtaBR } from "@/lib/datas";
 import { formatarPreco } from "@/lib/precos";
 import { notificar } from "@/lib/notificacoes";
 import type { AcertoLinhaTipo } from "@/types/db";
@@ -29,6 +28,7 @@ export interface AcertoLinhaPreview {
   veiculo_id: string | null;
   cobranca_id: string | null;
   despesa_id: string | null;
+  periodo_inicio: string | null; // só nas rendas — referência da semana
   valor: number; // receita + ; despesa/comissão −
 }
 
@@ -140,7 +140,16 @@ async function computar(
       }
     }
 
-    for (const c of pagas) {
+    // Ordena por veículo e por período, para numerar as semanas de cada moto
+    // (Semana 1, 2, 3…) em vez de mostrar as datas cruas — o pedido do Alex. A soma
+    // não depende da ordem, por isso a acumulação continua correta.
+    const pagasOrd = [...pagas].sort(
+      (a, b) =>
+        (a.veiculo_id ?? "").localeCompare(b.veiculo_id ?? "") ||
+        a.periodo_inicio.localeCompare(b.periodo_inicio),
+    );
+    const semanaPorVeiculo = new Map<string, number>();
+    for (const c of pagasOrd) {
       const pago = Number(c.valor_pago);
       const gs = semRecebidoPor ? pago : Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
       receita += pago;
@@ -151,14 +160,17 @@ async function computar(
         c.veiculo_id,
         (comissaoPorVeiculo.get(c.veiculo_id) ?? 0) + com,
       );
+      const n = (semanaPorVeiculo.get(c.veiculo_id) ?? 0) + 1;
+      semanaPorVeiculo.set(c.veiculo_id, n);
       const canal = gs >= pago - 0.005 ? "GoScooters" : gs <= 0.005 ? "parceiro" : "misto";
       linhas.push({
         tipo: "receita",
-        descricao: `Renda ${dataCurtaBR(c.periodo_inicio)}–${dataCurtaBR(c.periodo_fim)} · recebido: ${canal}`,
+        descricao: `Semana ${n} · recebido: ${canal}`,
         matricula: matDe.get(c.veiculo_id) ?? null,
         veiculo_id: c.veiculo_id,
         cobranca_id: c.id,
         despesa_id: null,
+        periodo_inicio: c.periodo_inicio,
         valor: pago,
       });
     }
@@ -175,6 +187,7 @@ async function computar(
       veiculo_id: null,
       cobranca_id: null,
       despesa_id: null,
+      periodo_inicio: null,
       valor: -receitaParceiro,
     });
   }
@@ -191,6 +204,7 @@ async function computar(
       veiculo_id: veiculoId,
       cobranca_id: null,
       despesa_id: null,
+      periodo_inicio: null,
       valor: -valor,
     });
   }
@@ -218,6 +232,7 @@ async function computar(
       veiculo_id: d.veiculo_id,
       cobranca_id: null,
       despesa_id: d.id,
+      periodo_inicio: null,
       valor: -v,
     });
   }

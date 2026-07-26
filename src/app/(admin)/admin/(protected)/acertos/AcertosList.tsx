@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Acerto, AcertoEstado, AcertoLinha, Proprietario } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import {
@@ -187,15 +187,20 @@ export default function AcertosList({
           <div className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             {preview.pago_direto && (
               <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                Parte da renda foi <strong>recebida diretamente pelo parceiro</strong>. A
-                GoScooters cobrou {formatarPreco(preview.receita_goscooters)} de{" "}
-                {formatarPreco(preview.receita_total)}; o líquido reflete a comissão + despesas
-                sobre o restante — daí o parceiro <strong>dever à GoScooters</strong>.
+                O parceiro já recebeu{" "}
+                <strong>{formatarPreco(preview.receita_total - preview.receita_goscooters)}</strong>{" "}
+                diretamente. A GoScooters cobrou {formatarPreco(preview.receita_goscooters)}; depois da
+                comissão e despesas,{" "}
+                {preview.liquido >= 0 ? (
+                  <>há <strong>{formatarPreco(preview.liquido)} a transferir ao parceiro</strong>.</>
+                ) : (
+                  <>o parceiro <strong>deve {formatarPreco(-preview.liquido)} à GoScooters</strong>.</>
+                )}
               </p>
             )}
             <div className="grid gap-3 sm:grid-cols-4">
               <Tile
-                rotulo={preview.pago_direto ? "Renda (parte ao parceiro)" : "Receita"}
+                rotulo={preview.pago_direto ? "Renda total (da frota)" : "Receita"}
                 valor={preview.receita_total}
                 cor="text-slate-950"
               />
@@ -209,22 +214,11 @@ export default function AcertosList({
             </div>
 
             {preview.linhas.length > 0 && (
-              <details className="text-sm">
-                <summary className="cursor-pointer font-semibold text-slate-700">
-                  Detalhe ({preview.linhas.length} linhas)
-                </summary>
-                <ul className="mt-2 space-y-1">
-                  {preview.linhas.map((l, i) => (
-                    <li key={i} className="flex justify-between gap-3">
-                      <span className="text-slate-600">
-                        {l.matricula ? `${l.matricula} · ` : ""}{l.descricao}
-                      </span>
-                      <span className={l.valor < 0 ? "text-red-600" : "text-slate-900"}>
-                        {formatarPreco(l.valor)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+              <details className="text-sm" open>
+                <summary className="cursor-pointer font-semibold text-slate-700">Detalhe</summary>
+                <div className="mt-3">
+                  <DetalheAgrupado linhas={preview.linhas} />
+                </div>
               </details>
             )}
 
@@ -288,18 +282,15 @@ export default function AcertosList({
               </button>
               {expandido === a.id && a.linhas.length > 0 && (
                 <div className="border-t border-slate-100 bg-slate-50 px-5 py-4">
-                  <ul className="space-y-1 text-sm">
-                    {a.linhas.map((l) => (
-                      <li key={l.id} className="flex justify-between gap-3">
-                        <span className="text-slate-600">
-                          {l.matricula_snapshot ? `${l.matricula_snapshot} · ` : ""}{l.descricao}
-                        </span>
-                        <span className={Number(l.valor) < 0 ? "text-red-600" : "text-slate-900"}>
-                          {formatarPreco(l.valor)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <DetalheAgrupado
+                    linhas={a.linhas.map((l) => ({
+                      tipo: l.tipo,
+                      descricao: l.descricao,
+                      matricula: l.matricula_snapshot,
+                      veiculo_id: l.veiculo_id,
+                      valor: Number(l.valor),
+                    }))}
+                  />
                 </div>
               )}
             </div>
@@ -315,6 +306,85 @@ function Tile({ rotulo, valor, cor, forte }: { rotulo: string; valor: number; co
     <div className={`rounded-2xl bg-white p-4 shadow-sm ${forte ? "ring-1 ring-emerald-200" : ""}`}>
       <p className="text-xs text-slate-500">{rotulo}</p>
       <p className={`mt-1 ${forte ? "text-2xl" : "text-xl"} font-bold ${cor}`}>{formatarPreco(valor)}</p>
+    </div>
+  );
+}
+
+// Detalhe do acerto organizado por secções (Receita / Comissão / Despesas), com a
+// receita agrupada por moto e as suas semanas — pedido do Alex. Serve o preview e o
+// acerto já fechado (mesma forma de linha).
+type LinhaDet = { tipo: string; descricao: string | null; matricula: string | null; veiculo_id: string | null; valor: number };
+
+function DetalheAgrupado({ linhas }: { linhas: LinhaDet[] }) {
+  const receita = linhas.filter((l) => l.tipo === "receita" && l.veiculo_id);
+  const ajustes = linhas.filter((l) => l.tipo === "receita" && !l.veiculo_id);
+  const comissao = linhas.filter((l) => l.tipo === "comissao");
+  const despesa = linhas.filter((l) => l.tipo === "despesa");
+  const soma = (arr: LinhaDet[]) => arr.reduce((s, l) => s + l.valor, 0);
+
+  const porMoto = new Map<string, LinhaDet[]>();
+  for (const l of receita) {
+    const k = l.matricula ?? l.veiculo_id ?? "—";
+    const arr = porMoto.get(k) ?? [];
+    arr.push(l);
+    porMoto.set(k, arr);
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      {receita.length > 0 && (
+        <SeccaoAcerto titulo="Receita (rendas cobradas)" total={soma(receita)}>
+          {[...porMoto.entries()].map(([moto, ls]) => (
+            <div key={moto} className="mt-2 first:mt-0">
+              <p className="text-xs font-semibold text-slate-500">{moto}</p>
+              {ls.map((l, i) => (
+                <LinhaAcerto key={i} texto={l.descricao ?? ""} valor={l.valor} />
+              ))}
+            </div>
+          ))}
+        </SeccaoAcerto>
+      )}
+      {comissao.length > 0 && (
+        <SeccaoAcerto titulo="Comissão GoScooters" total={soma(comissao)}>
+          {comissao.map((l, i) => (
+            <LinhaAcerto key={i} texto={`${l.matricula ? l.matricula + " · " : ""}${l.descricao ?? ""}`} valor={l.valor} />
+          ))}
+        </SeccaoAcerto>
+      )}
+      {despesa.length > 0 && (
+        <SeccaoAcerto titulo="Despesas do parceiro" total={soma(despesa)}>
+          {despesa.map((l, i) => (
+            <LinhaAcerto key={i} texto={`${l.matricula ? l.matricula + " · " : ""}${l.descricao ?? ""}`} valor={l.valor} />
+          ))}
+        </SeccaoAcerto>
+      )}
+      {ajustes.map((l, i) => (
+        <div key={i} className="flex justify-between gap-3 border-t border-slate-200 pt-2 font-medium text-slate-700">
+          <span>{l.descricao}</span>
+          <span className="text-red-600">{formatarPreco(l.valor)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SeccaoAcerto({ titulo, total, children }: { titulo: string; total: number; children: ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-1">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{titulo}</span>
+        <span className="text-sm font-semibold text-slate-700">{formatarPreco(total)}</span>
+      </div>
+      <div className="mt-1.5">{children}</div>
+    </div>
+  );
+}
+
+function LinhaAcerto({ texto, valor }: { texto: string; valor: number }) {
+  return (
+    <div className="flex justify-between gap-3 py-0.5">
+      <span className="text-slate-600">{texto}</span>
+      <span className={valor < 0 ? "text-red-600" : "text-slate-900"}>{formatarPreco(valor)}</span>
     </div>
   );
 }
