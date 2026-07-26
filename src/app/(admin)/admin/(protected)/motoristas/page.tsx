@@ -42,6 +42,15 @@ export default async function MotoristasAdminPage({
     if (p.motorista_id) preContratos[p.motorista_id] = { id: p.id, numero: p.numero };
   }
 
+  // Motoristas com "documentos por validar" em aberto — a ficha mostra o botão
+  // "Validar identidade" para o gestor resolver num clique, sem ir às notificações.
+  const { data: pv } = await supabaseAdmin
+    .from("notificacao")
+    .select("entidade_id")
+    .eq("tipo", "kyc_por_validar")
+    .neq("estado", "feita");
+  const porValidar = [...new Set((pv ?? []).map((n) => n.entidade_id).filter(Boolean) as string[])];
+
   return (
     <div className="space-y-6">
       <div>
@@ -51,7 +60,12 @@ export default async function MotoristasAdminPage({
         </p>
       </div>
 
-      <MotoristasList inicial={motoristas} foco={foco ?? null} preContratos={preContratos} />
+      <MotoristasList
+        inicial={motoristas}
+        foco={foco ?? null}
+        preContratos={preContratos}
+        porValidar={porValidar}
+      />
     </div>
   );
 }

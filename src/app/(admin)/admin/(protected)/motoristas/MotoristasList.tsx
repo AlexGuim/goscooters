@@ -16,6 +16,7 @@ import {
   eliminarAvaliacao,
   type MotoristaEditavel,
 } from "@/actions/motoristaActions";
+import { validarIdentidadeMotorista } from "@/actions/notificacaoActions";
 
 export interface MotoristaComAvaliacoes extends Motorista {
   avaliacoes: Avaliacao[];
@@ -45,11 +46,14 @@ export default function MotoristasList({
   inicial,
   foco = null,
   preContratos = {},
+  porValidar = [],
 }: {
   inicial: MotoristaComAvaliacoes[];
   foco?: string | null;
   preContratos?: Record<string, { id: string; numero: string }>;
+  porValidar?: string[];
 }) {
+  const porValidarSet = useMemo(() => new Set(porValidar), [porValidar]);
   const [motoristas, setMotoristas] = useState(inicial);
   const [procura, setProcura] = useState("");
   const [soRevisao, setSoRevisao] = useState(false);
@@ -243,6 +247,7 @@ export default function MotoristasList({
                   <DetalheMotorista
                     motorista={m}
                     preContrato={preContratos[m.id]}
+                    porValidar={porValidarSet.has(m.id)}
                     onAvaliacoes={(avs) => atualizarLocal(m.id, avs)}
                     onAtualizado={(campos) => atualizarCampos(m.id, campos)}
                     onEliminar={() => handleEliminar(m)}
@@ -264,12 +269,14 @@ export default function MotoristasList({
 function DetalheMotorista({
   motorista,
   preContrato,
+  porValidar,
   onAvaliacoes,
   onAtualizado,
   onEliminar,
 }: {
   motorista: MotoristaComAvaliacoes;
   preContrato?: { id: string; numero: string };
+  porValidar?: boolean;
   onAvaliacoes: (avs: Avaliacao[]) => void;
   onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
   onEliminar: () => void;
@@ -334,7 +341,7 @@ function DetalheMotorista({
 
   return (
     <div className="space-y-6 border-t border-slate-200 bg-slate-50 px-6 py-5">
-      <FichaKYC motorista={motorista} preContrato={preContrato} onAtualizado={onAtualizado} />
+      <FichaKYC motorista={motorista} preContrato={preContrato} porValidar={porValidar} onAtualizado={onAtualizado} />
 
       {motorista.notas && (
         <p className="rounded-2xl bg-white p-4 text-sm text-slate-700 shadow-sm">
@@ -476,15 +483,27 @@ const ESTADOS_MOTORISTA: { valor: MotoristaComAvaliacoes["estado"]; rotulo: stri
 function FichaKYC({
   motorista,
   preContrato,
+  porValidar,
   onAtualizado,
 }: {
   motorista: MotoristaComAvaliacoes;
   preContrato?: { id: string; numero: string };
+  porValidar?: boolean;
   onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
 }) {
   const [aEditar, setAEditar] = useState(false);
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [validado, setValidado] = useState(false);
+  const [aValidar, setAValidar] = useState(false);
+
+  const handleValidar = async () => {
+    setAValidar(true);
+    const r = await validarIdentidadeMotorista(motorista.id);
+    setAValidar(false);
+    if (r.success) setValidado(true);
+    else setErro(r.error ?? "Erro ao validar.");
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -582,6 +601,21 @@ function FichaKYC({
         ) : (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Identidade incompleta — falta: {kyc.faltam.join(", ")}
+          </p>
+        )}
+        {porValidar && !validado && (
+          <button
+            onClick={handleValidar}
+            disabled={aValidar}
+            className="flex items-center justify-between gap-3 rounded-xl bg-emerald-600 px-3 py-2 text-left text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <span>Documentos submetidos por validar — confirma que reviste os documentos.</span>
+            <span aria-hidden>{aValidar ? "…" : "✓ Validar"}</span>
+          </button>
+        )}
+        {porValidar && validado && (
+          <p className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            ✓ Identidade validada
           </p>
         )}
         {preContrato && (
