@@ -256,6 +256,39 @@ export async function descartarPreContrato(
   return { success: true };
 }
 
+/**
+ * A cobrança SEGUE o contrato: as rendas ainda POR PAGAR (valor_pago=0, estado
+ * 'por_liquidar') passam a apontar para a mota atual do contrato e o seu dono. Assim
+ * o painel de cobrança, o financeiro e o acerto batem sempre certo com o contrato,
+ * mesmo quando a mota foi trocada depois de as cobranças existirem.
+ *
+ * SÓ as 'por_liquidar' (nunca as 'parcial'/pagas): uma renda com pagamento já tem
+ * receita reconhecida e pode estar (ou vir a estar, em corrida com um fecho) num
+ * acerto — reapontá-la arriscaria dupla contagem entre acertos. As por_liquidar
+ * nunca entram num acerto (o cálculo só conta valor_pago>0), por isso é seguro e
+ * dispensa qualquer verificação de acerto. A caução/coima (tipo != renda) não migram
+ * — são eventos ligados à mota da altura. Idempotente (UPDATE único e atómico).
+ */
+async function reconciliarCobrancasComContrato(contratoId: string): Promise<void> {
+  const { data: c } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("veiculo_id")
+    .eq("id", contratoId)
+    .maybeSingle();
+  if (!c?.veiculo_id) return;
+  const { data: mota } = await supabaseAdmin
+    .from("moto")
+    .select("proprietario_id")
+    .eq("id", c.veiculo_id)
+    .maybeSingle();
+  await supabaseAdmin
+    .from("cobranca")
+    .update({ veiculo_id: c.veiculo_id, proprietario_id: mota?.proprietario_id ?? null })
+    .eq("contrato_id", contratoId)
+    .eq("tipo", "renda")
+    .eq("estado_liquidacao", "por_liquidar");
+}
+
 export async function atualizarContrato(
   id: string,
   updates: ContratoUpdate,
@@ -307,29 +340,14 @@ export async function atualizarContrato(
       await ocuparMota(updates.veiculo_id);
     }
   }
-  // Se o veículo do contrato foi TROCADO, liberta a mota antiga (senão ficaria
-  // presa como 'ocupado'/'alugada' e apareceria como fantasma no catálogo) e
-  // reaponta as cobranças FUTURAS por liquidar (rendas ainda não usadas) para a
-  // nova mota e o seu dono — senão continuavam a apontar para a mota/parceiro
-  // antigos no painel de cobrança, no financeiro e no acerto. As passadas/pagas
-  // ficam como histórico (a mota que rodou nessa semana); as futuras por liquidar
-  // nunca estão num acerto fechado (esse só congela rendas passadas pagas). A
-  // caução/coima (tipo != renda) não migram — são eventos ligados à mota da altura.
+  // Se o veículo do contrato foi TROCADO, liberta a mota antiga do catálogo/operação
+  // (senão ficaria presa como 'ocupado'/'alugada' e apareceria como fantasma no site).
   if (updates.veiculo_id && atualVeiculo && atualVeiculo !== updates.veiculo_id) {
     await libertarMota(atualVeiculo);
-    const hoje = new Date().toISOString().slice(0, 10);
-    const { data: novaMota } = await supabaseAdmin
-      .from("moto")
-      .select("proprietario_id")
-      .eq("id", updates.veiculo_id)
-      .maybeSingle();
-    await supabaseAdmin
-      .from("cobranca")
-      .update({ veiculo_id: updates.veiculo_id, proprietario_id: novaMota?.proprietario_id ?? null })
-      .eq("contrato_id", id)
-      .eq("tipo", "renda")
-      .in("estado_liquidacao", ["por_liquidar", "parcial"])
-      .gt("periodo_inicio", hoje);
+  }
+  // A COBRANÇA SEGUE O CONTRATO: reconcilia as rendas por pagar com a mota atual.
+  if (updates.veiculo_id) {
+    await reconciliarCobrancasComContrato(id);
   }
 
   // Ativar por edição também promove o motorista lead→ativo (como criarContrato
@@ -453,6 +471,11 @@ export async function gerarCobrancas(
     return { success: false, error: "Erro ao gerar as cobranças." };
   }
 
+  // Alinha as cobranças por pagar com a mota atual do contrato (caso tenha sido
+  // trocada depois de já existirem cobranças).
+  await reconciliarCobrancasComContrato(contratoId);
+
   revalidatePath("/admin/contratos");
+  revalidatePath("/admin/cobrancas");
   return { success: true, geradas: data ?? 0 };
 }
