@@ -143,8 +143,35 @@ export async function submeterVistoriaEntrega(
       .eq("estado", "lead");
   }
 
+  // Regra do negócio: o DIA DA ENTREGA é o dia do 1.º pagamento. A entrega FIXA a
+  // âncora de faturação na data de hoje (se ainda não estava fixada), alinha a
+  // caução ao mesmo dia, e materializa a 1.ª cobrança (vencimento = hoje) para
+  // poder ser cobrada logo na entrega.
+  const hojeData = agora.slice(0, 10);
+  const { data: cAtual } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("ancora_vencimento")
+    .eq("id", input.contrato_id)
+    .maybeSingle();
+  if (!cAtual?.ancora_vencimento) {
+    await supabaseAdmin
+      .from("contrato_aluguer")
+      .update({ ancora_vencimento: hojeData })
+      .eq("id", input.contrato_id);
+    // Caução (se houver, por liquidar) passa a vencer no dia da entrega.
+    await supabaseAdmin
+      .from("cobranca")
+      .update({ data_vencimento: hojeData, periodo_inicio: hojeData, periodo_fim: hojeData })
+      .eq("contrato_id", input.contrato_id)
+      .eq("tipo", "caucao")
+      .eq("estado_liquidacao", "por_liquidar");
+  }
+  // Gera a(s) renda(s) até hoje — a 1.ª semana vence no dia da entrega.
+  await supabaseAdmin.rpc("fn_gerar_cobrancas", { p_contrato_id: input.contrato_id, p_ate: hojeData });
+
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/motas");
+  revalidatePath("/admin/cobrancas");
   return { success: true };
 }
 
