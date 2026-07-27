@@ -2,6 +2,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
 
 const BUCKET = "motas";
 
@@ -110,6 +111,34 @@ export async function criarUploadPrivado(
  * Só um admin autenticado o obtém — é assim que se mostram documentos/vídeos
  * sensíveis sem os pôr num bucket público.
  */
+/**
+ * Lê documentos já carregados no bucket privado com o Gemini e devolve os campos
+ * para pré-preencher (versão admin do lerDocumentoIAporToken do fluxo público).
+ * Sem GEMINI_API_KEY devolve semIA=true (o cliente recorre ao OCR do browser).
+ */
+export async function lerDocumentoIA(
+  paths: string[],
+): Promise<{ ok: boolean; dados?: CamposDocumento; error?: string; semIA?: boolean }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { ok: false, error: auth.error };
+  if (!geminiConfigurado()) return { ok: false, semIA: true };
+
+  const imagens: { mime: string; base64: string }[] = [];
+  for (const p of (paths ?? []).slice(0, 4)) {
+    if (!p) continue;
+    const { data, error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).download(p);
+    if (error || !data) continue;
+    const mime = mimeDoCaminho(p);
+    if (!mime.startsWith("image/") && mime !== "application/pdf") continue;
+    const buf = Buffer.from(await data.arrayBuffer());
+    imagens.push({ mime, base64: buf.toString("base64") });
+  }
+  if (!imagens.length) return { ok: false, error: "Sem imagens para ler." };
+  const dados = await lerDocumentoGemini(imagens);
+  if (!dados) return { ok: false, error: "Não consegui ler o documento." };
+  return { ok: true, dados };
+}
+
 export async function urlAssinado(
   path: string,
   segundos = 3600,

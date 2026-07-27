@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { enviarFotoPrivada, enviarVideoPrivado, enviarAssinaturaPrivada } from "@/lib/uploads";
 import { submeterVistoriaEntrega, submeterVistoriaRecolha, type DanoPrevio, type MaterialLinha } from "@/actions/vistoriaActions";
+import { lerDocumentoIA, urlAssinado } from "@/actions/fotoActions";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 import { formatarPreco } from "@/lib/precos";
 
@@ -44,7 +45,10 @@ const MATERIAIS: { key: string; rotulo: string; qtd: number }[] = [
   { key: "bau", rotulo: "Baú / top case", qtd: 1 },
 ];
 
-const campo = "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
+// Base sem largura: para inputs que vivem num flex (materiais) e não podem levar
+// `w-full`, que colidiria com `flex-1`/`w-16` (mesma especificidade no Tailwind).
+const campoBase = "rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
+const campo = `w-full ${campoBase}`;
 
 interface MotoristaKycInfo {
   id: string;
@@ -71,6 +75,16 @@ const DOC_TIPOS = [
   { v: "aima", r: "AIMA" },
 ];
 
+// Slots de documentos (frente/verso), como no link do motorista. O grupo dispara
+// a leitura por IA (identidade / carta); o comprovativo é só ficheiro.
+const DOC_SLOTS: { key: string; rotulo: string; grupo: "identidade" | "carta" | null }[] = [
+  { key: "identidade", rotulo: "Documento (frente)", grupo: "identidade" },
+  { key: "identidade_verso", rotulo: "Documento (verso)", grupo: "identidade" },
+  { key: "carta_frente", rotulo: "Carta (frente)", grupo: "carta" },
+  { key: "carta_verso", rotulo: "Carta (verso)", grupo: "carta" },
+  { key: "comprovativo", rotulo: "Comprovativo de morada", grupo: null },
+];
+
 export default function CapturaEntrega({
   contrato,
   jaEntregue,
@@ -94,7 +108,17 @@ export default function CapturaEntrega({
   const [combustivel, setCombustivel] = useState(100);
   const [fotos, setFotos] = useState<Record<string, string>>({});
   const [previews, setPreviews] = useState<Record<string, string>>({});
-  const [aCarregar, setACarregar] = useState<string | null>(null);
+  // Uploads em voo (por slot). É um Set, não uma string única: com vários
+  // ficheiros a subir ao mesmo tempo, o primeiro a acabar não pode reabrir o
+  // submeter enquanto outro ainda está a carregar.
+  const [aCarregar, setACarregar] = useState<Set<string>>(new Set());
+  const marcarUpload = (slot: string) => setACarregar((s) => new Set(s).add(slot));
+  const desmarcarUpload = (slot: string) =>
+    setACarregar((s) => {
+      const n = new Set(s);
+      n.delete(slot);
+      return n;
+    });
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [videoNome, setVideoNome] = useState<string | null>(null);
   const [danos, setDanos] = useState<DanoPrevio[]>([]);
@@ -121,20 +145,55 @@ export default function CapturaEntrega({
   const [morada, setMorada] = useState(motorista?.morada_linha1 ?? "");
   const [codigoPostal, setCodigoPostal] = useState(motorista?.codigo_postal ?? "");
   const [localidade, setLocalidade] = useState(motorista?.localidade ?? "");
-  const [docFilePath, setDocFilePath] = useState<string | null>(null);
-  const [cartaFilePath, setCartaFilePath] = useState<string | null>(null);
+  const [docsKyc, setDocsKyc] = useState<Record<string, string>>({});
+  // Espelho de docsKyc para o merge: uploads simultâneos leem sempre o valor mais
+  // recente aqui (o estado da closure pode estar obsoleto entre awaits).
+  const docsKycRef = useRef<Record<string, string>>({});
+  const [analisando, setAnalisando] = useState<string | null>(null);
   const temDocExistente = (motorista?.doc_urls?.length ?? 0) > 0;
+  const temIdentidade = temDocExistente || !!docsKyc.identidade;
+  const temCarta = temDocExistente || !!docsKyc.carta_frente;
 
-  const capturarDoc = async (qual: "identidade" | "carta", file: File | undefined) => {
+  // OCR (Gemini) do grupo — auto-preenche os campos, como no link do motorista.
+  const analisarGrupoKyc = async (grupo: "identidade" | "carta", docs: Record<string, string>) => {
+    const slots = grupo === "identidade" ? ["identidade", "identidade_verso"] : ["carta_frente", "carta_verso"];
+    const paths = slots.map((s) => docs[s]).filter(Boolean);
+    if (!paths.length) return;
+    setAnalisando(grupo);
+    const r = await lerDocumentoIA(paths);
+    setAnalisando(null);
+    if (r.ok && r.dados) {
+      const c = r.dados;
+      if (grupo === "identidade") {
+        if (c.nif) setNif(c.nif.replace(/\D/g, ""));
+        if (c.doc_id_numero) setDocNumero(c.doc_id_numero);
+        if (c.doc_id_validade) setDocValidade(c.doc_id_validade);
+        if (c.doc_id_tipo && ["cc", "passaporte", "titulo_residencia", "aima"].includes(c.doc_id_tipo)) setDocTipo(c.doc_id_tipo);
+      } else {
+        if (c.carta_numero) setCartaNumero(c.carta_numero);
+        if (c.carta_validade) setCartaValidade(c.carta_validade);
+      }
+    }
+  };
+
+  const carregarDocKyc = async (slot: string, grupo: "identidade" | "carta" | null, file: File | undefined) => {
     if (!file) return;
     setErro(null);
-    setACarregar(qual);
+    marcarUpload(slot);
     const r = await enviarFotoPrivada(file);
-    setACarregar(null);
-    if (r.success && r.path) {
-      if (qual === "identidade") setDocFilePath(r.path);
-      else setCartaFilePath(r.path);
-    } else setErro(r.error ?? "Erro ao carregar o ficheiro.");
+    desmarcarUpload(slot);
+    if (!r.success || !r.path) return setErro(r.error ?? "Erro ao carregar o ficheiro.");
+    // Merge a partir do ref (fonte de verdade) para não perder uploads simultâneos.
+    const novos = { ...docsKycRef.current, [slot]: r.path };
+    docsKycRef.current = novos;
+    setDocsKyc(novos);
+    if (grupo && file.type.startsWith("image/")) analisarGrupoKyc(grupo, novos);
+  };
+
+  const abrirDoc = async (path: string) => {
+    const r = await urlAssinado(path);
+    if (r.success && r.url) window.open(r.url, "_blank", "noopener");
+    else setErro(r.error ?? "Não consegui abrir o ficheiro.");
   };
 
   if (jaEntregue) {
@@ -152,9 +211,9 @@ export default function CapturaEntrega({
     if (!file) return;
     setErro(null);
     setPreviews((p) => ({ ...p, [slot]: URL.createObjectURL(file) }));
-    setACarregar(slot);
+    marcarUpload(slot);
     const r = await enviarFotoPrivada(file);
-    setACarregar(null);
+    desmarcarUpload(slot);
     if (r.success && r.path) setFotos((f) => ({ ...f, [slot]: r.path! }));
     else setErro(r.error ?? "Erro ao carregar a foto.");
   };
@@ -162,10 +221,10 @@ export default function CapturaEntrega({
   const capturarVideo = async (file: File | undefined) => {
     if (!file) return;
     setErro(null);
-    setACarregar("video");
+    marcarUpload("video");
     setVideoNome(file.name);
     const r = await enviarVideoPrivado(file);
-    setACarregar(null);
+    desmarcarUpload("video");
     if (r.success && r.path) setVideoPath(r.path);
     else { setErro(r.error ?? "Erro ao carregar o vídeo."); setVideoNome(null); }
   };
@@ -179,13 +238,14 @@ export default function CapturaEntrega({
       if (!docNumero.trim()) faltam.push("nº do documento");
       if (!cartaNumero.trim()) faltam.push("nº da carta");
       if (!morada.trim()) faltam.push("morada");
-      if (!temDocExistente && !(docFilePath && cartaFilePath)) faltam.push("ficheiro do documento e da carta");
+      if (!temIdentidade) faltam.push("ficheiro do documento");
+      if (!temCarta) faltam.push("ficheiro da carta");
       if (faltam.length) return setErro(`Faltam dados obrigatórios do motorista: ${faltam.join(", ")}.`);
     }
     if (!km) return setErro("Indica a quilometragem.");
     if (!fotos.frente || !fotos.painel) return setErro("Tira pelo menos a foto da Frente e do Painel.");
     if (!recolha && regras && !regrasAceite) return setErro("O motorista tem de aceitar as regras do aluguer.");
-    if (aCarregar) return setErro("Espera que os ficheiros acabem de carregar.");
+    if (aCarregar.size) return setErro("Espera que os ficheiros acabem de carregar.");
 
     setASubmeter(true);
     let assinatura_path: string | null = null;
@@ -208,7 +268,7 @@ export default function CapturaEntrega({
     };
     // Novos ficheiros de documento carregados agora — juntam-se aos já existentes
     // (nunca substituem, para não perder cópias anteriores).
-    const novosDocs = [docFilePath, cartaFilePath].filter(Boolean) as string[];
+    const novosDocs = Object.values(docsKyc).filter(Boolean);
     const docPaths = novosDocs.length ? [...(motorista?.doc_urls ?? []), ...novosDocs] : undefined;
     const r = recolha
       ? await submeterVistoriaRecolha(base)
@@ -252,17 +312,30 @@ export default function CapturaEntrega({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Documentos do motorista</h2>
           <p className="text-xs text-slate-500">
             Obrigatórios para finalizar: documento (com ficheiro), NIF, carta (com ficheiro), morada.
-            {temDocExistente && " Já há ficheiros na ficha — só carrega novos se precisares."}
+            Carrega frente e verso; a IA lê e preenche os campos automaticamente.
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs font-semibold text-slate-500 transition hover:border-emerald-400">
-              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => capturarDoc("identidade", e.target.files?.[0])} />
-              {aCarregar === "identidade" ? "a carregar…" : docFilePath ? "✓ Documento" : temDocExistente ? "Documento (novo)" : "Documento de identidade"}
-            </label>
-            <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs font-semibold text-slate-500 transition hover:border-emerald-400">
-              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => capturarDoc("carta", e.target.files?.[0])} />
-              {aCarregar === "carta" ? "a carregar…" : cartaFilePath ? "✓ Carta" : temDocExistente ? "Carta (nova)" : "Carta de condução"}
-            </label>
+          {temDocExistente && (
+            <div className="rounded-2xl bg-emerald-50 p-3">
+              <p className="text-xs font-semibold text-emerald-800">✓ Já há {motorista!.doc_urls!.length} ficheiro(s) na ficha:</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {motorista!.doc_urls!.map((p, i) => (
+                  <button key={i} type="button" onClick={() => abrirDoc(p)} className="rounded-xl border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                    Abrir {i + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {analisando && <p className="text-xs font-semibold text-emerald-700">A ler os documentos com IA…</p>}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {DOC_SLOTS.map((s) => (
+              <label key={s.key} className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs font-semibold text-slate-500 transition hover:border-emerald-400">
+                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => carregarDocKyc(s.key, s.grupo, e.target.files?.[0])} />
+                <span className={docsKyc[s.key] ? "text-emerald-700" : ""}>
+                  {aCarregar.has(s.key) ? "a carregar…" : docsKyc[s.key] ? `✓ ${s.rotulo}` : s.rotulo}
+                </span>
+              </label>
+            ))}
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>NIF</span><input className={campo} value={nif} onChange={(e) => setNif(e.target.value)} inputMode="numeric" /></label>
@@ -305,7 +378,7 @@ export default function CapturaEntrega({
               ) : null}
               <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => capturarFoto(s.key, e.target.files?.[0])} />
               <span className={`relative z-10 rounded-full px-2 py-0.5 text-[11px] font-semibold ${previews[s.key] ? "bg-white/90 text-slate-700" : "text-slate-500"}`}>
-                {aCarregar === s.key ? "a carregar…" : fotos[s.key] ? `✓ ${s.rotulo}` : s.rotulo}
+                {aCarregar.has(s.key) ? "a carregar…" : fotos[s.key] ? `✓ ${s.rotulo}` : s.rotulo}
               </span>
             </label>
           ))}
@@ -318,7 +391,7 @@ export default function CapturaEntrega({
         <p className="text-xs text-slate-500">Volta à mota a dizer o estado. É a prova para a devolução.</p>
         <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 py-4 text-sm font-semibold text-slate-600 transition hover:border-emerald-400">
           <input type="file" accept="video/*" capture="environment" className="hidden" onChange={(e) => capturarVideo(e.target.files?.[0])} />
-          {aCarregar === "video" ? "a carregar vídeo…" : videoPath ? `✓ ${videoNome}` : "Gravar / escolher vídeo"}
+          {aCarregar.has("video") ? "a carregar vídeo…" : videoPath ? `✓ ${videoNome}` : "Gravar / escolher vídeo"}
         </label>
       </section>
 
@@ -391,13 +464,13 @@ export default function CapturaEntrega({
                   onChange={(e) => setMateriais((arr) => arr.map((x, j) => (j === i ? { ...x, entregue: e.target.checked } : x)))}
                 />
                 <input
-                  className={`${campo} flex-1`}
+                  className={`${campoBase} min-w-0 flex-1`}
                   placeholder="Material"
                   value={m.rotulo}
                   onChange={(e) => setMateriais((arr) => arr.map((x, j) => (j === i ? { ...x, rotulo: e.target.value } : x)))}
                 />
                 <input
-                  className={`${campo} w-16 text-center`}
+                  className={`${campoBase} w-20 shrink-0 text-center`}
                   inputMode="numeric"
                   value={m.qtd}
                   onChange={(e) => setMateriais((arr) => arr.map((x, j) => (j === i ? { ...x, qtd: Math.max(1, Number(e.target.value) || 1) } : x)))}
@@ -453,7 +526,7 @@ export default function CapturaEntrega({
       <div className="sticky bottom-4">
         <button
           onClick={submeter}
-          disabled={aSubmeter || !!aCarregar}
+          disabled={aSubmeter || aCarregar.size > 0}
           className="w-full rounded-3xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-50"
         >
           {aSubmeter ? "A submeter…" : recolha ? "Submeter devolução e concluir" : "Submeter entrega e ativar contrato"}
