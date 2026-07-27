@@ -5,6 +5,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { notificar } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
+import { prontoParaEntrega, nifValidoPT } from "@/lib/kyc";
+import type { DocIdTipo, Database } from "@/types/db";
+
+type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
 
 export interface DanoPrevio {
   zona: string;
@@ -40,6 +44,20 @@ export interface SubmeterEntregaInput {
   regras_versao?: string | null;
   regras_hash?: string | null;
   regras_aceite?: boolean;
+  // KYC do motorista capturado na própria entrega (opcional — se o motorista já os
+  // tinha, não é preciso reenviar). doc_paths → motorista.doc_urls (ficheiros).
+  nif?: string | null;
+  doc_id_tipo?: string | null;
+  doc_id_numero?: string | null;
+  doc_id_validade?: string | null;
+  doc_paths?: string[];
+  carta_numero?: string | null;
+  carta_categoria?: string | null;
+  carta_pais?: string | null;
+  carta_validade?: string | null;
+  morada_linha1?: string | null;
+  codigo_postal?: string | null;
+  localidade?: string | null;
 }
 
 /**
@@ -78,6 +96,55 @@ export async function submeterVistoriaEntrega(
     .eq("tipo", "entrega")
     .maybeSingle();
   if (jaExiste) return { success: false, error: "Este contrato já tem uma vistoria de entrega." };
+
+  // KYC na entrega: EXIGE o mínimo obrigatório (regra do Alex: não se finaliza sem
+  // documento+ficheiro, NIF, carta e morada) e só depois grava. O gate corre ANTES
+  // da gravação — assim uma entrega rejeitada não degrada dados já bons (ex.: um NIF
+  // válido substituído por um typo). A carta vem do input (o cliente pré-preenche-a),
+  // por isso o gate é tolerante à coluna carta_numero (fase4c) ainda não migrada.
+  if (c.motorista_id) {
+    const { data: atual } = await supabaseAdmin
+      .from("motorista")
+      .select("nif, nif_valido, doc_id_numero, doc_urls, morada_linha1")
+      .eq("id", c.motorista_id)
+      .maybeSingle();
+    const novoNif = input.nif?.trim() ? input.nif.replace(/\D/g, "") : null;
+    const merged = {
+      nif: novoNif ?? atual?.nif,
+      nif_valido: novoNif ? nifValidoPT(novoNif) : atual?.nif_valido ?? null,
+      doc_id_numero: input.doc_id_numero?.trim() || atual?.doc_id_numero,
+      doc_urls: input.doc_paths?.length ? input.doc_paths : atual?.doc_urls ?? null,
+      carta_numero: input.carta_numero?.trim() || null,
+      morada_linha1: input.morada_linha1?.trim() || atual?.morada_linha1,
+    };
+    const { pronto, faltam } = prontoParaEntrega(merged);
+    if (!pronto) {
+      return { success: false, error: `Faltam dados obrigatórios do motorista para entregar: ${faltam.join(", ")}.` };
+    }
+
+    // Gate passou — grava o KYC.
+    const upd: MotoristaUpdate = {};
+    if (novoNif) { upd.nif = novoNif; upd.nif_valido = nifValidoPT(novoNif); }
+    if (input.doc_id_tipo) upd.doc_id_tipo = input.doc_id_tipo as DocIdTipo;
+    if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();
+    if (input.doc_id_validade) upd.doc_id_validade = input.doc_id_validade;
+    if (input.doc_paths?.length) upd.doc_urls = input.doc_paths;
+    if (input.morada_linha1?.trim()) upd.morada_linha1 = input.morada_linha1.trim();
+    if (input.codigo_postal?.trim()) upd.codigo_postal = input.codigo_postal.trim();
+    if (input.localidade?.trim()) upd.localidade = input.localidade.trim();
+    if (Object.keys(upd).length) await supabaseAdmin.from("motorista").update(upd).eq("id", c.motorista_id);
+
+    // Carta em colunas recentes (fase4c) — tolerante se ainda não migradas.
+    const cartaUpd: MotoristaUpdate = {};
+    if (input.carta_numero?.trim()) cartaUpd.carta_numero = input.carta_numero.trim();
+    if (input.carta_categoria?.trim()) cartaUpd.carta_categoria = input.carta_categoria.trim().toUpperCase();
+    if (input.carta_pais?.trim()) cartaUpd.carta_pais = input.carta_pais.trim().toUpperCase();
+    if (input.carta_validade) cartaUpd.carta_validade = input.carta_validade;
+    if (Object.keys(cartaUpd).length) {
+      const { error } = await supabaseAdmin.from("motorista").update(cartaUpd).eq("id", c.motorista_id);
+      if (error) console.warn("entrega carta (migrar fase4c?):", error.message);
+    }
+  }
 
   const agora = new Date().toISOString();
 

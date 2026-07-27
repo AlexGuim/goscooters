@@ -17,6 +17,7 @@ import {
   type MotoristaEditavel,
 } from "@/actions/motoristaActions";
 import { validarIdentidadeMotorista } from "@/actions/notificacaoActions";
+import { urlAssinado } from "@/actions/fotoActions";
 
 export interface MotoristaComAvaliacoes extends Motorista {
   avaliacoes: Avaliacao[];
@@ -505,6 +506,13 @@ function FichaKYC({
     else setErro(r.error ?? "Erro ao validar.");
   };
 
+  // Abre um ficheiro do documento (bucket privado) com link assinado temporário.
+  const abrirDocumento = async (path: string) => {
+    const r = await urlAssinado(path);
+    if (r.success && r.url) window.open(r.url, "_blank", "noopener");
+    else setErro(r.error ?? "Não consegui abrir o ficheiro.");
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -641,6 +649,22 @@ function FichaKYC({
             </div>
           ))}
         </div>
+        {(motorista.doc_urls?.length ?? 0) > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ficheiros dos documentos</p>
+            <div className="flex flex-wrap gap-2">
+              {motorista.doc_urls!.map((path, i) => (
+                <button
+                  key={i}
+                  onClick={() => abrirDocumento(path)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                >
+                  Abrir documento {i + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

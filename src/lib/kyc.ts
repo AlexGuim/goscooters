@@ -29,3 +29,31 @@ export function kycCompleto(m: MotoristaKYC): { completo: boolean; faltam: strin
   if (!preenchido(m.morada_linha1)) faltam.push("morada");
   return { completo: faltam.length === 0, faltam };
 }
+
+/**
+ * Gate mais ESTRITO que kycCompleto, para PODER ENTREGAR a mota: além dos dados,
+ * exige o FICHEIRO do documento na BD (doc_urls). É o que bloqueia a finalização da
+ * entrega enquanto faltarem os obrigatórios (regra do Alex).
+ */
+export function prontoParaEntrega(
+  m: MotoristaKYC & { doc_urls?: string[] | null },
+): { pronto: boolean; faltam: string[] } {
+  const faltam: string[] = [];
+  if (!preenchido(m.nif)) faltam.push("NIF");
+  else if (m.nif_valido === false) faltam.push("NIF (inválido)");
+  if (!preenchido(m.doc_id_numero)) faltam.push("nº do documento");
+  if (!(m.doc_urls && m.doc_urls.length > 0)) faltam.push("ficheiro do documento");
+  if (!preenchido(m.carta_numero)) faltam.push("nº da carta");
+  if (!preenchido(m.morada_linha1)) faltam.push("morada");
+  return { pronto: faltam.length === 0, faltam };
+}
+
+/** NIF português: 9 dígitos com checksum mod-11. null quando não tem 9 dígitos. */
+export function nifValidoPT(nif: string | null | undefined): boolean | null {
+  const d = (nif ?? "").replace(/\D/g, "");
+  if (d.length !== 9) return null;
+  let soma = 0;
+  for (let i = 0; i < 8; i++) soma += Number(d[i]) * (9 - i);
+  const c = 11 - (soma % 11);
+  return (c >= 10 ? 0 : c) === Number(d[8]);
+}
