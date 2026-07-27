@@ -251,6 +251,12 @@ export default function ContratosList({
           >
             Registar motorista (link)
           </button>
+          <Link
+            href="/admin/aluguel/novo"
+            className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+          >
+            Criar aluguer (passo a passo)
+          </Link>
           <button
             className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
             onClick={() => setModal("novo")}
