@@ -12,6 +12,7 @@ import {
   type PagamentoLista,
 } from "@/actions/pagamentoActions";
 import { cobrancasDaSemana } from "@/actions/cobrancaActions";
+import { rotuloSemanaMes } from "@/lib/datas";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface CobrancaPainel {
@@ -62,7 +63,7 @@ function limitesSemana(agoraMs: number, offset: number) {
   dom.setDate(h.getDate() - h.getDay() + offset * 7); // getDay: 0=domingo
   const sab = new Date(dom);
   sab.setDate(dom.getDate() + 6);
-  return { de: fmt(dom), ate: fmt(sab), deCurta: dataCurta(fmt(dom)), ateCurta: dataCurta(fmt(sab)) };
+  return { de: fmt(dom), ate: fmt(sab) };
 }
 
 function linkWhatsapp(c: CobrancaPainel): string | null {
@@ -306,7 +307,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                     </div>
                     <p className="text-sm text-slate-500">
                       {c.tipo === "renda"
-                        ? `${c.veiculo_matricula} · semana ${dataCurta(c.periodo_inicio)}–${dataCurta(c.periodo_fim)}`
+                        ? `${c.veiculo_matricula} · ${rotuloSemanaMes(c.periodo_inicio)}`
                         : `${c.veiculo_matricula} · ${TIPO_ROTULO[c.tipo] ?? c.tipo} · ${dataCurta(c.periodo_inicio)}`}
                     </p>
                   </div>
@@ -352,8 +353,8 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
               ←
             </button>
             <div className="text-center">
-              <p className="text-sm font-semibold text-slate-950">
-                {janelaSemana.deCurta} – {janelaSemana.ateCurta}
+              <p className="text-base font-semibold text-slate-950">
+                {rotuloSemanaMes(janelaSemana.de)}
               </p>
               <button
                 onClick={() => setSemanaOffset(0)}
@@ -808,7 +809,9 @@ function FormPagamento({
                 {alocacao.linhas.map((l) => (
                   <li key={l.c.id} className="flex justify-between text-sm">
                     <span className="text-slate-700">
-                      {dataCurta(l.c.periodo_inicio)}–{dataCurta(l.c.periodo_fim)}
+                      {l.c.tipo === "renda"
+                        ? rotuloSemanaMes(l.c.periodo_inicio)
+                        : `${TIPO_ROTULO[l.c.tipo] ?? l.c.tipo} · ${dataCurta(l.c.periodo_inicio)}`}
                     </span>
                     <span className="font-medium text-slate-950">
                       {formatarPreco(l.aloc)}
