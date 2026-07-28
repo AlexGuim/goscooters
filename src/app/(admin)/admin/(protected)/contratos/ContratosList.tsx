@@ -570,6 +570,24 @@ function ContratoForm({
     // Finalizar um pré-contrato: atribui mota/preço/data e passa-o a 'rascunho'.
     const ehPreContrato = aEditar && contrato!.estado === "pre_contrato";
 
+    // Verificação de segurança: mexer na âncora/data de início de um contrato que já
+    // tem semanas geradas muda a cadência de faturação e é a origem dos buracos no
+    // roster (o dia de entrega deve ser o 1.º pagamento, e a âncora não devia mudar
+    // depois de fixada). Continua editável, mas avisa antes.
+    const mudouAncora = (base.ancora_vencimento ?? "") !== (contrato?.ancora_vencimento ?? "");
+    const mudouInicio = base.data_inicio !== (contrato?.data_inicio ?? "");
+    if (aEditar && !ehPreContrato && (contrato?.num_cobrancas ?? 0) > 0 && (mudouAncora || mudouInicio)) {
+      const ok = window.confirm(
+        "Atenção: vais alterar a âncora de vencimento ou a data de início de um contrato que já tem semanas geradas.\n\n" +
+          "Isto muda a cadência de faturação e pode criar buracos ou desalinhamentos no roster. A regra é: o dia de entrega é o 1.º pagamento, e a âncora não deve mudar depois de fixada.\n\n" +
+          "Só continua se souberes mesmo o que estás a fazer. Continuar?",
+      );
+      if (!ok) {
+        setAGravar(false);
+        return;
+      }
+    }
+
     try {
       const r = ehPreContrato
         ? await finalizarPreContrato(contrato!.id, {
