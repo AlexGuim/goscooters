@@ -12,7 +12,7 @@ import {
 
 export interface AcertoComLinhas extends Acerto {
   proprietario_nome: string;
-  linhas: AcertoLinha[];
+  linhas: (AcertoLinha & { documento_url?: string | null })[];
 }
 
 const ESTADO_COR: Record<AcertoEstado, string> = {
@@ -289,6 +289,7 @@ export default function AcertosList({
                       matricula: l.matricula_snapshot,
                       veiculo_id: l.veiculo_id,
                       valor: Number(l.valor),
+                      documento_url: l.documento_url ?? null,
                     }))}
                   />
                 </div>
@@ -313,7 +314,7 @@ function Tile({ rotulo, valor, cor, forte }: { rotulo: string; valor: number; co
 // Detalhe do acerto organizado por secções (Receita / Comissão / Despesas), com a
 // receita agrupada por moto e as suas semanas — pedido do Alex. Serve o preview e o
 // acerto já fechado (mesma forma de linha).
-type LinhaDet = { tipo: string; descricao: string | null; matricula: string | null; veiculo_id: string | null; valor: number };
+type LinhaDet = { tipo: string; descricao: string | null; matricula: string | null; veiculo_id: string | null; valor: number; documento_url?: string | null };
 
 function DetalheAgrupado({ linhas }: { linhas: LinhaDet[] }) {
   const receita = linhas.filter((l) => l.tipo === "receita" && l.veiculo_id);
@@ -354,7 +355,12 @@ function DetalheAgrupado({ linhas }: { linhas: LinhaDet[] }) {
       {despesa.length > 0 && (
         <SeccaoAcerto titulo="Despesas do parceiro" total={soma(despesa)}>
           {despesa.map((l, i) => (
-            <LinhaAcerto key={i} texto={`${l.matricula ? l.matricula + " · " : ""}${l.descricao ?? ""}`} valor={l.valor} />
+            <LinhaAcerto
+              key={i}
+              texto={`${l.matricula ? l.matricula + " · " : ""}${l.descricao ?? ""}`}
+              valor={l.valor}
+              documentoUrl={l.documento_url}
+            />
           ))}
         </SeccaoAcerto>
       )}
@@ -380,10 +386,22 @@ function SeccaoAcerto({ titulo, total, children }: { titulo: string; total: numb
   );
 }
 
-function LinhaAcerto({ texto, valor }: { texto: string; valor: number }) {
+function LinhaAcerto({ texto, valor, documentoUrl }: { texto: string; valor: number; documentoUrl?: string | null }) {
   return (
     <div className="flex justify-between gap-3 py-0.5">
-      <span className="text-slate-600">{texto}</span>
+      <span className="text-slate-600">
+        {texto}
+        {documentoUrl && (
+          <a
+            href={documentoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-2 text-xs font-medium text-emerald-700 transition hover:text-emerald-600"
+          >
+            documento
+          </a>
+        )}
+      </span>
       <span className={valor < 0 ? "text-red-600" : "text-slate-900"}>{formatarPreco(valor)}</span>
     </div>
   );

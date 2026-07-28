@@ -80,12 +80,25 @@ export default async function PortalAcertoDetalhe({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Extrato</h2>
           <ul className="mt-2 divide-y divide-slate-100">
             {linhas.map((l) => (
-              <li key={l.id} className="flex justify-between gap-3 py-2 text-sm">
+              <li key={l.id} className="flex items-baseline justify-between gap-3 py-2 text-sm">
                 <span className="text-slate-600">
                   {l.matricula_snapshot ? `${l.matricula_snapshot} · ` : ""}
                   {l.descricao}
+                  {l.documento_url && (
+                    <a
+                      href={l.documento_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-2 inline-flex items-center gap-1 align-baseline font-medium text-emerald-700 transition hover:text-emerald-600"
+                    >
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                      </svg>
+                      ver documento
+                    </a>
+                  )}
                 </span>
-                <span className={Number(l.valor) < 0 ? "text-red-600" : "text-slate-900"}>
+                <span className={`tabular-nums ${Number(l.valor) < 0 ? "text-red-600" : "text-slate-900"}`}>
                   {formatarPreco(Number(l.valor))}
                 </span>
               </li>
@@ -94,7 +107,8 @@ export default async function PortalAcertoDetalhe({
         </div>
 
         <p className="mt-6 text-xs text-slate-400">
-          Extrato congelado no fecho — os valores deste mês não mudam.
+          Extrato congelado no fecho — os valores deste mês não mudam. O <strong>ver documento</strong>
+          {" "}abre a fatura, portagem, coima ou apólice correspondente.
         </p>
       </div>
     </div>

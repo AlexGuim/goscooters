@@ -4,6 +4,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { calcularHistoricoAtivo, type HistoricoAtivo } from "@/lib/ativoHistorico";
 import type { Acerto, AcertoLinha } from "@/types/db";
 
+/** Linha do acerto + o documento (fatura/portagem/coima/seguro) da despesa de origem. */
+export type AcertoLinhaComDoc = AcertoLinha & { documento_url: string | null };
+
 /**
  * Leituras do portal, SEMPRE limitadas ao proprietário da sessão. O
  * `proprietarioId` vem do guard (requirePartner), nunca do URL. As leituras
@@ -24,7 +27,7 @@ export async function acertosDoParceiro(proprietarioId: string): Promise<Acerto[
 export async function acertoDoParceiro(
   proprietarioId: string,
   acertoId: string,
-): Promise<{ acerto: Acerto; linhas: AcertoLinha[] } | null> {
+): Promise<{ acerto: Acerto; linhas: AcertoLinhaComDoc[] } | null> {
   // A posse é validada AQUI: só devolve se o acerto for deste parceiro.
   const { data: acerto } = await supabaseAdmin
     .from("acerto")
@@ -41,8 +44,32 @@ export async function acertoDoParceiro(
     .select("*")
     .eq("acerto_id", acertoId)
     .order("created_at");
+  const base = linhas ?? [];
 
-  return { acerto, linhas: linhas ?? [] };
+  // Anexa o documento de cada linha de despesa (fatura/portagem/coima/seguro) a
+  // partir da despesa de origem. Os ids vêm SÓ deste acerto (já validado como
+  // deste parceiro), por isso o parceiro só alcança documentos do seu fecho.
+  const despesaIds = [
+    ...new Set(base.filter((l) => l.despesa_id).map((l) => l.despesa_id as string)),
+  ];
+  const docPorDespesa = new Map<string, string | null>();
+  if (despesaIds.length > 0) {
+    const { data: despesas } = await supabaseAdmin
+      .from("despesa")
+      .select("id, detalhe")
+      .in("id", despesaIds);
+    for (const d of despesas ?? []) {
+      const url = (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null;
+      docPorDespesa.set(d.id, url);
+    }
+  }
+
+  const comDoc: AcertoLinhaComDoc[] = base.map((l) => ({
+    ...l,
+    documento_url: l.despesa_id ? docPorDespesa.get(l.despesa_id) ?? null : null,
+  }));
+
+  return { acerto, linhas: comDoc };
 }
 
 export async function historicoAtivoDoParceiro(

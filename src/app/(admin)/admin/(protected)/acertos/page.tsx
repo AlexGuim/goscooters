@@ -22,10 +22,23 @@ async function getDados(): Promise<{
   ]);
 
   const nomeDono = new Map((donosRes.data ?? []).map((d) => [d.id, d.nome]));
-  const linhasPor = new Map<string, AcertoLinha[]>();
-  for (const l of linRes.data ?? []) {
+  const linRows = linRes.data ?? [];
+
+  // Documento (bucket público) por despesa — para o detalhe do acerto abrir a
+  // fatura/portagem/coima/apólice, tal como o parceiro vê no portal.
+  const despesaIds = [...new Set(linRows.filter((l) => l.despesa_id).map((l) => l.despesa_id as string))];
+  const docPorDespesa = new Map<string, string | null>();
+  if (despesaIds.length > 0) {
+    const { data: despesas } = await supabaseAdmin.from("despesa").select("id, detalhe").in("id", despesaIds);
+    for (const d of despesas ?? []) {
+      docPorDespesa.set(d.id, (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null);
+    }
+  }
+
+  const linhasPor = new Map<string, (AcertoLinha & { documento_url: string | null })[]>();
+  for (const l of linRows) {
     const arr = linhasPor.get(l.acerto_id) ?? [];
-    arr.push(l);
+    arr.push({ ...l, documento_url: l.despesa_id ? docPorDespesa.get(l.despesa_id) ?? null : null });
     linhasPor.set(l.acerto_id, arr);
   }
 
