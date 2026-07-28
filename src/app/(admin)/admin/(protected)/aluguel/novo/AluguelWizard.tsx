@@ -5,13 +5,10 @@ import { useState } from "react";
 import { criarMotorista, procurarMotoristaPorTelefone } from "@/actions/motoristaActions";
 import { criarContrato } from "@/actions/contratoActions";
 import { criarSessaoRegisto } from "@/actions/entregaActions";
+import { Botao, classesBotao, campo, etiqueta } from "@/components/ui";
 
 type MotoristaOpt = { id: string; nome: string; telefone: string | null };
 type MotoOpt = { id: string; matricula: string | null; modelo: string; proprietario_id: string | null; estado_operacional: string };
-
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
-const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 
 const PASSOS = ["Motorista", "Contrato", "Entrega"] as const;
 
@@ -178,9 +175,7 @@ function PassoMotorista({
               ))}
             </select>
           </label>
-          <button onClick={escolherExistente} className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
-            Avançar →
-          </button>
+          <Botao tamanho="lg" onClick={escolherExistente}>Avançar →</Botao>
         </div>
       )}
 
@@ -192,9 +187,9 @@ function PassoMotorista({
             <label className={etiqueta}><span>Email (opcional)</span><input className={campo} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
           </div>
           <p className="text-xs text-slate-500">O KYC completo (documentos, NIF, morada) recolhe-se no passo 3 (entrega).</p>
-          <button onClick={preencher} disabled={aGravar} className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+          <Botao tamanho="lg" onClick={preencher} disabled={aGravar}>
             {aGravar ? "A criar…" : "Criar e avançar →"}
-          </button>
+          </Botao>
         </div>
       )}
 
@@ -217,16 +212,16 @@ function PassoMotorista({
                 Cria o motorista e abre um pré-contrato. O motorista preenche os dados por link; finalizas o contrato
                 depois em Contratos → Em preenchimento.
               </p>
-              <button onClick={enviarLink} disabled={aGravar} className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+              <Botao tamanho="lg" onClick={enviarLink} disabled={aGravar}>
                 {aGravar ? "A criar…" : "Criar link"}
-              </button>
+              </Botao>
             </>
           ) : (
             <div className="space-y-3 rounded-2xl bg-emerald-50 p-4">
               <p className="text-sm font-semibold text-emerald-800">Link criado — envia ao motorista:</p>
               <input readOnly value={link} className={`${campo} bg-white`} onFocus={(e) => e.currentTarget.select()} />
               {whatsapp && (
-                <a href={whatsapp} target="_blank" rel="noreferrer" className="inline-block rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                <a href={whatsapp} target="_blank" rel="noreferrer" className={classesBotao("volt", "md")}>
                   Enviar por WhatsApp
                 </a>
               )}
@@ -324,12 +319,10 @@ function PassoContrato({
       </p>
       {erro && <p className="text-sm text-red-700">{erro}</p>}
       <div className="flex gap-3">
-        <button onClick={onVoltar} className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50">
-          ← Voltar
-        </button>
-        <button onClick={criar} disabled={aGravar} className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+        <Botao variante="secondary" tamanho="lg" onClick={onVoltar}>← Voltar</Botao>
+        <Botao tamanho="lg" onClick={criar} disabled={aGravar}>
           {aGravar ? "A criar…" : "Criar contrato e avançar →"}
-        </button>
+        </Botao>
       </div>
     </div>
   );
@@ -365,16 +358,10 @@ function PassoEntrega({
         </p>
       </div>
       <div className="flex flex-wrap gap-3">
-        <Link
-          href={`/admin/contratos/${contratoId}/entrega`}
-          className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-        >
+        <Link href={`/admin/contratos/${contratoId}/entrega`} className={classesBotao("primary", "lg")}>
           Ir para a entrega →
         </Link>
-        <Link
-          href="/admin/contratos"
-          className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-        >
+        <Link href="/admin/contratos" className={classesBotao("secondary", "lg")}>
           Ver contratos
         </Link>
       </div>
