@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Botao, classesBotao } from "@/components/ui";
+import { Botao, classesBotao, AcoesMenu, type AcaoMenu } from "@/components/ui";
 import type {
   ContratoAluguer,
   ContratoEstado,
@@ -306,108 +306,43 @@ export default function ContratosList({
                     )}
                   </div>
 
-                  {c.estado === "pre_contrato" ? (
-                    <>
-                      <button
-                        className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700"
-                        onClick={() => setModal(c)}
-                      >
-                        Finalizar
-                      </button>
-                      <button
-                        className="text-xs font-semibold text-red-600 transition hover:text-red-700"
-                        onClick={() => handleDescartar(c)}
-                      >
-                        Descartar
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {aberto && (
-                        <button
-                          className="rounded-2xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                          onClick={() => handleGerar(c)}
-                          disabled={aGerar === c.id}
-                        >
-                          {aGerar === c.id ? "A gerar..." : "Gerar cobranças"}
-                        </button>
-                      )}
-                      {aberto && (
-                        <button
-                          className="text-xs font-semibold text-amber-700 transition hover:text-amber-800 disabled:opacity-50"
-                          onClick={() => handleRealinhar(c)}
-                          disabled={aGerar === c.id}
-                          title="Apaga as semanas por pagar e regenera contínuo (resolve buracos)"
-                        >
-                          Corrigir semanas
-                        </button>
-                      )}
-                      <button
-                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900 disabled:opacity-50"
-                        onClick={() => handleLink(c)}
-                        disabled={aGerar === c.id}
-                      >
-                        Link ao motorista
-                      </button>
-                      {c.estado !== "concluido" && c.estado !== "cancelado" && (
-                        <Link
-                          href={`/admin/contratos/${c.id}/entrega`}
-                          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                        >
-                          Entregar
-                        </Link>
-                      )}
-                      {(aberto || c.estado === "suspenso") && (
-                        <Link
-                          href={`/admin/contratos/${c.id}/recolha`}
-                          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
-                        >
-                          Devolver
-                        </Link>
-                      )}
-                      {c.estado !== "rascunho" && c.estado !== "cancelado" && (
-                        <Link
-                          href={`/admin/contratos/${c.id}/vistoria`}
-                          className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
-                        >
-                          Ver vistoria
-                        </Link>
-                      )}
-                      {c.estado === "suspenso" && (
-                        <button
-                          className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                          onClick={() => handleSuspender(c, false)}
-                          disabled={aGerar === c.id}
-                        >
-                          Retomar
-                        </button>
-                      )}
-                      <button
-                        className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
-                        onClick={() => setModal(c)}
-                      >
-                        Editar
-                      </button>
-                      {c.estado === "ativo" && (
-                        <button
-                          className="text-xs font-semibold text-amber-700 transition hover:text-amber-800 disabled:opacity-50"
-                          onClick={() => handleSuspender(c, true)}
-                          disabled={aGerar === c.id}
-                        >
-                          Suspender
-                        </button>
-                      )}
-                      {(aberto || c.estado === "suspenso") && (
-                        <button
-                          className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
-                          onClick={() => handleTerminar(c)}
-                          disabled={aGerar === c.id}
-                        >
-                          Terminar
-                        </button>
-                      )}
-                    </>
-                  )}
+                  {(() => {
+                    const emCurso = aGerar === c.id;
+                    // Pré-contrato: finalizar (primária) + descartar no menu.
+                    if (c.estado === "pre_contrato") {
+                      return (
+                        <div className="flex items-center gap-2">
+                          <Botao tamanho="sm" onClick={() => setModal(c)}>Finalizar</Botao>
+                          <AcoesMenu acoes={[{ rotulo: "Descartar", perigo: true, onClick: () => handleDescartar(c) }]} />
+                        </div>
+                      );
+                    }
+                    // 1 ação primária por estado + o resto no menu ⋯.
+                    const menu: AcaoMenu[] = [
+                      { rotulo: "Corrigir semanas", onClick: () => handleRealinhar(c), oculta: !aberto },
+                      { rotulo: "Entregar", href: `/admin/contratos/${c.id}/entrega`, oculta: c.estado === "concluido" || c.estado === "cancelado" || c.estado === "rascunho" },
+                      { rotulo: "Devolver", href: `/admin/contratos/${c.id}/recolha`, oculta: !(aberto || c.estado === "suspenso") },
+                      { rotulo: "Ver vistoria", href: `/admin/contratos/${c.id}/vistoria`, oculta: c.estado === "rascunho" || c.estado === "cancelado" },
+                      { rotulo: "Link ao motorista", onClick: () => handleLink(c) },
+                      { rotulo: "Editar", onClick: () => setModal(c) },
+                      { rotulo: "Suspender", onClick: () => handleSuspender(c, true), oculta: c.estado !== "ativo" },
+                      { rotulo: "Terminar", perigo: true, onClick: () => handleTerminar(c), oculta: !(aberto || c.estado === "suspenso") },
+                    ];
+                    return (
+                      <div className="flex items-center gap-2">
+                        {c.estado === "suspenso" ? (
+                          <Botao tamanho="sm" onClick={() => handleSuspender(c, false)} disabled={emCurso}>Retomar</Botao>
+                        ) : aberto ? (
+                          <Botao tamanho="sm" onClick={() => handleGerar(c)} disabled={emCurso}>
+                            {emCurso ? "A gerar…" : "Gerar cobranças"}
+                          </Botao>
+                        ) : c.estado === "rascunho" ? (
+                          <Link href={`/admin/contratos/${c.id}/entrega`} className={classesBotao("primary", "sm")}>Entregar</Link>
+                        ) : null}
+                        <AcoesMenu acoes={menu} />
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
