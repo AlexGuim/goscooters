@@ -33,7 +33,10 @@ const GRUPOS: { cat: string; itens: { href: string; rotulo: string }[] }[] = [
   },
   {
     cat: "Config",
-    itens: [{ href: "/admin/regras", rotulo: "Regras" }],
+    itens: [
+      { href: "/admin/procedimentos", rotulo: "Procedimentos" },
+      { href: "/admin/regras", rotulo: "Regras do aluguer" },
+    ],
   },
 ];
 

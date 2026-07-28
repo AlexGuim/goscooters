@@ -13,11 +13,9 @@ import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
 import { criarSeguro, criarManutencao } from "@/actions/frotaSaudeActions";
-import {
-  prepararComunicacao,
-  type ComunicacaoPreparada,
-  type ComunicacaoTipo,
-} from "@/actions/comunicacaoActions";
+import { type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
+import { executarProcedimentos } from "@/actions/procedimentoActions";
+import type { ProcedimentoGatilho } from "@/types/db";
 import { dataBR } from "@/lib/datas";
 
 const campo =
@@ -261,28 +259,31 @@ export default function IntakeDocumento({
         msgOk = "Manutenção registada" + (despesaId ? " (com despesa)." : ".");
       }
 
-      // Procedimento padrão: propor comunicação ao motorista (coima/portagem/carta verde).
-      const tipoComunic: ComunicacaoTipo | null =
-        tipo === "coima" ? "coima" : tipo === "portagem" ? "portagem" : tipo === "apolice_seguro" ? "seguro" : null;
-      if (tipoComunic) {
-        const rc = await prepararComunicacao({
-          tipo: tipoComunic,
+      // Motor de procedimentos: corre as regras do evento (coima/portagem/carta
+      // verde). Manual → devolve a comunicação para o cartão; auto → já enviou.
+      const gatilho: ProcedimentoGatilho | null =
+        tipo === "coima" ? "coima_registada" : tipo === "portagem" ? "portagem_registada" : tipo === "apolice_seguro" ? "seguro_registado" : null;
+      if (gatilho) {
+        const rc = await executarProcedimentos(gatilho, {
           veiculo_id: veiculoId,
-          motorista_id: tipoComunic === "seguro" ? null : motoristaId,
+          motorista_id: gatilho === "seguro_registado" ? null : motoristaId,
           matricula: motos.find((m) => m.id === veiculoId)?.matricula ?? null,
           valor: valor || null,
           data: data ? dataBR(data) : null,
           documento_url: docUrl,
+          categoria: tipo === "coima" ? "coima" : tipo === "portagem" ? "portagem" : "seguro",
         });
-        if (rc.success && rc.dados) {
-          setComunicacao(rc.dados);
-          setTextoMsg(rc.dados.texto);
-          setOk(msgOk);
+        const resultados = rc.resultados ?? [];
+        const preparada = resultados.find((r) => r.estado === "preparada" && r.comunicacao);
+        const enviadas = resultados.filter((r) => r.estado === "enviada").length;
+        if (preparada?.comunicacao) {
+          setComunicacao(preparada.comunicacao);
+          setTextoMsg(preparada.comunicacao.texto);
+          setOk(msgOk + (enviadas ? ` · ${enviadas} enviada(s) automaticamente.` : ""));
           setFase("comunicar");
           return;
         }
-        // Sem motorista/telefone para comunicar: informa e segue em frente.
-        setOk(`${msgOk} (Comunicação não preparada: ${rc.error ?? "sem motorista"}.)`);
+        setOk(enviadas ? `${msgOk} · ${enviadas} comunicação(ões) enviada(s) automaticamente.` : msgOk);
         reset();
         window.location.reload();
         return;

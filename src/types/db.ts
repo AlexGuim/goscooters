@@ -70,6 +70,18 @@ export type ManutencaoTipo =
   | "inspecao"
   | "outro";
 
+// ── Procedimentos (Fase 7 — motor de regras) ────────────────────────────────
+export type ProcedimentoGatilho =
+  | "coima_registada"
+  | "portagem_registada"
+  | "seguro_registado"
+  | "seguro_a_expirar"
+  | "manutencao_a_vencer"
+  | "doc_motorista_a_expirar";
+export type ProcedimentoAcao = "comunicar_motorista" | "alertar_gestor";
+export type ProcedimentoCanal = "preparar" | "whatsapp" | "sms" | "telegram" | "email";
+export type ProcedimentoModo = "manual" | "auto";
+
 // ── Acerto com parceiros (Fase 3) ───────────────────────────────────────────
 export type AcertoEstado = "rascunho" | "fechado" | "pago" | "parcial";
 export type AcertoLinhaTipo = "receita" | "despesa" | "comissao";
@@ -350,6 +362,19 @@ export type Manutencao = {
   documento_id: string | null;
   origem: "manual" | "ingestao";
   created_at: string;
+};
+
+export type Procedimento = {
+  id: string;
+  nome: string;
+  gatilho: ProcedimentoGatilho;
+  acao: ProcedimentoAcao;
+  canal: ProcedimentoCanal;
+  modo: ProcedimentoModo;
+  condicoes: { valor_min?: number; categoria?: string } | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 // Vista vw_manutencao_proxima: última intervenção planeada por (veículo, tipo).
@@ -712,6 +737,23 @@ export interface Database {
         Update: Partial<Omit<Manutencao, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      procedimento: {
+        Row: Procedimento;
+        Insert: Partial<Omit<Procedimento, "id" | "created_at" | "updated_at">> & {
+          nome: string;
+          gatilho: ProcedimentoGatilho;
+          acao: ProcedimentoAcao;
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<Procedimento, "id" | "created_at" | "updated_at">> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
