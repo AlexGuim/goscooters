@@ -80,6 +80,14 @@ export default function NavAdmin({ naoLidas = 0 }: { naoLidas?: number }) {
         )}
       </Link>
 
+      <Link
+        href="/admin/assistente"
+        aria-current={ativoDe("/admin/assistente") ? "page" : undefined}
+        className={cls(ativoDe("/admin/assistente"))}
+      >
+        Assistente
+      </Link>
+
       {GRUPOS.map((g) => {
         const catAtiva = g.itens.some((i) => ativoDe(i.href));
         const estaAberto = aberto === g.cat;

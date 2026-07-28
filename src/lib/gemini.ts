@@ -275,6 +275,25 @@ export async function gerarTextoGemini(prompt: string): Promise<string | null> {
   return texto ? texto.trim() : null;
 }
 
+/** JSON a partir de um prompt de TEXTO (sem imagens) — para o planeador do chat. */
+export async function gerarJsonTexto(prompt: string): Promise<unknown | null> {
+  if (!geminiConfigurado()) return null;
+  const corpo = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    safetySettings: SEM_BLOQUEIOS,
+    generationConfig: { responseMimeType: "application/json", temperature: 0 },
+  });
+  const texto = await chamarGemini(corpo);
+  if (!texto) return null;
+  try {
+    const limpo = texto.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+    return JSON.parse(limpo);
+  } catch (e) {
+    console.error("gerarJsonTexto parse falhou:", e);
+    return null;
+  }
+}
+
 /** Lê um documento de identidade / carta e devolve os campos KYC. */
 export async function lerDocumentoGemini(
   imagens: { mime: string; base64: string }[],
