@@ -9,10 +9,12 @@ interface Msg {
 }
 
 const EXEMPLOS = [
+  "Qual o valor total em atraso?",
+  "Quem ainda não pagou?",
+  "Qual a receita esperada esta semana?",
   "Que seguros expiram nos próximos 30 dias?",
   "Que motos precisam de pneu ou revisão?",
   "Quanto deve o Seif?",
-  "Quanto gastei em manutenção no último mês?",
 ];
 
 export default function AssistenteChat() {
@@ -88,7 +90,7 @@ export default function AssistenteChat() {
         </button>
       </form>
       <p className="text-xs text-slate-400">
-        Responde sobre seguros a expirar, manutenção a vencer, quem tinha uma moto numa data, dívidas e despesas. Só leitura.
+        Responde sobre dívidas e atrasos, receita esperada, seguros a expirar, manutenção a vencer, quem tinha uma moto numa data e despesas. Só leitura.
       </p>
     </div>
   );

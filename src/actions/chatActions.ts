@@ -20,7 +20,10 @@ const FERRAMENTAS = [
   { nome: "seguros_a_expirar", descricao: "Lista os seguros/apólices a expirar. args: { dias?: number (horizonte em dias, default 60) }" },
   { nome: "manutencao_a_vencer", descricao: "Motos que precisam de manutenção/revisão/pneu em breve. args: {}" },
   { nome: "quem_tinha_a_moto", descricao: "Que motorista tinha uma moto numa data. args: { matricula: string, data: string AAAA-MM-DD }" },
-  { nome: "divida_motorista", descricao: "Quanto um motorista deve (cobranças em atraso). args: { nome: string }" },
+  { nome: "divida_motorista", descricao: "Quanto um motorista específico deve (cobranças em atraso). args: { nome: string }" },
+  { nome: "total_em_atraso", descricao: "Valor TOTAL em atraso (todas as cobranças vencidas por pagar) e nº de motoristas. args: {}" },
+  { nome: "quem_nao_pagou", descricao: "Lista de motoristas com cobranças em atraso e quanto cada um deve. args: {}" },
+  { nome: "receita_esperada_semana", descricao: "Receita de renda esperada nos próximos 7 dias (esperado, já recebido, por receber). args: { dias?: number (default 7) }" },
   { nome: "despesas_recentes", descricao: "Total de despesas por categoria num período. args: { categoria?: 'manutencao'|'portagem'|'coima'|'seguro'|'gps'|'outro', meses?: number (default 1) }" },
 ] as const;
 
@@ -92,6 +95,60 @@ async function divida_motorista(args: Args) {
   return resultados;
 }
 
+async function total_em_atraso() {
+  const { data } = await supabaseAdmin
+    .from("vw_cobranca_estado")
+    .select("motorista_id, em_falta")
+    .eq("em_atraso", true)
+    .neq("tipo", "caucao");
+  const total = (data ?? []).reduce((s, c) => s + Number(c.em_falta), 0);
+  const motoristas = new Set((data ?? []).map((c) => c.motorista_id));
+  return { total_em_atraso: total.toFixed(2), cobrancas_vencidas: data?.length ?? 0, motoristas_em_divida: motoristas.size };
+}
+
+async function quem_nao_pagou() {
+  const { data } = await supabaseAdmin
+    .from("vw_cobranca_estado")
+    .select("motorista_id, em_falta")
+    .eq("em_atraso", true)
+    .neq("tipo", "caucao");
+  const porMot = new Map<string, { total: number; n: number }>();
+  for (const c of data ?? []) {
+    const k = c.motorista_id as string;
+    const a = porMot.get(k) ?? { total: 0, n: 0 };
+    a.total += Number(c.em_falta);
+    a.n += 1;
+    porMot.set(k, a);
+  }
+  if (!porMot.size) return [];
+  const { data: nomes } = await supabaseAdmin.from("motorista").select("id, nome").in("id", [...porMot.keys()]);
+  const nomeDe = new Map((nomes ?? []).map((m) => [m.id, m.nome]));
+  return [...porMot.entries()]
+    .map(([id, a]) => ({ nome: nomeDe.get(id) ?? "?", total_em_divida: a.total.toFixed(2), semanas_em_atraso: a.n }))
+    .sort((a, b) => Number(b.total_em_divida) - Number(a.total_em_divida));
+}
+
+async function receita_esperada_semana(args: Args) {
+  const dias = Math.max(1, Number(args.dias ?? 7));
+  const hoje = new Date().toISOString().slice(0, 10);
+  const ate = new Date(Date.now() + dias * 86400000).toISOString().slice(0, 10);
+  const { data } = await supabaseAdmin
+    .from("vw_cobranca_estado")
+    .select("valor_devido, em_falta")
+    .eq("tipo", "renda")
+    .gte("data_vencimento", hoje)
+    .lte("data_vencimento", ate);
+  const esperado = (data ?? []).reduce((s, c) => s + Number(c.valor_devido), 0);
+  const falta = (data ?? []).reduce((s, c) => s + Number(c.em_falta), 0);
+  return {
+    periodo: `${hoje} a ${ate}`,
+    cobrancas: data?.length ?? 0,
+    receita_esperada: esperado.toFixed(2),
+    ja_recebido: (esperado - falta).toFixed(2),
+    por_receber: falta.toFixed(2),
+  };
+}
+
 async function despesas_recentes(args: Args) {
   const meses = Math.max(1, Number(args.meses ?? 1));
   const categoria = args.categoria ? String(args.categoria) : null;
@@ -115,6 +172,9 @@ async function executar(nome: string, args: Args): Promise<unknown> {
     case "manutencao_a_vencer": return manutencao_a_vencer();
     case "quem_tinha_a_moto": return quem_tinha_a_moto(args);
     case "divida_motorista": return divida_motorista(args);
+    case "total_em_atraso": return total_em_atraso();
+    case "quem_nao_pagou": return quem_nao_pagou();
+    case "receita_esperada_semana": return receita_esperada_semana(args);
     case "despesas_recentes": return despesas_recentes(args);
     default: return null;
   }
