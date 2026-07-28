@@ -8,7 +8,7 @@ import type { HistoricoAtivo } from "@/lib/ativoHistorico";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import pt from "@/dictionaries/pt.json";
-import { Botao } from "@/components/ui";
+import { Botao, AcoesMenu, Modal } from "@/components/ui";
 import MotoForm from "./MotoForm";
 import MotoSaudeModal from "./MotoSaudeModal";
 
@@ -24,7 +24,6 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
   const [modal, setModal] = useState<Modal>(null);
   const [pnl, setPnl] = useState<Moto | null>(null);
   const [saude, setSaude] = useState<Moto | null>(null);
-  const [aEliminar, setAEliminar] = useState<string | null>(null);
   const [filtroDono, setFiltroDono] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
 
@@ -89,9 +88,7 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
     );
     if (!confirmado) return;
 
-    setAEliminar(moto.id);
     const resultado = await deleteMoto(moto.id);
-    setAEliminar(null);
 
     if (resultado.success) {
       setMotas((atuais) => atuais.filter((m) => m.id !== moto.id));
@@ -244,32 +241,21 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
                     </button>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex justify-end gap-3">
-                      <button
-                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
-                        onClick={() => setPnl(moto)}
-                      >
-                        P&L
-                      </button>
-                      <button
-                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
-                        onClick={() => setSaude(moto)}
-                      >
-                        Seguro/Manut.
-                      </button>
-                      <button
-                        className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
+                    <div className="flex items-center justify-end gap-2">
+                      <Botao
+                        variante="secondary"
+                        tamanho="sm"
                         onClick={() => setModal({ tipo: "editar", moto })}
                       >
                         Editar
-                      </button>
-                      <button
-                        className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
-                        onClick={() => handleEliminar(moto)}
-                        disabled={aEliminar === moto.id}
-                      >
-                        {aEliminar === moto.id ? "A eliminar..." : "Eliminar"}
-                      </button>
+                      </Botao>
+                      <AcoesMenu
+                        acoes={[
+                          { rotulo: "Ver P&L", onClick: () => setPnl(moto) },
+                          { rotulo: "Seguro / Manutenção", onClick: () => setSaude(moto) },
+                          { rotulo: "Eliminar", onClick: () => handleEliminar(moto), perigo: true },
+                        ]}
+                      />
                     </div>
                   </td>
                 </tr>
@@ -323,36 +309,17 @@ function ModalPnL({ moto, onClose }: { moto: Moto; onClose: () => void }) {
   const eur = (n: number | null) => (n == null ? "—" : formatarPreco(n));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      titulo="Histórico do ativo"
+      subtitulo={`${moto.matricula ?? "?"} · ${moto.modelo}`}
+      maxWidth="max-w-lg"
     >
-      <div
-        className="my-8 w-full max-w-lg rounded-3xl bg-white p-6 shadow-lg sm:p-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-950">Histórico do ativo</h2>
-            <p className="text-sm text-slate-600">
-              {moto.matricula ?? "?"} · {moto.modelo}
-            </p>
-          </div>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
-            onClick={onClose}
-            type="button"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
-
-        {erro && <p className="mt-6 text-sm text-red-700">{erro}</p>}
-        {!dados && !erro && <p className="mt-6 text-sm text-slate-500">A calcular…</p>}
+        {erro && <p className="text-sm text-red-700">{erro}</p>}
+        {!dados && !erro && <p className="text-sm text-slate-500">A calcular…</p>}
 
         {dados && (
-          <div className="mt-6 space-y-4">
+          <div className="space-y-4">
             <p className="text-xs text-slate-500">
               Desde a aquisição
               {dados.data_aquisicao ? ` (${dataBR(dados.data_aquisicao)})` : ""}
@@ -401,8 +368,7 @@ function ModalPnL({ moto, onClose }: { moto: Moto; onClose: () => void }) {
             </p>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 

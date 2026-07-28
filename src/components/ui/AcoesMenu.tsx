@@ -12,6 +12,7 @@ export interface AcaoMenu {
   rotulo: string;
   onClick?: () => void;
   href?: string;
+  externo?: boolean; // href abre em nova aba (ex.: ver documento)
   perigo?: boolean; // vermelho (ex.: Terminar)
   oculta?: boolean; // não aplicável a este estado
 }
@@ -62,7 +63,14 @@ export function AcoesMenu({ acoes, alinhar = "right" }: { acoes: AcaoMenu[]; ali
               a.perigo ? "text-red-600 hover:bg-red-50" : "text-slate-700 hover:bg-slate-50",
             );
             return a.href ? (
-              <a key={i} href={a.href} role="menuitem" onClick={() => setAberto(false)} className={cls}>
+              <a
+                key={i}
+                href={a.href}
+                role="menuitem"
+                onClick={() => setAberto(false)}
+                className={cls}
+                {...(a.externo ? { target: "_blank", rel: "noreferrer" } : {})}
+              >
                 {a.rotulo}
               </a>
             ) : (

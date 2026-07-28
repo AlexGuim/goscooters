@@ -11,7 +11,7 @@ import type {
 } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
-import { Botao } from "@/components/ui";
+import { Botao, Badge, AcoesMenu, Modal, campo, etiqueta, type BadgeTom } from "@/components/ui";
 import {
   criarDespesa,
   atualizarDespesa,
@@ -25,9 +25,12 @@ export interface DespesaComNomes extends Despesa {
   proprietario_nome: string | null;
 }
 
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
-const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
+const ESTADO_PAG_TOM: Record<EstadoPagamentoDespesa, BadgeTom> = {
+  pendente: "warning",
+  parcial: "warning",
+  paga: "success",
+  isenta: "neutral",
+};
 
 const CATEGORIAS: { valor: DespesaCategoria; rotulo: string }[] = [
   { valor: "manutencao", rotulo: "Manutenção" },
@@ -190,9 +193,7 @@ export default function DespesasList({
                       {d.veiculo_matricula ?? "estrutura"}
                     </span>
                     {d.estado_pagamento !== "paga" && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                        {d.estado_pagamento}
-                      </span>
+                      <Badge tom={ESTADO_PAG_TOM[d.estado_pagamento]}>{d.estado_pagamento}</Badge>
                     )}
                   </div>
                   <p className="text-sm text-slate-500">
@@ -201,33 +202,22 @@ export default function DespesasList({
                     {` · suporta: ${IMPUTAR_ROTULO[d.imputar_a]}`}
                   </p>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="font-semibold text-slate-950">{formatarPreco(d.valor_total)}</span>
-                  {(() => {
-                    const docUrl = (d.detalhe as { documento_url?: string } | null)?.documento_url;
-                    return docUrl ? (
-                      <a
-                        href={docUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
-                      >
-                        Documento
-                      </a>
-                    ) : null;
-                  })()}
-                  <button
-                    className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
-                    onClick={() => setModal(d)}
-                  >
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold tabular-nums text-slate-950">{formatarPreco(d.valor_total)}</span>
+                  <Botao variante="secondary" tamanho="sm" onClick={() => setModal(d)}>
                     Editar
-                  </button>
-                  <button
-                    className="text-xs font-semibold text-red-600 transition hover:text-red-700"
-                    onClick={() => handleEliminar(d)}
-                  >
-                    Eliminar
-                  </button>
+                  </Botao>
+                  <AcoesMenu
+                    acoes={[
+                      {
+                        rotulo: "Ver documento",
+                        href: (d.detalhe as { documento_url?: string } | null)?.documento_url,
+                        externo: true,
+                        oculta: !(d.detalhe as { documento_url?: string } | null)?.documento_url,
+                      },
+                      { rotulo: "Eliminar", onClick: () => handleEliminar(d), perigo: true },
+                    ]}
+                  />
                 </div>
               </div>
             ))}
@@ -411,26 +401,8 @@ function FormDespesa({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
-    >
-      <div className="my-8 w-full max-w-lg rounded-3xl bg-white p-6 shadow-lg sm:p-8" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4">
-          <h2 className="text-2xl font-semibold text-slate-950">
-            {aEditar ? "Editar despesa" : "Nova despesa"}
-          </h2>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
-            onClick={onClose}
-            type="button"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
-
-        <form ref={formRef} onSubmit={handleSubmit} className="mt-6 space-y-4">
+    <Modal onClose={onClose} titulo={aEditar ? "Editar despesa" : "Nova despesa"} maxWidth="max-w-lg">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={etiqueta}>
               <span>Categoria</span>
@@ -492,14 +464,9 @@ function FormDespesa({
                 </label>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={sugerirCondutor}
-                  disabled={aResolver}
-                  className="rounded-2xl border border-amber-300 bg-white px-4 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
-                >
+                <Botao type="button" variante="secondary" tamanho="sm" onClick={sugerirCondutor} disabled={aResolver}>
                   {aResolver ? "A procurar…" : "Sugerir condutor"}
-                </button>
+                </Botao>
                 {condutor &&
                   (condutor.ok ? (
                     <span className="text-sm text-emerald-700">
@@ -575,15 +542,14 @@ function FormDespesa({
           )}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50">
+            <Botao type="button" variante="secondary" tamanho="lg" className="flex-1" onClick={onClose}>
               Cancelar
-            </button>
-            <button type="submit" disabled={aGravar} className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+            </Botao>
+            <Botao type="submit" tamanho="lg" className="flex-1" disabled={aGravar}>
               {aGravar ? "A gravar..." : aEditar ? "Guardar" : "Criar despesa"}
-            </button>
+            </Botao>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
