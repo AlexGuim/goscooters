@@ -6,33 +6,37 @@ import { useEffect, useRef, useState } from "react";
 
 // Menu por ÁREAS (deixa de ser uma lista plana de abas): Início e Notificações
 // ficam diretos; o resto agrupa-se em categorias com menu suspenso.
+// Nova arquitetura de informação: agrupar pela cabeça do negócio.
+//  Aluguer = quem alugo · Frota = o que tenho · Financeiro = quanto ganho ·
+//  Definições = o que automatizo. (Motoristas sai da Frota; Cobrança junta-se ao
+//  dinheiro; "Financeiro" (página) passa a "Resultado" para não colidir com o grupo.)
 const GRUPOS: { cat: string; itens: { href: string; rotulo: string }[] }[] = [
   {
-    cat: "Operação",
+    cat: "Aluguer",
     itens: [
       { href: "/admin/pedidos", rotulo: "Pedidos" },
-      { href: "/admin/contratos", rotulo: "Contratos (jornadas)" },
-      { href: "/admin/cobrancas", rotulo: "Cobrança" },
+      { href: "/admin/motoristas", rotulo: "Motoristas" },
+      { href: "/admin/contratos", rotulo: "Contratos" },
     ],
   },
   {
     cat: "Frota",
     itens: [
       { href: "/admin/motas", rotulo: "Motas" },
-      { href: "/admin/motoristas", rotulo: "Motoristas" },
       { href: "/admin/proprietarios", rotulo: "Proprietários" },
     ],
   },
   {
     cat: "Financeiro",
     itens: [
+      { href: "/admin/cobrancas", rotulo: "Cobrança" },
       { href: "/admin/despesas", rotulo: "Despesas" },
       { href: "/admin/acertos", rotulo: "Acertos" },
-      { href: "/admin/financeiro", rotulo: "Financeiro" },
+      { href: "/admin/financeiro", rotulo: "Resultado" },
     ],
   },
   {
-    cat: "Config",
+    cat: "Definições",
     itens: [
       { href: "/admin/procedimentos", rotulo: "Procedimentos" },
       { href: "/admin/regras", rotulo: "Regras do aluguer" },
