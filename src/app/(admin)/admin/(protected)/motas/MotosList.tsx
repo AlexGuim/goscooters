@@ -9,6 +9,7 @@ import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import pt from "@/dictionaries/pt.json";
 import MotoForm from "./MotoForm";
+import MotoSaudeModal from "./MotoSaudeModal";
 
 interface MotosListProps {
   initialMotas: Moto[];
@@ -21,6 +22,7 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
   const [motas, setMotas] = useState(initialMotas);
   const [modal, setModal] = useState<Modal>(null);
   const [pnl, setPnl] = useState<Moto | null>(null);
+  const [saude, setSaude] = useState<Moto | null>(null);
   const [aEliminar, setAEliminar] = useState<string | null>(null);
   const [filtroDono, setFiltroDono] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
@@ -252,6 +254,12 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
                         P&L
                       </button>
                       <button
+                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
+                        onClick={() => setSaude(moto)}
+                      >
+                        Seguro/Manut.
+                      </button>
+                      <button
                         className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                         onClick={() => setModal({ tipo: "editar", moto })}
                       >
@@ -295,6 +303,8 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
       )}
 
       {pnl && <ModalPnL moto={pnl} onClose={() => setPnl(null)} />}
+
+      {saude && <MotoSaudeModal moto={saude} onClose={() => setSaude(null)} />}
     </div>
   );
 }

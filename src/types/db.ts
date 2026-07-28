@@ -55,6 +55,21 @@ export type EstadoPagamentoDespesa = "pendente" | "parcial" | "paga" | "isenta";
 export type ImputarA = "goscooters" | "proprietario" | "motorista";
 export type DespesaOrigem = "manual" | "recorrente" | "ingestao";
 
+// ── Seguros e Manutenção (Fase 6) ───────────────────────────────────────────
+export type SeguroTipo = "responsabilidade_civil" | "danos_proprios" | "outro";
+export type SeguroPeriodicidade = "anual" | "semestral" | "trimestral" | "mensal";
+export type SeguroEstado = "ativa" | "expirada" | "cancelada";
+export type ManutencaoTipo =
+  | "revisao"
+  | "oleo"
+  | "pneu_frente"
+  | "pneu_tras"
+  | "pneus"
+  | "travoes"
+  | "corrente"
+  | "inspecao"
+  | "outro";
+
 // ── Acerto com parceiros (Fase 3) ───────────────────────────────────────────
 export type AcertoEstado = "rascunho" | "fechado" | "pago" | "parcial";
 export type AcertoLinhaTipo = "receita" | "despesa" | "comissao";
@@ -289,6 +304,67 @@ export type Despesa = {
   pontos: number | null;
   cobranca_id: string | null;
   created_at: string;
+};
+
+// ── Seguros e Manutenção (Fase 6) ───────────────────────────────────────────
+export type Seguro = {
+  id: string;
+  veiculo_id: string;
+  seguradora: string | null;
+  apolice: string | null;
+  tipo: SeguroTipo;
+  data_inicio: string | null;
+  data_fim: string;
+  premio: string | null;
+  periodicidade: SeguroPeriodicidade;
+  quem_paga: ImputarA;
+  estado: SeguroEstado;
+  observacoes: string | null;
+  detalhe: unknown | null;
+  despesa_id: string | null;
+  documento_id: string | null;
+  origem: "manual" | "ingestao";
+  created_at: string;
+  updated_at: string;
+};
+
+// Vista vw_seguro_estado: seguro + dias para expirar (derivado).
+export type SeguroEstadoView = Seguro & {
+  dias_para_expirar: number;
+  expirado: boolean;
+};
+
+export type Manutencao = {
+  id: string;
+  veiculo_id: string;
+  tipo: ManutencaoTipo;
+  data: string;
+  km: number | null;
+  oficina: string | null;
+  custo: string | null;
+  proxima_km: number | null;
+  proxima_data: string | null;
+  observacoes: string | null;
+  detalhe: unknown | null;
+  despesa_id: string | null;
+  documento_id: string | null;
+  origem: "manual" | "ingestao";
+  created_at: string;
+};
+
+// Vista vw_manutencao_proxima: última intervenção planeada por (veículo, tipo).
+export type ManutencaoProximaView = {
+  veiculo_id: string;
+  tipo: ManutencaoTipo;
+  ultima_data: string;
+  ultima_km: number | null;
+  proxima_km: number | null;
+  proxima_data: string | null;
+  matricula: string | null;
+  km_atual: number | null;
+  estado_operacional: string;
+  km_em_falta: number | null;
+  dias_em_falta: number | null;
 };
 
 export type Acerto = {
@@ -605,6 +681,35 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<Despesa, "id" | "created_at" | "valor_total">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      seguro: {
+        Row: Seguro;
+        Insert: Partial<Omit<Seguro, "id" | "created_at" | "updated_at">> & {
+          veiculo_id: string;
+          data_fim: string;
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<Seguro, "id" | "created_at" | "updated_at">> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      manutencao: {
+        Row: Manutencao;
+        Insert: Partial<Omit<Manutencao, "id" | "created_at">> & {
+          veiculo_id: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<Manutencao, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };
