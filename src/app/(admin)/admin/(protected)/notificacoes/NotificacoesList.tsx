@@ -17,6 +17,7 @@ const COR: Record<string, string> = {
   seguro_a_expirar: "bg-amber-500",
   manutencao_a_vencer: "bg-amber-500",
   doc_motorista_a_expirar: "bg-amber-500",
+  pagamento_a_comunicar: "bg-blue-500",
 };
 
 function relativo(iso: string): string {
@@ -85,14 +86,24 @@ export default function NotificacoesList({ inicial }: { inicial: Notificacao[] }
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {n.href && (
-                <Link
-                  href={n.href}
-                  className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                >
-                  Abrir
-                </Link>
-              )}
+              {n.href &&
+                (n.href.startsWith("http") ? (
+                  <a
+                    href={n.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  >
+                    {n.href.includes("wa.me") ? "Enviar" : "Abrir"}
+                  </a>
+                ) : (
+                  <Link
+                    href={n.href}
+                    className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  >
+                    Abrir
+                  </Link>
+                ))}
               <button
                 onClick={() => feita(n.id)}
                 disabled={aProcessar === n.id}

@@ -66,6 +66,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Empurrão de lembretes de pagamento a comunicar (a lista pronta fica nas
+  // Notificações, cada um com o WhatsApp já preenchido para enviar em 1 clique).
+  const { data: pags } = await supabaseAdmin
+    .from("notificacao")
+    .select("id")
+    .eq("tipo", "pagamento_a_comunicar")
+    .neq("estado", "feita");
+  if (pags?.length) {
+    await enviarTelegramTexto(
+      `💶 *${pags.length} pagamento(s) a lembrar* — abre as Notificações para enviar os WhatsApp.`,
+    );
+  }
+
   // "Amanhã" (aproximação UTC — algumas horas de desvio são irrelevantes num lembrete).
   const amanha = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 

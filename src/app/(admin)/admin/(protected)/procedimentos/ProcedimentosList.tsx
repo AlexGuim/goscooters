@@ -23,6 +23,7 @@ const GATILHO: Record<ProcedimentoGatilho, string> = {
   seguro_a_expirar: "Seguro a expirar",
   manutencao_a_vencer: "Manutenção a vencer",
   doc_motorista_a_expirar: "Documento do motorista a expirar",
+  pagamento_a_vencer: "Pagamento a vencer (lembrete)",
 };
 const ACAO: Record<ProcedimentoAcao, string> = {
   comunicar_motorista: "Comunicar ao motorista",
@@ -89,20 +90,38 @@ export default function ProcedimentosList({ inicial }: { inicial: Procedimento[]
                   <p className="text-sm font-medium text-slate-950">{p.nome}</p>
                   <p className="text-xs text-slate-500">
                     Quando: <strong>{GATILHO[p.gatilho]}</strong> → {ACAO[p.acao]}
-                    {p.condicoes?.valor_min != null ? ` · só se ≥ ${p.condicoes.valor_min} €` : ""}
+                    {p.gatilho === "pagamento_a_vencer"
+                      ? ` · ${p.condicoes?.dias_antes ?? 1} dia(s) antes`
+                      : p.condicoes?.valor_min != null
+                        ? ` · só se ≥ ${p.condicoes.valor_min} €`
+                        : ""}
                   </p>
                 </div>
-                <input
-                  className={`${campo} w-24`}
-                  inputMode="decimal"
-                  placeholder="valor mín."
-                  defaultValue={p.condicoes?.valor_min ?? ""}
-                  onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    editar(p.id, { condicoes: v ? { ...(p.condicoes ?? {}), valor_min: Number(v) } : null });
-                  }}
-                  title="Só aplica se o valor for ≥ a isto (opcional)"
-                />
+                {p.gatilho === "pagamento_a_vencer" ? (
+                  <input
+                    className={`${campo} w-24`}
+                    inputMode="numeric"
+                    placeholder="dias antes"
+                    defaultValue={p.condicoes?.dias_antes ?? 1}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      editar(p.id, { condicoes: { ...(p.condicoes ?? {}), dias_antes: v ? Number(v) : 1 } });
+                    }}
+                    title="Lembrar quantos dias antes do vencimento (0 = no próprio dia)"
+                  />
+                ) : (
+                  <input
+                    className={`${campo} w-24`}
+                    inputMode="decimal"
+                    placeholder="valor mín."
+                    defaultValue={p.condicoes?.valor_min ?? ""}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      editar(p.id, { condicoes: v ? { ...(p.condicoes ?? {}), valor_min: Number(v) } : null });
+                    }}
+                    title="Só aplica se o valor for ≥ a isto (opcional)"
+                  />
+                )}
                 <select
                   className={`${campo} w-56`}
                   value={p.modo}

@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatarPreco } from "@/lib/precos";
 import { kycCompleto } from "@/lib/kyc";
+import { textoLembrete } from "@/lib/lembretes";
 
 /**
  * Notificações DERIVADAS do estado (recalculadas, não são eventos pontuais).
@@ -22,6 +23,7 @@ const DERIVADOS = [
   "seguro_a_expirar",
   "manutencao_a_vencer",
   "doc_motorista_a_expirar",
+  "pagamento_a_comunicar",
 ];
 
 // Horizontes dos alertas proativos (dias / km). Sensatos por omissão.
@@ -220,6 +222,55 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
         entidade: "motorista",
         entidade_id: m.id as string,
       });
+    }
+
+    // 8. Lembretes de pagamento a comunicar (config: procedimento pagamento_a_vencer).
+    //    Gera 1 notificação por cobrança a vencer no horizonte, com o wa.me pronto.
+    const { data: procPag } = await supabaseAdmin
+      .from("procedimento")
+      .select("condicoes")
+      .eq("gatilho", "pagamento_a_vencer")
+      .eq("ativo", true)
+      .limit(1)
+      .maybeSingle();
+    if (procPag) {
+      const diasAntes = Math.max(0, Number((procPag.condicoes as { dias_antes?: number } | null)?.dias_antes ?? 1));
+      const hojeD = new Date().toISOString().slice(0, 10);
+      const ateD = new Date(Date.now() + diasAntes * 86400000).toISOString().slice(0, 10);
+      const { data: cobs } = await supabaseAdmin
+        .from("vw_cobranca_estado")
+        .select("id, motorista_id, veiculo_id, em_falta, data_vencimento")
+        .neq("tipo", "caucao")
+        .in("estado_liquidacao", ["por_liquidar", "parcial"])
+        .gte("data_vencimento", hojeD)
+        .lte("data_vencimento", ateD);
+      if (cobs?.length) {
+        const motIds = [...new Set(cobs.map((c) => c.motorista_id as string))];
+        const { data: mots } = await supabaseAdmin
+          .from("motorista")
+          .select("id, nome, telefone_e164")
+          .in("id", motIds);
+        const motDe = new Map((mots ?? []).map((m) => [m.id as string, m]));
+        for (const c of cobs) {
+          const m = motDe.get(c.motorista_id as string);
+          const mat = matriculaDe.get(c.veiculo_id as string) ?? "?";
+          const valor = formatarPreco(String(c.em_falta));
+          const venc = c.data_vencimento as string;
+          const dataCurta = `${venc.slice(8, 10)}/${venc.slice(5, 7)}`;
+          const digits = m?.telefone_e164?.replace(/\D/g, "") ?? "";
+          // Texto por omissão em inglês (a maioria dos motoristas); editável no WhatsApp.
+          const texto = textoLembrete({ nome: m?.nome ?? "motorista", matricula: mat, data: dataCurta, valor }, "en");
+          const href = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(texto)}` : "/admin/cobrancas";
+          add({
+            tipo: "pagamento_a_comunicar",
+            titulo: "Lembrar pagamento",
+            detalhe: `${m?.nome ?? "motorista"} — ${mat} · ${valor} · vence ${dataCurta}`,
+            href,
+            entidade: "cobranca",
+            entidade_id: c.id as string,
+          });
+        }
+      }
     }
 
     // Reconcilia com o existente destes tipos (agrupado por chave).

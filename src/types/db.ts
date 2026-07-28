@@ -77,7 +77,8 @@ export type ProcedimentoGatilho =
   | "seguro_registado"
   | "seguro_a_expirar"
   | "manutencao_a_vencer"
-  | "doc_motorista_a_expirar";
+  | "doc_motorista_a_expirar"
+  | "pagamento_a_vencer";
 export type ProcedimentoAcao = "comunicar_motorista" | "alertar_gestor";
 export type ProcedimentoCanal = "preparar" | "whatsapp" | "sms" | "telegram" | "email";
 export type ProcedimentoModo = "manual" | "auto";
@@ -371,7 +372,7 @@ export type Procedimento = {
   acao: ProcedimentoAcao;
   canal: ProcedimentoCanal;
   modo: ProcedimentoModo;
-  condicoes: { valor_min?: number; categoria?: string } | null;
+  condicoes: { valor_min?: number; categoria?: string; dias_antes?: number } | null;
   ativo: boolean;
   created_at: string;
   updated_at: string;
