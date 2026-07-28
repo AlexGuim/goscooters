@@ -5,6 +5,7 @@ import type { PedidoAluguer, PedidoEstado } from "@/types/db";
 import Link from "next/link";
 import { updatePedidoEstado, converterPedidoEmJornada } from "@/actions/pedidoActions";
 import { duracaoPorExtenso } from "@/lib/precos";
+import { Botao, Badge, classesBotao } from "@/components/ui";
 import pt from "@/dictionaries/pt.json";
 
 export interface AvisoMotorista {
@@ -67,17 +68,11 @@ export default function PedidosList({ initialPedidos, avisos }: PedidosListProps
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold text-slate-950">{pedido.nome}</h3>
                   {avisos[pedido.id] && (
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        avisos[pedido.id].negativas > 0
-                          ? "bg-red-100 text-red-700"
-                          : "bg-emerald-100 text-emerald-700"
-                      }`}
-                    >
+                    <Badge tom={avisos[pedido.id].negativas > 0 ? "danger" : "success"}>
                       {avisos[pedido.id].negativas > 0
                         ? `▼ ${avisos[pedido.id].negativas} negativa(s)`
                         : `▲ motorista conhecido`}
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 <p className="mt-1 text-sm text-slate-600">{pedido.telefone}</p>
@@ -152,25 +147,18 @@ export default function PedidosList({ initialPedidos, avisos }: PedidosListProps
                   <span className="flex-none font-semibold text-emerald-700">Ver ficha →</span>
                 </Link>
               )}
-              <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
                 {pedido.estado === "fechado" ? (
-                  <Link
-                    href="/admin/contratos"
-                    className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-                  >
+                  <Link href="/admin/contratos" className={classesBotao("secondary", "md")}>
                     Ver jornada
                   </Link>
                 ) : (
-                  <button
-                    onClick={() => handleConverter(pedido.id)}
-                    disabled={aConverter === pedido.id}
-                    className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                  >
+                  <Botao onClick={() => handleConverter(pedido.id)} disabled={aConverter === pedido.id}>
                     {aConverter === pedido.id ? "A abrir…" : "Converter em cliente"}
-                  </button>
+                  </Botao>
                 )}
                 <a
-                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  className={classesBotao("volt", "md")}
                   href={`https://wa.me/${pedido.telefone.replace(/\D/g, "")}`}
                   target="_blank"
                   rel="noreferrer"
@@ -178,10 +166,7 @@ export default function PedidosList({ initialPedidos, avisos }: PedidosListProps
                   WhatsApp
                 </a>
                 {pedido.email && (
-                  <a
-                    className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:border-slate-400 hover:bg-slate-50"
-                    href={`mailto:${pedido.email}`}
-                  >
+                  <a className={classesBotao("secondary", "md")} href={`mailto:${pedido.email}`}>
                     Email
                   </a>
                 )}

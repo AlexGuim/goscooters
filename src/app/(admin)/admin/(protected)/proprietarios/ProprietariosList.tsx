@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Proprietario } from "@/types/db";
+import { Botao, Badge, AcoesMenu, Modal, campo, etiqueta, type AcaoMenu } from "@/components/ui";
 import {
   criarProprietario,
   atualizarProprietario,
@@ -13,10 +14,6 @@ import {
 export interface ProprietarioComContagem extends Proprietario {
   num_veiculos: number;
 }
-
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
-const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 
 /** Mensagem pronta a enviar ao motorista com o IBAN e o procedimento. */
 function instrucoesPagamento(d: Proprietario): string {
@@ -110,12 +107,9 @@ export default function ProprietariosList({
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
-        <button
-          className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          onClick={() => setModal("novo")}
-        >
+        <Botao tamanho="lg" onClick={() => setModal("novo")}>
           + Novo proprietário
-        </button>
+        </Botao>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -132,13 +126,9 @@ export default function ProprietariosList({
                 </p>
               </div>
               {d.eh_goscooters ? (
-                <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
-                  Frota própria
-                </span>
+                <Badge tom="neutral">Frota própria</Badge>
               ) : (
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                  {d.comissao_valor != null ? `${d.comissao_valor}%` : "comissão ?"}
-                </span>
+                <Badge tom="accent">{d.comissao_valor != null ? `${d.comissao_valor}%` : "comissão ?"}</Badge>
               )}
             </div>
 
@@ -149,56 +139,34 @@ export default function ProprietariosList({
               {d.iban && <span className="font-mono">IBAN: {d.iban}</span>}
             </div>
 
-            <div className="mt-1 flex flex-wrap gap-3 border-t border-slate-100 pt-3">
-              <button
-                className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
-                onClick={() => setModal(d)}
-              >
+            <div className="mt-1 flex items-center gap-2 border-t border-slate-100 pt-3">
+              <Botao variante="secondary" tamanho="sm" onClick={() => setModal(d)}>
                 Editar
-              </button>
-              {!d.eh_goscooters &&
-                (d.portal_ativo ? (
-                  <button
-                    className="text-xs font-semibold text-amber-700 transition hover:text-amber-800"
-                    onClick={() => revogar(d)}
-                  >
-                    Revogar portal
-                  </button>
-                ) : (
-                  <button
-                    className="text-xs font-semibold text-slate-700 transition hover:text-slate-900 disabled:opacity-50"
-                    onClick={() => convidar(d)}
-                    disabled={aConvidar === d.id}
-                  >
-                    {aConvidar === d.id ? "A convidar..." : "Convidar ao portal"}
-                  </button>
-                ))}
-              {d.iban && (
-                <>
-                  <button
-                    className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
-                    onClick={() => copiarPagamento(d)}
-                  >
-                    {copiado === d.id ? "Copiado ✓" : "Copiar instruções"}
-                  </button>
-                  <a
-                    className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
-                    href={`https://wa.me/?text=${encodeURIComponent(instrucoesPagamento(d))}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Enviar por WhatsApp
-                  </a>
-                </>
-              )}
-              {d.num_veiculos === 0 && (
-                <button
-                  className="text-xs font-semibold text-red-600 transition hover:text-red-700"
-                  onClick={() => handleEliminar(d)}
-                >
-                  Eliminar
-                </button>
-              )}
+              </Botao>
+              <AcoesMenu
+                alinhar="left"
+                acoes={[
+                  d.portal_ativo
+                    ? { rotulo: "Revogar portal", onClick: () => revogar(d), oculta: d.eh_goscooters }
+                    : {
+                        rotulo: aConvidar === d.id ? "A convidar…" : "Convidar ao portal",
+                        onClick: () => convidar(d),
+                        oculta: d.eh_goscooters,
+                      },
+                  {
+                    rotulo: copiado === d.id ? "Copiado ✓" : "Copiar instruções",
+                    onClick: () => copiarPagamento(d),
+                    oculta: !d.iban,
+                  },
+                  {
+                    rotulo: "Enviar por WhatsApp",
+                    href: d.iban ? `https://wa.me/?text=${encodeURIComponent(instrucoesPagamento(d))}` : undefined,
+                    externo: true,
+                    oculta: !d.iban,
+                  },
+                  { rotulo: "Eliminar", onClick: () => handleEliminar(d), perigo: true, oculta: d.num_veiculos !== 0 },
+                ] satisfies AcaoMenu[]}
+              />
             </div>
           </div>
         ))}
@@ -278,29 +246,8 @@ function FormProprietario({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
-    >
-      <div
-        className="my-8 w-full max-w-lg rounded-3xl bg-white p-6 shadow-lg sm:p-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <h2 className="text-2xl font-semibold text-slate-950">
-            {aEditar ? "Editar proprietário" : "Novo proprietário"}
-          </h2>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
-            onClick={onClose}
-            type="button"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+    <Modal onClose={onClose} titulo={aEditar ? "Editar proprietário" : "Novo proprietário"} maxWidth="max-w-lg">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <label className={etiqueta}>
             <span>
               Nome <span className="text-red-600">*</span>
@@ -396,23 +343,14 @@ function FormProprietario({
           )}
 
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-            >
+            <Botao type="button" variante="secondary" tamanho="lg" className="flex-1" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={aGravar}
-              className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-            >
+            </Botao>
+            <Botao type="submit" tamanho="lg" className="flex-1" disabled={aGravar}>
               {aGravar ? "A gravar..." : aEditar ? "Guardar" : "Criar"}
-            </button>
+            </Botao>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
