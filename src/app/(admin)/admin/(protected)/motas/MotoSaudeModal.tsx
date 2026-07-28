@@ -11,7 +11,7 @@ import {
 } from "@/actions/frotaSaudeActions";
 import { dataBR } from "@/lib/datas";
 import { formatarPreco } from "@/lib/precos";
-import { Modal, Botao } from "@/components/ui";
+import { Modal, Botao, Badge, type BadgeTom } from "@/components/ui";
 
 const campo =
   "w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
@@ -50,15 +50,9 @@ const diasEntre = (iso: string) =>
 /** Badge de validade do seguro pela data_fim. */
 function BadgeSeguro({ dataFim }: { dataFim: string }) {
   const d = diasEntre(dataFim);
-  if (d < 0)
-    return <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">expirado</span>;
-  if (d <= 30)
-    return (
-      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-        expira em {d} dia{d === 1 ? "" : "s"}
-      </span>
-    );
-  return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">válido</span>;
+  if (d < 0) return <Badge tom="danger">expirado</Badge>;
+  if (d <= 30) return <Badge tom="warning">expira em {d} dia{d === 1 ? "" : "s"}</Badge>;
+  return <Badge tom="success">válido</Badge>;
 }
 
 /** Badge de "está a chegar" para manutenção, por km e/ou data. */
@@ -79,8 +73,8 @@ function BadgeManut({ m, kmAtual }: { m: Manutencao; kmAtual: number | null }) {
     partes.push(d < 0 ? `atrasada ${-d} d` : `em ${d} d`);
   }
   if (!partes.length) return null;
-  const cor = urgente ? "bg-red-100 text-red-700" : aviso ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${cor}`}>{partes.join(" · ")}</span>;
+  const tom: BadgeTom = urgente ? "danger" : aviso ? "warning" : "neutral";
+  return <Badge tom={tom}>{partes.join(" · ")}</Badge>;
 }
 
 export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose: () => void }) {
@@ -191,7 +185,7 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium text-slate-900">{s.seguradora ?? "Seguradora ?"}</span>
                       {s.estado === "ativa" ? <BadgeSeguro dataFim={s.data_fim} /> : (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{s.estado}</span>
+                        <Badge tom="neutral">{s.estado}</Badge>
                       )}
                     </div>
                     <p className="text-xs text-slate-500">

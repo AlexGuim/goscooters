@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { perguntar } from "@/actions/chatActions";
+import { Botao, campo } from "@/components/ui";
 
 interface Msg {
   de: "user" | "ia";
@@ -59,7 +60,7 @@ export default function AssistenteChat() {
             <div key={i} className={`flex ${m.de === "user" ? "justify-end" : "justify-start"}`}>
               <div
                 className={`max-w-[85%] rounded-3xl p-4 shadow-sm ${
-                  m.de === "user" ? "bg-emerald-600 text-white" : "bg-white text-slate-800"
+                  m.de === "user" ? "bg-slate-950 text-slate-50" : "bg-white text-slate-800"
                 }`}
               >
                 <p className="whitespace-pre-wrap text-sm">{m.texto}</p>
@@ -76,18 +77,14 @@ export default function AssistenteChat() {
 
       <form onSubmit={enviar} className="flex gap-2">
         <input
-          className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-emerald-500"
+          className={`${campo} flex-1`}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Faz uma pergunta…"
         />
-        <button
-          type="submit"
-          disabled={aPensar || !input.trim()}
-          className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-        >
+        <Botao type="submit" tamanho="lg" disabled={aPensar || !input.trim()}>
           Perguntar
-        </button>
+        </Botao>
       </form>
       <p className="text-xs text-slate-400">
         Responde sobre dívidas e atrasos, receita esperada, seguros a expirar, manutenção a vencer, quem tinha uma moto numa data e despesas. Só leitura.
