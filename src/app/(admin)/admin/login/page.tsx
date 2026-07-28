@@ -3,6 +3,7 @@
 import { Suspense, useActionState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseClient";
+import { Logo } from "@/components/Logo";
 import ErroDoCallback from "./ErroDoCallback";
 
 type State = {
@@ -77,8 +78,10 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-xl rounded-3xl bg-white p-8 shadow-sm">
         <div className="space-y-8">
           <div className="text-center">
-            <h1 className="text-3xl font-semibold text-slate-950">Administração</h1>
-            <p className="mt-2 text-slate-600">Acesso restrito</p>
+            <div className="flex justify-center">
+              <Logo />
+            </div>
+            <p className="mt-3 text-sm text-slate-500">Administração · acesso restrito</p>
           </div>
 
           <Suspense fallback={null}>
@@ -89,7 +92,7 @@ export default function AdminLoginPage() {
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">Email</span>
               <input
-                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500"
                 type="email"
                 name="email"
                 required
@@ -100,7 +103,7 @@ export default function AdminLoginPage() {
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">Password</span>
               <input
-                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500"
                 type="password"
                 name="password"
                 required
@@ -115,7 +118,7 @@ export default function AdminLoginPage() {
             )}
 
             <button
-              className="w-full rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+              className="w-full rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-600 disabled:opacity-50"
               type="submit"
               disabled={isPending}
             >
@@ -130,7 +133,7 @@ export default function AdminLoginPage() {
             </p>
             <form action={recoveryAction} className="mt-4 space-y-4">
               <input
-                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500"
                 type="email"
                 name="recoveryEmail"
                 required
@@ -147,7 +150,7 @@ export default function AdminLoginPage() {
                 </div>
               )}
               <button
-                className="w-full rounded-3xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                className="w-full rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-slate-50 transition hover:bg-slate-900 disabled:opacity-50"
                 type="submit"
                 disabled={isRecoveryPending}
               >

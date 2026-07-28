@@ -2,6 +2,7 @@ import NavAdmin from "./NavAdmin";
 import { requireAdmin } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import LogoutButton from "./LogoutButton";
+import { Logo } from "@/components/Logo";
 
 /**
  * Layout das páginas protegidas da administração.
@@ -33,9 +34,12 @@ export default async function ProtectedAdminLayout({
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-950">Administração</h1>
-              <p className="text-sm text-slate-600">{user.email}</p>
+            <div className="flex items-center gap-3">
+              <Logo />
+              <div className="hidden border-l border-slate-200 pl-3 sm:block">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Administração</p>
+                <p className="text-xs text-slate-600">{user.email}</p>
+              </div>
             </div>
             <div className="flex items-center gap-4">
               <NavAdmin naoLidas={naoLidas} />

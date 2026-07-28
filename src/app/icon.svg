@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="GoScooters">
-  <rect width="512" height="512" rx="112" fill="#1f2933"/>
+  <rect width="512" height="512" rx="112" fill="#12181b"/>
   <text x="50%" y="52%"
         text-anchor="middle" dominant-baseline="central"
         font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
         font-size="248" font-weight="700" letter-spacing="-6">
-    <tspan fill="#84cc16">G</tspan><tspan fill="#ffffff">S</tspan>
+    <tspan fill="#8cce12">G</tspan><tspan fill="#f5f3ee">S</tspan>
   </text>
 </svg>
