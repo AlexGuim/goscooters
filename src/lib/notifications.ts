@@ -106,6 +106,28 @@ async function enviarTelegram(p: NovoPedidoNotificacao): Promise<void> {
 }
 
 /**
+ * Envia uma mensagem de texto simples ao Telegram do gestor (canal de alertas).
+ * Best-effort: devolve false e não lança se não estiver configurado ou falhar.
+ */
+export async function enviarTelegramTexto(texto: string): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return false;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: "Markdown" }),
+    });
+    if (!r.ok) console.error("[telegram] resposta", r.status);
+    return r.ok;
+  } catch (e) {
+    console.error("[telegram] falha:", e);
+    return false;
+  }
+}
+
+/**
  * Dispara os dois canais em paralelo. Usa allSettled de propósito: um canal
  * avariado não deve impedir o outro de entregar o aviso.
  */
