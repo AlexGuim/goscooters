@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Inter, IBM_Plex_Mono } from "next/font/google";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { getDicionario } from "@/lib/dictionaries";
 import { LOCALES, TAGS_HTML, isLocale, type Locale } from "@/lib/i18n";
 import "../globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const display = Archivo({ variable: "--ff-display", subsets: ["latin"], weight: ["600", "700", "800"], display: "swap" });
+const ui = Inter({ variable: "--ff-ui", subsets: ["latin"], display: "swap" });
+const mono = IBM_Plex_Mono({ variable: "--ff-mono", subsets: ["latin"], weight: ["400", "500"], display: "swap" });
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -63,7 +64,7 @@ export default async function LangLayout({ children, params }: LayoutProps) {
   return (
     <html
       lang={TAGS_HTML[locale]}
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${display.variable} ${ui.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         <div className="flex min-h-screen flex-col bg-slate-50">

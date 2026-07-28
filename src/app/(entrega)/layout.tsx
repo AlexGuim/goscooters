@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Inter, IBM_Plex_Mono } from "next/font/google";
 import "../globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const display = Archivo({ variable: "--ff-display", subsets: ["latin"], weight: ["600", "700", "800"], display: "swap" });
+const ui = Inter({ variable: "--ff-ui", subsets: ["latin"], display: "swap" });
+const mono = IBM_Plex_Mono({ variable: "--ff-mono", subsets: ["latin"], weight: ["400", "500"], display: "swap" });
 
 export const metadata: Metadata = {
   title: "GoScooters",
@@ -20,7 +21,7 @@ export default function EntregaRootLayout({
   return (
     <html
       lang="pt-PT"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${display.variable} ${ui.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-slate-50">{children}</body>
     </html>

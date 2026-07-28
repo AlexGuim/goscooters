@@ -1,15 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Inter, IBM_Plex_Mono } from "next/font/google";
 import "../globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Identidade "Asfalto & Volt": Archivo (display/títulos/nav), Inter (UI/corpo,
+// cobertura multilingue + algarismos tabulares), IBM Plex Mono (IDs/valores).
+const display = Archivo({
+  variable: "--ff-display",
   subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  display: "swap",
 });
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const ui = Inter({ variable: "--ff-ui", subsets: ["latin"], display: "swap" });
+const mono = IBM_Plex_Mono({
+  variable: "--ff-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -33,7 +39,7 @@ export default function AdminRootLayout({
   return (
     <html
       lang="pt-PT"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${display.variable} ${ui.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

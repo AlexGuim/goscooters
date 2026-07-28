@@ -1,44 +1,64 @@
 @import "tailwindcss";
 
-/* Paleta GoScooters — migrada de tailwind.config.cjs (Tailwind v4 já não lê ficheiros
-   de config JS; o tema vive aqui). Os nomes "emerald" e "slate" são mantidos porque os
-   componentes já os usam por todo o lado; os valores é que passam a ser os da marca. */
+/* Paleta GoScooters — "Asfalto & Volt". O tema vive aqui (Tailwind v4 já não lê
+   config JS). Os nomes "emerald"/"slate" mantêm-se porque os componentes já os
+   usam por todo o lado; os VALORES é que passam a ser os da marca. Direção:
+   interface ink-first, neutros QUENTES (calçada de Lisboa), lima como acento. */
 @theme {
-  /* Verde-lima da marca (substitui o emerald por omissão) */
-  --color-emerald-50: #f7fbe8;
-  --color-emerald-100: #f0f7d0;
-  --color-emerald-200: #e0f09f;
-  --color-emerald-500: #84cc16;
+  /* Verde-lima da marca (o "emerald" da app) — vibrante, papel de acento */
+  --color-emerald-50: #f5fae6;
+  --color-emerald-100: #eaf6cc;
+  --color-emerald-200: #d8ef9c;
+  --color-emerald-500: #8cce12;
   --color-emerald-600: #6fb012;
-  --color-emerald-700: #5a900e;
+  --color-emerald-700: #4d7c0f;
 
-  /* Neutros adaptados ao charcoal da marca */
-  --color-slate-50: #f5f7fa;
-  --color-slate-100: #eef2f6;
-  --color-slate-200: #e6ebef;
-  --color-slate-300: #cfd8df;
-  --color-slate-500: #8b98a1;
-  --color-slate-600: #52606d;
-  --color-slate-700: #3b4650;
+  /* Neutros QUENTES ("Calçada" — calcário urbano de Lisboa), com o extremo
+     escuro em asfalto para profundidade. Fim do azul-frio genérico do SaaS. */
+  --color-slate-50: #f5f3ee;
+  --color-slate-100: #edeae2;
+  --color-slate-200: #e4dfd4;
+  --color-slate-300: #d0cabd;
+  --color-slate-500: #6f6c64;
+  --color-slate-600: #4c4a44;
+  --color-slate-700: #383630;
   --color-slate-900: #1f2933;
-  --color-slate-950: #1f2933;
+  --color-slate-950: #12181b;
 
-  /* Aliases explícitos da marca */
+  /* Aliases e acentos explícitos da marca */
   --color-brand-lime: #84cc16;
+  --color-volt: #9ae600;       /* acento elétrico (estados ativos, focus) */
+  --color-volt-deep: #4d7c0f;  /* lima profundo — texto sobre claro (passa contraste) */
+  --color-azulejo: #1b4f8a;    /* secundária de confiança — finanças, links, dados */
+  --color-asfalto: #12181b;    /* ink dominante */
   --color-charcoal: #1f2933;
   --color-dark-green: #1a2e05;
-  --color-mid-gray: #52606d;
+  --color-mid-gray: #6f6c64;
 
-  /* Tipografia — ligada às fontes carregadas em layout.tsx */
-  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* Tipografia — Archivo (display) + Inter (UI) + IBM Plex Mono, via layout.tsx */
+  --font-sans: var(--ff-ui), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--ff-display), var(--ff-ui), system-ui, sans-serif;
+  --font-mono: var(--ff-mono), ui-monospace, monospace;
 }
 
 @layer base {
   html,
   body {
-    background-color: #ffffff;
-    color: var(--color-charcoal);
+    background-color: #f5f3ee; /* Calçada — papel quente em vez de branco puro */
+    color: var(--color-slate-950);
     font-family: var(--font-sans);
+  }
+  /* O dinheiro e os títulos são o herói: display grotesca (Archivo) e tracking
+     apertado. Aplica-se a todos os títulos da app sem tocar nos componentes. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  /* Algarismos tabulares por omissão para dinheiro/tabelas alinharem. */
+  .tabular,
+  table {
+    font-variant-numeric: tabular-nums;
   }
 }
