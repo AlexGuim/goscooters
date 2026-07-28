@@ -11,7 +11,7 @@ import type {
 import { createMoto, updateMoto } from "@/actions/motoActions";
 import { deleteFotoMoto } from "@/actions/fotoActions";
 import { enviarFoto, enviarVideo } from "@/lib/uploads";
-import { campo, etiqueta } from "@/components/ui";
+import { Botao, Modal, campo, etiqueta } from "@/components/ui";
 
 interface MotoFormProps {
   /** Mota a editar; ausente significa criar uma nova. */
@@ -29,8 +29,11 @@ const ESTADO_OP: { valor: EstadoOperacional; rotulo: string }[] = [
   { valor: "inativo", rotulo: "Inativo" },
 ];
 
-// `campo` e `etiqueta` canónicos vêm de @/components/ui (fim do drift — recupera
-// o text-sm que esta cópia tinha perdido).
+// Um só estado no formulário (o operacional) — o estado de catálogo (site) é
+// DERIVADO dele, para nunca divergirem (o mesmo casamento do seletor da lista).
+function catalogoDe(op: EstadoOperacional): MotoEstado {
+  return op === "ocupado" ? "alugada" : op === "manutencao" ? "manutencao" : "disponivel";
+}
 
 export default function MotoForm({
   moto,
@@ -126,6 +129,9 @@ export default function MotoForm({
     };
 
     const ativo = dados.get("ativo") === "on";
+    const estadoOperacional = String(
+      dados.get("estado_operacional") ?? "disponivel",
+    ) as EstadoOperacional;
 
     const valores = {
       modelo: String(dados.get("modelo") ?? "").trim(),
@@ -141,10 +147,8 @@ export default function MotoForm({
       preco_dia: precoDia,
       preco_semana: precoSemana,
       preco_mes: precoMes,
-      estado: String(dados.get("estado") ?? "disponivel") as MotoEstado,
-      estado_operacional: String(
-        dados.get("estado_operacional") ?? "disponivel",
-      ) as EstadoOperacional,
+      estado: catalogoDe(estadoOperacional),
+      estado_operacional: estadoOperacional,
       disponivel_em: String(dados.get("disponivel_em") ?? "") || null,
       descricao: String(dados.get("descricao") ?? "").trim() || null,
       ativo,
@@ -194,29 +198,8 @@ export default function MotoForm({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
-    >
-      <div
-        className="my-8 w-full max-w-2xl rounded-3xl bg-white p-6 shadow-lg sm:p-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <h2 className="text-2xl font-semibold text-slate-950">
-            {aEditar ? "Editar mota" : "Nova mota"}
-          </h2>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-            onClick={onClose}
-            aria-label="Fechar"
-            type="button"
-          >
-            ×
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+    <Modal onClose={onClose} titulo={aEditar ? "Editar mota" : "Nova mota"} maxWidth="max-w-2xl">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <label className={etiqueta}>
             <span>
               Modelo <span className="text-red-600">*</span>
@@ -315,7 +298,7 @@ export default function MotoForm({
               </select>
             </label>
             <label className={etiqueta}>
-              <span>Estado operacional</span>
+              <span>Estado</span>
               <select
                 className={campo}
                 name="estado_operacional"
@@ -393,29 +376,15 @@ export default function MotoForm({
             </div>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-2">
-            <label className={etiqueta}>
-              <span>Estado</span>
-              <select
-                className={campo}
-                name="estado"
-                defaultValue={moto?.estado ?? "disponivel"}
-              >
-                <option value="disponivel">Disponível</option>
-                <option value="alugada">Alugada</option>
-                <option value="manutencao">Manutenção</option>
-              </select>
-            </label>
-            <label className={etiqueta}>
-              <span>Disponível a partir de</span>
-              <input
-                className={campo}
-                name="disponivel_em"
-                type="date"
-                defaultValue={moto?.disponivel_em ?? ""}
-              />
-            </label>
-          </div>
+          <label className={etiqueta}>
+            <span>Disponível a partir de</span>
+            <input
+              className={campo}
+              name="disponivel_em"
+              type="date"
+              defaultValue={moto?.disponivel_em ?? ""}
+            />
+          </label>
 
           <label className={etiqueta}>
             <span>Descrição</span>
@@ -537,23 +506,19 @@ export default function MotoForm({
           )}
 
           <div className="flex flex-col gap-3 pt-2 sm:flex-row-reverse">
-            <button
-              className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            <Botao
               type="submit"
+              tamanho="lg"
+              className="flex-1"
               disabled={aGravar || aCarregarFoto || aCarregarVideo}
             >
               {aGravar ? "A gravar..." : aEditar ? "Guardar alterações" : "Criar mota"}
-            </button>
-            <button
-              className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-              type="button"
-              onClick={onClose}
-            >
+            </Botao>
+            <Botao type="button" variante="secondary" tamanho="lg" className="flex-1" onClick={onClose}>
               Cancelar
-            </button>
+            </Botao>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
