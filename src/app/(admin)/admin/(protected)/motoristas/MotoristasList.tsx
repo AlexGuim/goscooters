@@ -17,7 +17,8 @@ import {
   type MotoristaEditavel,
 } from "@/actions/motoristaActions";
 import { validarIdentidadeMotorista } from "@/actions/notificacaoActions";
-import { urlAssinado } from "@/actions/fotoActions";
+import { urlAssinado, lerDocumentoIA } from "@/actions/fotoActions";
+import { enviarFotoPrivada } from "@/lib/uploads";
 
 export interface MotoristaComAvaliacoes extends Motorista {
   avaliacoes: Avaliacao[];
@@ -802,9 +803,11 @@ function FichaKYC({
 }
 
 /**
- * Carregar documento (CC/passaporte) → OCR (MRZ) → pré-preenche os campos do
- * formulário-pai (por `name`). Reutilizado no CRIAR e no EDITAR da ficha. Só
- * preenche os campos que existem nesse formulário; nunca grava — o admin confirma.
+ * Carregar documentos (identificação + carta de condução; morada opcional) e a IA
+ * preenche a ficha. Aceita VÁRIOS ficheiros de uma vez (frente e verso). Usa o
+ * Gemini (lê ID + carta + NIF de várias imagens); sem Gemini configurado, recorre
+ * ao OCR da MRZ no browser (só o documento de identidade). Reutilizado no CRIAR e
+ * no EDITAR — só preenche os campos que existem nesse formulário; nunca grava.
  */
 function LeitorDocumento({ formRef }: { formRef: React.RefObject<HTMLFormElement | null> }) {
   // Campos preenchidos pela ÚLTIMA leitura — só estes se limpam antes de uma nova
@@ -813,43 +816,96 @@ function LeitorDocumento({ formRef }: { formRef: React.RefObject<HTMLFormElement
   const [aLer, setALer] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
-  const ler = async (file: File | undefined) => {
-    if (!file) return;
+  const ler = async (fileList: FileList | null) => {
+    const ficheiros = fileList ? Array.from(fileList) : [];
+    if (!ficheiros.length) return;
     const form = formRef.current;
     if (!form) return;
     setALer(true);
-    setStatus("A ler o documento…");
+
+    // Limpa só o que a leitura anterior preencheu.
     for (const name of autoRef.current) {
       const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
       if (el) el.value = "";
     }
     autoRef.current.clear();
+
+    const preencher = (name: string, valor: string | null | undefined) => {
+      if (!valor) return false;
+      const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (!el) return false;
+      el.value = valor;
+      autoRef.current.add(name);
+      return true;
+    };
+
     try {
-      const texto = await ocrFicheiro(file, (fase, pct) => setStatus(`${fase} ${pct}%`));
-      const d = interpretarDocumento(texto);
-      const set = (name: string, valor: string | null | undefined) => {
-        if (!valor) return false;
-        const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
-        if (!el) return false;
-        el.value = valor;
-        autoRef.current.add(name);
-        return true;
-      };
-      const preenchidos: string[] = [];
-      if (set("nome", d.nome)) preenchidos.push("nome");
-      if (set("data_nascimento", d.nascimento)) preenchidos.push("nascimento");
-      if (set("doc_id_numero", d.numero)) preenchidos.push("nº do documento");
-      if (set("doc_id_validade", d.validade)) preenchidos.push("validade");
-      if (set("doc_id_tipo", d.tipo)) preenchidos.push("tipo");
-      if (set("pais_iso", iso3ParaIso2(d.nacionalidade))) preenchidos.push("país");
+      // 1) Carrega os ficheiros para o bucket privado (KYC) e junta os caminhos.
+      setStatus(`A carregar ${ficheiros.length} ficheiro(s)…`);
+      const paths: string[] = [];
+      for (const f of ficheiros) {
+        const up = await enviarFotoPrivada(f);
+        if (up.success && up.path) paths.push(up.path);
+      }
+
+      // 2) IA (Gemini): lê identidade + carta a partir de todas as imagens.
+      if (paths.length) {
+        setStatus("A ler com a IA…");
+        const r = await lerDocumentoIA(paths);
+        if (r.ok && r.dados) {
+          const d = r.dados;
+          const feitos: string[] = [];
+          if (preencher("nome", d.nome)) feitos.push("nome");
+          if (preencher("nif", d.nif)) feitos.push("NIF");
+          if (preencher("data_nascimento", d.data_nascimento)) feitos.push("nascimento");
+          if (preencher("doc_id_tipo", d.doc_id_tipo)) feitos.push("tipo doc");
+          if (preencher("doc_id_numero", d.doc_id_numero)) feitos.push("nº doc");
+          if (preencher("doc_id_validade", d.doc_id_validade)) feitos.push("validade doc");
+          if (preencher("pais_iso", d.nacionalidade_iso2)) feitos.push("país");
+          if (preencher("carta_numero", d.carta_numero)) feitos.push("nº carta");
+          if (preencher("carta_categoria", d.carta_categoria)) feitos.push("categoria carta");
+          if (preencher("carta_pais", d.carta_pais)) feitos.push("país carta");
+          if (preencher("carta_validade", d.carta_validade)) feitos.push("validade carta");
+          setStatus(
+            feitos.length
+              ? `Preenchido: ${feitos.join(", ")}. Confirma tudo. A morada preenche-se à mão.`
+              : "Li os documentos mas não extraí campos — preenche à mão.",
+          );
+          return;
+        }
+        if (!r.semIA) {
+          setStatus(r.error ?? "Não consegui ler os documentos. Preenche à mão.");
+          return;
+        }
+        // r.semIA → cai para o OCR do browser abaixo.
+      }
+
+      // 3) Fallback (sem Gemini): OCR da MRZ no browser, só o documento de identidade.
+      setStatus("A ler o documento de identidade (OCR)…");
+      let algum = false;
+      for (const f of ficheiros) {
+        const texto = await ocrFicheiro(f);
+        const d = interpretarDocumento(texto);
+        const feitos: string[] = [];
+        if (preencher("nome", d.nome)) feitos.push("nome");
+        if (preencher("data_nascimento", d.nascimento)) feitos.push("nascimento");
+        if (preencher("doc_id_numero", d.numero)) feitos.push("nº doc");
+        if (preencher("doc_id_validade", d.validade)) feitos.push("validade");
+        if (preencher("doc_id_tipo", d.tipo)) feitos.push("tipo");
+        if (preencher("pais_iso", iso3ParaIso2(d.nacionalidade))) feitos.push("país");
+        if (feitos.length) {
+          algum = true;
+          break; // a MRZ costuma estar num dos lados — basta o que a tiver.
+        }
+      }
       setStatus(
-        preenchidos.length
-          ? `Preenchido: ${preenchidos.join(", ")}. Confirma tudo — o NIF não vem do documento.`
-          : "Não consegui ler a zona MRZ. Tenta uma foto mais nítida ou preenche à mão.",
+        algum
+          ? "Preenchido pelo OCR. Confirma — a carta e o NIF não vêm do OCR."
+          : "Não consegui ler. Tenta fotos mais nítidas ou preenche à mão.",
       );
     } catch (err) {
-      console.error("OCR do documento falhou:", err);
-      setStatus("Erro ao ler o documento. Preenche à mão.");
+      console.error("Leitor de documento falhou:", err);
+      setStatus("Erro ao ler os documentos. Preenche à mão.");
     } finally {
       setALer(false);
     }
@@ -860,13 +916,18 @@ function LeitorDocumento({ formRef }: { formRef: React.RefObject<HTMLFormElement
       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50">
         <input
           type="file"
-          accept="image/*,application/pdf"
+          accept="image/jpeg,image/png,image/webp"
+          multiple
           className="hidden"
           disabled={aLer}
-          onChange={(e) => ler(e.target.files?.[0])}
+          onChange={(e) => ler(e.target.files)}
         />
-        {aLer ? "A ler…" : "📷 Ler documento (CC / passaporte) — a IA preenche"}
+        {aLer ? "A processar…" : "📷 Ler documentos — a IA preenche a ficha"}
       </label>
+      <p className="text-[11px] leading-snug text-slate-500">
+        Junta vários (frente e verso). <strong>Identificação</strong> e <strong>carta de condução</strong>{" "}
+        obrigatórios; <strong>comprovativo de morada</strong> opcional. Confirma sempre os dados.
+      </p>
       {status && <p className="text-xs text-slate-600">{status}</p>}
     </div>
   );
