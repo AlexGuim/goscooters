@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import type { Acerto, AcertoEstado, AcertoLinha, Proprietario } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
+import { Botao, Badge, classesBotao, type BadgeTom } from "@/components/ui";
 import {
   calcularAcerto,
   fecharAcerto,
@@ -15,11 +16,11 @@ export interface AcertoComLinhas extends Acerto {
   linhas: (AcertoLinha & { documento_url?: string | null })[];
 }
 
-const ESTADO_COR: Record<AcertoEstado, string> = {
-  rascunho: "bg-slate-100 text-slate-600",
-  fechado: "bg-amber-100 text-amber-800",
-  pago: "bg-emerald-100 text-emerald-700",
-  parcial: "bg-blue-100 text-blue-700",
+const ESTADO_TOM: Record<AcertoEstado, BadgeTom> = {
+  rascunho: "neutral",
+  fechado: "warning",
+  pago: "success",
+  parcial: "info",
 };
 
 const mesAnterior = () => {
@@ -166,13 +167,9 @@ export default function AcertosList({
               onChange={(e) => { setAte(e.target.value); setPreview(null); }}
             />
           </label>
-          <button
-            onClick={handleCalcular}
-            disabled={aCalcular || !donoId}
-            className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-          >
+          <Botao tamanho="lg" onClick={handleCalcular} disabled={aCalcular || !donoId}>
             {aCalcular ? "A calcular..." : "Calcular"}
-          </button>
+          </Botao>
         </div>
         <p className="mt-2 text-xs text-slate-500">
           <strong>Mês</strong> = mês contabilístico (define as despesas). <strong>De/Até</strong>{" "}
@@ -222,13 +219,9 @@ export default function AcertosList({
               </details>
             )}
 
-            <button
-              onClick={handleFechar}
-              disabled={aFechar}
-              className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-            >
+            <Botao variante="volt" tamanho="lg" onClick={handleFechar} disabled={aFechar}>
               {aFechar ? "A fechar..." : "Fechar acerto (congelar)"}
-            </button>
+            </Botao>
           </div>
         )}
       </div>
@@ -251,9 +244,7 @@ export default function AcertosList({
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-slate-950">{a.proprietario_nome}</p>
                     <span className="text-sm text-slate-500">{nomeMes(a.competencia_mes)}</span>
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ESTADO_COR[a.estado]}`}>
-                      {a.estado}
-                    </span>
+                    <Badge tom={ESTADO_TOM[a.estado]}>{a.estado}</Badge>
                   </div>
                   <p className="text-xs text-slate-500">
                     Receita {formatarPreco(a.receita_total)} · Comissão {formatarPreco(a.comissao_total)} · Despesas {formatarPreco(a.despesa_total)}
@@ -273,7 +264,7 @@ export default function AcertosList({
                     <span
                       role="button"
                       onClick={(e) => { e.stopPropagation(); handlePago(a); }}
-                      className="rounded-2xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                      className={classesBotao("primary", "sm")}
                     >
                       Marcar pago
                     </span>

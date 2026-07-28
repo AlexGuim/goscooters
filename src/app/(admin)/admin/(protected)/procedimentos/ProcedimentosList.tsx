@@ -12,7 +12,10 @@ import {
   atualizarProcedimento,
   apagarProcedimento,
 } from "@/actions/procedimentoActions";
+import { Botao } from "@/components/ui";
 
+// Controlo inline compacto (linha densa) — não é o `campo` de formulário do
+// design system, que é w-full e maior; mantém-se local por isso.
 const campo =
   "rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 
@@ -173,14 +176,12 @@ export default function ProcedimentosList({ inicial }: { inicial: Procedimento[]
             </label>
           </div>
           <div className="flex gap-3">
-            <button type="submit" className="rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700">Criar</button>
-            <button type="button" onClick={() => setACriar(false)} className="rounded-2xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancelar</button>
+            <Botao type="submit">Criar</Botao>
+            <Botao type="button" variante="secondary" onClick={() => setACriar(false)}>Cancelar</Botao>
           </div>
         </form>
       ) : (
-        <button onClick={() => setACriar(true)} className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
-          + Novo procedimento
-        </button>
+        <Botao tamanho="lg" onClick={() => setACriar(true)}>+ Novo procedimento</Botao>
       )}
 
       <p className="text-xs text-slate-400">
