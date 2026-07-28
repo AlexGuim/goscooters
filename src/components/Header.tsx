@@ -1,14 +1,13 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import SeletorIdioma from "./SeletorIdioma";
+import { Logo } from "@/components/Logo";
 import type { Dicionario, Locale } from "@/lib/i18n";
 
 /**
- * Cabeçalho do site público.
- *
- * A marca é composta tipograficamente em vez de usar Logo_goscooters.png: esse
- * ficheiro tem fundo cinzento opaco e formato quadrado, o que num cabeçalho
- * apareceria como uma caixa cinza sobre o escuro.
+ * Cabeçalho do site público. Usa o logótipo GoScooters (componente <Logo>) na
+ * variante `onDark`, para bater certo com o admin e o portal — uma só marca em
+ * toda a plataforma.
  */
 export default function Header({
   locale,
@@ -22,10 +21,8 @@ export default function Header({
   return (
     <header className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-        <Link href={`/${locale}`} className="flex items-center gap-2">
-          <span className="text-xl font-extrabold uppercase italic tracking-tight text-white sm:text-2xl">
-            <span className="text-emerald-500">Go</span>Scooters
-          </span>
+        <Link href={`/${locale}`} className="flex items-center gap-2.5">
+          <Logo onDark />
           <span className="hidden rounded-full border border-white/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/70 sm:inline">
             Lisboa
           </span>

@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
+import { Logo } from "@/components/Logo";
+import NavPortal from "./NavPortal";
 import SairPortal from "./SairPortal";
 
 /**
@@ -15,16 +16,17 @@ export default async function PortalProtegidoLayout({
     <div className="flex min-h-full flex-col">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
-          <div>
-            <p className="text-lg font-semibold text-slate-950">GoScooters</p>
-            <p className="text-xs text-slate-500">Portal do parceiro · {parceiro.nome}</p>
+          <div className="flex items-center gap-3">
+            <Logo />
+            <div className="hidden border-l border-slate-200 pl-3 sm:block">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Portal do parceiro
+              </p>
+              <p className="text-xs text-slate-600">{parceiro.nome}</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
-            <nav className="flex items-center gap-4 text-sm font-medium text-slate-600">
-              <Link href="/portal" className="hover:text-slate-900">Início</Link>
-              <Link href="/portal/acertos" className="hover:text-slate-900">Acertos</Link>
-              <Link href="/portal/palavra-passe" className="hover:text-slate-900">Palavra-passe</Link>
-            </nav>
+            <NavPortal />
             <SairPortal />
           </div>
         </div>

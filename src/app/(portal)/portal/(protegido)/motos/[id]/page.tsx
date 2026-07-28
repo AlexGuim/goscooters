@@ -75,9 +75,9 @@ export default async function PortalMotoHistorico({
 
 function Kpi({ rotulo, valor, cor }: { rotulo: string; valor: string; cor: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs text-slate-500">{rotulo}</p>
-      <p className={`mt-1 text-lg font-bold ${cor}`}>{valor}</p>
+      <p className={`mt-1 text-lg font-bold tabular-nums ${cor}`}>{valor}</p>
     </div>
   );
 }

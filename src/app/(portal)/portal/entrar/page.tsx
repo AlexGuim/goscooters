@@ -3,6 +3,8 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseClient";
+import { Logo } from "@/components/Logo";
+import { Botao, campo } from "@/components/ui";
 
 type State = { error?: string; success?: string };
 
@@ -54,52 +56,38 @@ export default function EntrarPortalPage() {
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-sm">
         <div className="text-center">
-          <h1 className="text-3xl font-semibold text-slate-950">Portal do parceiro</h1>
-          <p className="mt-2 text-slate-600">Entra com o teu email e palavra-passe.</p>
+          <div className="flex justify-center">
+            <Logo />
+          </div>
+          <p className="mt-3 text-sm text-slate-500">Portal do parceiro · acesso restrito</p>
         </div>
 
         <form action={formAction} className="mt-8 space-y-5">
-          <label className="block space-y-2">
+          <label className="block space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Email</span>
-            <input
-              className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
-              type="email"
-              name="email"
-              required
-              placeholder="teu@email.com"
-            />
+            <input className={campo} type="email" name="email" required placeholder="teu@email.com" />
           </label>
-          <label className="block space-y-2">
+          <label className="block space-y-1.5">
             <span className="text-sm font-medium text-slate-700">Palavra-passe</span>
-            <input
-              className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
-              type="password"
-              name="password"
-              required
-              placeholder="••••••••"
-            />
+            <input className={campo} type="password" name="password" required placeholder="••••••••" />
           </label>
 
           {state?.error && (
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-4">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
               <p className="text-sm text-red-700">{state.error}</p>
             </div>
           )}
 
-          <button
-            className="w-full rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-            type="submit"
-            disabled={isPending}
-          >
+          <Botao variante="volt" className="w-full" type="submit" disabled={isPending}>
             {isPending ? "A entrar..." : "Entrar"}
-          </button>
+          </Botao>
         </form>
 
         <div className="mt-6 border-t border-slate-100 pt-6">
           {!mostrarLink ? (
             <button
               onClick={() => setMostrarLink(true)}
-              className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+              className="text-sm font-medium text-emerald-700 hover:text-emerald-600"
             >
               Não tens palavra-passe? Entra por link no email
             </button>
@@ -108,28 +96,18 @@ export default function EntrarPortalPage() {
               <p className="text-sm text-slate-600">
                 Enviamos-te um link de acesso. Depois de entrares, define uma palavra-passe.
               </p>
-              <input
-                className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
-                type="email"
-                name="emailLink"
-                required
-                placeholder="teu@email.com"
-              />
+              <input className={campo} type="email" name="emailLink" required placeholder="teu@email.com" />
               {linkState?.error && <p className="text-sm text-amber-800">{linkState.error}</p>}
               {linkState?.success && <p className="text-sm text-emerald-700">{linkState.success}</p>}
-              <button
-                className="w-full rounded-3xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                type="submit"
-                disabled={isLinkPending}
-              >
+              <Botao variante="primary" className="w-full" type="submit" disabled={isLinkPending}>
                 {isLinkPending ? "A enviar..." : "Enviar link de acesso"}
-              </button>
+              </Botao>
             </form>
           )}
         </div>
 
         <div className="mt-6 text-center text-sm text-slate-500">
-          <Link className="font-medium text-emerald-600 hover:text-emerald-700" href="/">
+          <Link className="font-medium text-emerald-700 hover:text-emerald-600" href="/">
             Voltar ao site
           </Link>
         </div>

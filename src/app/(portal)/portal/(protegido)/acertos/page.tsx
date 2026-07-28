@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { acertosDoParceiro } from "@/lib/portal/queries";
 import { formatarPreco } from "@/lib/precos";
+import { Badge } from "@/components/ui";
 
 function nomeMes(competencia: string): string {
   const [ano, mes] = competencia.slice(0, 7).split("-");
@@ -36,19 +37,19 @@ export default async function PortalAcertosPage() {
               <Link
                 key={a.id}
                 href={`/portal/acertos/${a.id}`}
-                className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5 transition hover:bg-slate-50"
+                className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
               >
-                <div>
+                <div className="flex items-center gap-3">
                   <p className="font-semibold text-slate-950">{nomeMes(a.competencia_mes)}</p>
-                  <p className="text-xs text-slate-500">
+                  <Badge tom={a.estado === "pago" ? "success" : "neutral"}>
                     {a.estado === "pago" ? "Pago" : "Fechado"}
-                  </p>
+                  </Badge>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-slate-500">
                     {aReceber ? "A receber" : "A pagar à GoScooters"}
                   </p>
-                  <p className={`text-lg font-bold ${aReceber ? "text-emerald-700" : "text-red-600"}`}>
+                  <p className={`text-lg font-bold tabular-nums ${aReceber ? "text-emerald-700" : "text-red-600"}`}>
                     {formatarPreco(Math.abs(liq))}
                   </p>
                 </div>

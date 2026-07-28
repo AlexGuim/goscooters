@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseClient";
+import { Botao, campo } from "@/components/ui";
 
 export default function DefinirPasswordPage() {
   const [pw, setPw] = useState("");
@@ -39,11 +40,11 @@ export default function DefinirPasswordPage() {
         </p>
       </div>
 
-      <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6">
-        <label className="block space-y-2">
+      <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <label className="block space-y-1.5">
           <span className="text-sm font-medium text-slate-700">Nova palavra-passe</span>
           <input
-            className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+            className={campo}
             type="password"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
@@ -54,13 +55,9 @@ export default function DefinirPasswordPage() {
         {erro && <p className="text-sm text-red-700">{erro}</p>}
         {ok && <p className="text-sm text-emerald-700">Palavra-passe atualizada. ✓</p>}
 
-        <button
-          onClick={gravar}
-          disabled={aGravar}
-          className="w-full rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-        >
+        <Botao variante="volt" className="w-full" onClick={gravar} disabled={aGravar}>
           {aGravar ? "A guardar..." : "Guardar palavra-passe"}
-        </button>
+        </Botao>
       </div>
     </div>
   );

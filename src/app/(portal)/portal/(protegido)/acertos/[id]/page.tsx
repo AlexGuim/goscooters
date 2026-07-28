@@ -4,6 +4,7 @@ import { requirePartner } from "@/lib/dal";
 import { acertoDoParceiro } from "@/lib/portal/queries";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
+import { Badge } from "@/components/ui";
 import ImprimirBotao from "./ImprimirBotao";
 
 function nomeMes(competencia: string): string {
@@ -41,12 +42,17 @@ export default async function PortalAcertoDetalhe({
       <div className="rounded-3xl border border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-950">
-              Acerto de {nomeMes(acerto.competencia_mes)}
-            </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold text-slate-950">
+                Acerto de {nomeMes(acerto.competencia_mes)}
+              </h1>
+              <Badge tom={acerto.estado === "pago" ? "success" : "neutral"}>
+                {acerto.estado === "pago" ? "Pago" : "Fechado"}
+              </Badge>
+            </div>
             <p className="text-sm text-slate-500">
-              {nome} · {acerto.estado === "pago" ? "Pago" : "Fechado"}
-              {acerto.fechado_em ? ` em ${dataBR(acerto.fechado_em)}` : ""}
+              {nome}
+              {acerto.fechado_em ? ` · fechado em ${dataBR(acerto.fechado_em)}` : ""}
             </p>
           </div>
         </div>

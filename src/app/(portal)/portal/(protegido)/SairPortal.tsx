@@ -1,6 +1,7 @@
 "use client";
 
 import { supabaseBrowser } from "@/lib/supabaseClient";
+import { classesBotao } from "@/components/ui";
 
 export default function SairPortal() {
   const sair = async () => {
@@ -8,10 +9,7 @@ export default function SairPortal() {
     window.location.href = "/portal/entrar";
   };
   return (
-    <button
-      onClick={sair}
-      className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-    >
+    <button onClick={sair} className={classesBotao("secondary", "sm")}>
       Sair
     </button>
   );
