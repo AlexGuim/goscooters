@@ -154,11 +154,13 @@ export interface GravarFaturaInput {
   data_vencimento: string | null;
   imputar_a: ImputarA;
   proprietario_id: string | null;
+  /** Motorista a quem o custo é imputado (portagem/coima). */
+  motorista_id?: string | null;
   fornecedor: string | null;
   referencia_externa: string | null;
   km: number | null;
   documento_url: string | null;
-  detalhe: FaturaCampos | null;
+  detalhe: FaturaCampos | Record<string, unknown> | null;
 }
 
 /**
@@ -221,6 +223,7 @@ export async function gravarDespesaDeFatura(
       estado_pagamento: "pendente",
       imputar_a: input.imputar_a,
       proprietario_id,
+      motorista_id: input.motorista_id ?? null,
       fornecedor,
       referencia_externa: referencia,
       origem: "ingestao",

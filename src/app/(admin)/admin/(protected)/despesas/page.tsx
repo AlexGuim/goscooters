@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/dal";
 import type { Despesa, Moto, Proprietario } from "@/types/db";
 import DespesasList, { type DespesaComNomes } from "./DespesasList";
 import ImportarFatura from "./ImportarFatura";
+import IntakeDocumento from "./IntakeDocumento";
 
 async function getDados(): Promise<{
   despesas: DespesaComNomes[];
@@ -47,7 +48,16 @@ export default async function DespesasAdminPage() {
         </p>
       </div>
 
-      <ImportarFatura motos={motos} />
+      <IntakeDocumento motos={motos} />
+
+      <details className="rounded-3xl bg-white p-6 shadow-sm">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+          Importar fatura sem IA (OCR/texto) — alternativa
+        </summary>
+        <div className="mt-4">
+          <ImportarFatura motos={motos} />
+        </div>
+      </details>
 
       <DespesasList inicial={despesas} motos={motos} proprietarios={proprietarios} />
     </div>

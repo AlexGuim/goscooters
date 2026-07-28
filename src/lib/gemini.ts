@@ -23,6 +23,42 @@ export interface CamposDocumento {
   carta_validade: string | null; // ISO
 }
 
+/**
+ * Documento genérico classificado pela IA (intake inteligente). A IA decide o
+ * `tipo` e extrai os campos relevantes desse tipo; o servidor decide o que usar.
+ * Superset deliberado — cada campo é opcional e só faz sentido para alguns tipos.
+ */
+export type DocTipo =
+  | "fatura"
+  | "apolice_seguro"
+  | "manutencao"
+  | "portagem"
+  | "coima"
+  | "documento_id"
+  | "comprovativo_morada"
+  | "outro";
+
+export interface DocClassificado {
+  tipo: DocTipo;
+  confianca: "alta" | "media" | "baixa";
+  matricula: string | null;
+  data: string | null; // ISO AAAA-MM-DD (documento/serviço/infração)
+  data_vencimento: string | null; // ISO
+  data_fim: string | null; // ISO — validade da apólice (só seguro)
+  valor: string | null; // total, ponto decimal, ex.: "123.45"
+  fornecedor: string | null; // seguradora/oficina/entidade
+  referencia: string | null; // nº fatura/apólice/auto
+  descricao: string | null;
+  km: number | null;
+  seguro_apolice: string | null; // só seguro
+  manutencao_tipo:
+    | "revisao" | "oleo" | "pneu_frente" | "pneu_tras" | "pneus"
+    | "travoes" | "corrente" | "inspecao" | "outro" | null; // só manutenção
+  proxima_km: number | null; // só manutenção
+  proxima_data: string | null; // só manutenção
+  notas: string | null;
+}
+
 export function geminiConfigurado(): boolean {
   return !!process.env.GEMINI_API_KEY;
 }
@@ -87,6 +123,37 @@ Extrai APENAS o que conseguires ler com confiança e devolve um objeto JSON com 
 }
 Datas SEMPRE em AAAA-MM-DD. Países SEMPRE em ISO-2. Responde só com o JSON, sem texto à volta.`;
 
+const PROMPT_CLASSIFICAR = `És um assistente de uma empresa de aluguer de scooters. Lês documentos (faturas, apólices de seguro, faturas de oficina/manutenção, portagens/Via Verde, coimas, documentos de identidade) a partir de fotografias ou PDFs.
+Primeiro CLASSIFICA o tipo do documento, depois EXTRAI os campos. Devolve um objeto JSON com EXATAMENTE estas chaves (usa null quando não souberes ou não se aplicar ao tipo):
+{
+  "tipo": "fatura"|"apolice_seguro"|"manutencao"|"portagem"|"coima"|"documento_id"|"comprovativo_morada"|"outro",
+  "confianca": "alta"|"media"|"baixa",
+  "matricula": string|null,          // matrícula do veículo como está escrita, ex.: "63-XV-18"
+  "data": string|null,               // data do documento/serviço/infração, AAAA-MM-DD
+  "data_vencimento": string|null,    // data-limite de pagamento, AAAA-MM-DD
+  "data_fim": string|null,           // SÓ seguro: fim da validade da cobertura, AAAA-MM-DD
+  "valor": string|null,              // total a pagar, número com PONTO decimal e sem €, ex.: "123.45"
+  "fornecedor": string|null,         // entidade emissora (seguradora, oficina, Via Verde, ANSR...)
+  "referencia": string|null,         // nº do documento/fatura/apólice/auto de contraordenação
+  "descricao": string|null,          // resumo curto (serviços, cobertura...)
+  "km": number|null,                 // quilómetros do veículo, se aparecer
+  "seguro_apolice": string|null,     // SÓ seguro: nº da apólice
+  "manutencao_tipo": "revisao"|"oleo"|"pneu_frente"|"pneu_tras"|"pneus"|"travoes"|"corrente"|"inspecao"|"outro"|null,
+  "proxima_km": number|null,         // SÓ manutenção: km da próxima intervenção prevista
+  "proxima_data": string|null,       // SÓ manutenção: data da próxima prevista, AAAA-MM-DD
+  "notas": string|null
+}
+Guia de classificação:
+- "apolice_seguro": apólice/seguro automóvel (tem seguradora e validade da cobertura).
+- "manutencao": fatura de oficina (óleo, revisão, pneus, travões, corrente...). Preenche manutencao_tipo.
+- "portagem": Via Verde / portagens.
+- "coima": coima / multa / contraordenação de trânsito.
+- "documento_id": cartão de cidadão, passaporte, título de residência ou carta de condução.
+- "comprovativo_morada": fatura de água/luz/gás ou extrato no nome de alguém (prova de morada).
+- "fatura": outra fatura de custo do veículo não coberta acima.
+- "outro": não encaixa em nada disto.
+Datas SEMPRE AAAA-MM-DD. Valor com ponto decimal e sem símbolo. Responde só com o JSON, sem texto à volta.`;
+
 function mimeDoCaminho(path: string): string {
   const ext = (path.split(".").pop() ?? "").toLowerCase();
   if (ext === "png") return "image/png";
@@ -104,14 +171,20 @@ const SEM_BLOQUEIOS = [
   "HARM_CATEGORY_DANGEROUS_CONTENT",
 ].map((category) => ({ category, threshold: "BLOCK_NONE" }));
 
-export async function lerDocumentoGemini(
+/**
+ * Núcleo partilhado: envia imagens + prompt ao Gemini e devolve o JSON parseado
+ * (ou null). Trata a descoberta/fallback de modelo, o timeout e a limpeza das
+ * cercas ```json. Os wrappers abaixo dão-lhe o prompt e o tipo de saída.
+ */
+async function gerarJson(
   imagens: { mime: string; base64: string }[],
-): Promise<CamposDocumento | null> {
+  prompt: string,
+): Promise<unknown | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key || imagens.length === 0) return null;
 
   const parts = [
-    { text: PROMPT },
+    { text: prompt },
     ...imagens.map((i) => ({ inline_data: { mime_type: i.mime, data: i.base64 } })),
   ];
   const corpo = JSON.stringify({
@@ -162,9 +235,9 @@ export async function lerDocumentoGemini(
       }
       console.log("Gemini OK com modelo:", modelo);
       const limpo = texto.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-      return JSON.parse(limpo) as CamposDocumento;
+      return JSON.parse(limpo);
     } catch (err) {
-      console.error("lerDocumentoGemini falhou:", err);
+      console.error("gerarJson (Gemini) falhou:", err);
       return null;
     } finally {
       clearTimeout(timeout);
@@ -173,6 +246,25 @@ export async function lerDocumentoGemini(
 
   console.error("Gemini: todos os modelos candidatos deram 404.");
   return null;
+}
+
+/** Lê um documento de identidade / carta e devolve os campos KYC. */
+export async function lerDocumentoGemini(
+  imagens: { mime: string; base64: string }[],
+): Promise<CamposDocumento | null> {
+  const r = await gerarJson(imagens, PROMPT);
+  return r && typeof r === "object" ? (r as CamposDocumento) : null;
+}
+
+/**
+ * Classifica um documento qualquer (fatura, seguro, manutenção, portagem, coima,
+ * KYC…) e extrai os campos relevantes. Base do intake inteligente.
+ */
+export async function classificarDocumentoGemini(
+  imagens: { mime: string; base64: string }[],
+): Promise<DocClassificado | null> {
+  const r = await gerarJson(imagens, PROMPT_CLASSIFICAR);
+  return r && typeof r === "object" ? (r as DocClassificado) : null;
 }
 
 export { mimeDoCaminho };
