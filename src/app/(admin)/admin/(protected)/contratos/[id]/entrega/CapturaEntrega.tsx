@@ -527,7 +527,7 @@ export default function CapturaEntrega({
         <button
           onClick={submeter}
           disabled={aSubmeter || aCarregar.size > 0}
-          className="w-full rounded-3xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-50"
+          className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 shadow-lg transition hover:bg-emerald-600 disabled:opacity-50"
         >
           {aSubmeter ? "A submeter…" : recolha ? "Submeter devolução e concluir" : "Submeter entrega e ativar contrato"}
         </button>

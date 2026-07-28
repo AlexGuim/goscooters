@@ -10,6 +10,7 @@ import {
 } from "@/actions/entregaActions";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento } from "@/lib/documentos";
+import { campo } from "@/components/ui";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 
 type Lang = "pt" | "en";
@@ -128,7 +129,6 @@ const STR: Record<Lang, Record<string, string>> = {
   },
 };
 
-const campo = "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 
 export default function OnboardingEntrega({
   token,
@@ -429,7 +429,7 @@ export default function OnboardingEntrega({
         <button
           onClick={submeter}
           disabled={aSubmeter || !!aCarregar}
-          className="w-full rounded-3xl bg-emerald-600 px-6 py-4 text-base font-semibold text-white shadow-lg transition hover:bg-emerald-700 disabled:opacity-50"
+          className="w-full rounded-2xl bg-emerald-500 px-6 py-4 text-base font-semibold text-slate-950 shadow-lg transition hover:bg-emerald-600 disabled:opacity-50"
         >
           {aSubmeter ? t.a_enviar : t.enviar}
         </button>
