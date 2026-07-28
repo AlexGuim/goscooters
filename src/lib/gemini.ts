@@ -172,26 +172,13 @@ const SEM_BLOQUEIOS = [
 ].map((category) => ({ category, threshold: "BLOCK_NONE" }));
 
 /**
- * Núcleo partilhado: envia imagens + prompt ao Gemini e devolve o JSON parseado
- * (ou null). Trata a descoberta/fallback de modelo, o timeout e a limpeza das
- * cercas ```json. Os wrappers abaixo dão-lhe o prompt e o tipo de saída.
+ * Núcleo partilhado: faz o POST a generateContent com descoberta/fallback de
+ * modelo, timeout e tratamento de 404, e devolve o TEXTO bruto da resposta.
+ * Os wrappers abaixo constroem o corpo (JSON ou texto livre) e interpretam-no.
  */
-async function gerarJson(
-  imagens: { mime: string; base64: string }[],
-  prompt: string,
-): Promise<unknown | null> {
+async function chamarGemini(corpo: string): Promise<string | null> {
   const key = process.env.GEMINI_API_KEY;
-  if (!key || imagens.length === 0) return null;
-
-  const parts = [
-    { text: prompt },
-    ...imagens.map((i) => ({ inline_data: { mime_type: i.mime, data: i.base64 } })),
-  ];
-  const corpo = JSON.stringify({
-    contents: [{ parts }],
-    safetySettings: SEM_BLOQUEIOS,
-    generationConfig: { responseMimeType: "application/json", temperature: 0 },
-  });
+  if (!key) return null;
 
   const candidatos = (await listarCandidatos(key)).filter((m) => !modelosMortos.has(m)).slice(0, 10);
   if (!candidatos.length) {
@@ -228,16 +215,14 @@ async function gerarJson(
           JSON.stringify({
             finishReason: cand?.finishReason,
             blockReason: json?.promptFeedback?.blockReason,
-            safety: cand?.safetyRatings,
           }).slice(0, 800),
         );
         return null;
       }
       console.log("Gemini OK com modelo:", modelo);
-      const limpo = texto.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
-      return JSON.parse(limpo);
+      return texto;
     } catch (err) {
-      console.error("gerarJson (Gemini) falhou:", err);
+      console.error("chamarGemini falhou:", err);
       return null;
     } finally {
       clearTimeout(timeout);
@@ -246,6 +231,48 @@ async function gerarJson(
 
   console.error("Gemini: todos os modelos candidatos deram 404.");
   return null;
+}
+
+/** Envia imagens + prompt e devolve o JSON parseado (ou null). */
+async function gerarJson(
+  imagens: { mime: string; base64: string }[],
+  prompt: string,
+): Promise<unknown | null> {
+  if (!geminiConfigurado() || imagens.length === 0) return null;
+  const parts = [
+    { text: prompt },
+    ...imagens.map((i) => ({ inline_data: { mime_type: i.mime, data: i.base64 } })),
+  ];
+  const corpo = JSON.stringify({
+    contents: [{ parts }],
+    safetySettings: SEM_BLOQUEIOS,
+    generationConfig: { responseMimeType: "application/json", temperature: 0 },
+  });
+  const texto = await chamarGemini(corpo);
+  if (!texto) return null;
+  try {
+    const limpo = texto.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+    return JSON.parse(limpo);
+  } catch (e) {
+    console.error("gerarJson parse falhou:", e);
+    return null;
+  }
+}
+
+/**
+ * Gera TEXTO livre (sem JSON) — para redigir mensagens ao motorista. temperature
+ * mais alta para uma escrita natural. Devolve null se a IA não estiver disponível
+ * (o chamador recorre a um template).
+ */
+export async function gerarTextoGemini(prompt: string): Promise<string | null> {
+  if (!geminiConfigurado()) return null;
+  const corpo = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    safetySettings: SEM_BLOQUEIOS,
+    generationConfig: { temperature: 0.4 },
+  });
+  const texto = await chamarGemini(corpo);
+  return texto ? texto.trim() : null;
 }
 
 /** Lê um documento de identidade / carta e devolve os campos KYC. */

@@ -13,6 +13,12 @@ import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
 import { criarSeguro, criarManutencao } from "@/actions/frotaSaudeActions";
+import {
+  prepararComunicacao,
+  type ComunicacaoPreparada,
+  type ComunicacaoTipo,
+} from "@/actions/comunicacaoActions";
+import { dataBR } from "@/lib/datas";
 
 const campo =
   "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
@@ -73,7 +79,7 @@ const CATEGORIA_DE: Partial<Record<DocTipo, DespesaCategoria>> = {
   outro: "outro",
 };
 
-type Fase = "inicio" | "a-processar" | "rever" | "a-gravar";
+type Fase = "inicio" | "a-processar" | "rever" | "a-gravar" | "comunicar";
 
 export default function IntakeDocumento({
   motos,
@@ -88,6 +94,8 @@ export default function IntakeDocumento({
 
   const [res, setRes] = useState<IntakeResultado | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+  const [comunicacao, setComunicacao] = useState<ComunicacaoPreparada | null>(null);
+  const [textoMsg, setTextoMsg] = useState("");
 
   // Campos editáveis (pré-preenchidos pela IA).
   const [tipo, setTipo] = useState<DocTipo>("fatura");
@@ -123,6 +131,8 @@ export default function IntakeDocumento({
     setErro(null);
     setMotoristaId(null);
     setMotoristaNome(null);
+    setComunicacao(null);
+    setTextoMsg("");
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -189,6 +199,7 @@ export default function IntakeDocumento({
 
     setFase("a-gravar");
     const detalheDoc = { ...(res?.doc ?? {}), documento_url: docUrl };
+    let msgOk = "";
     try {
       if (destino === "despesa") {
         const r = await gravarDespesaDeFatura({
@@ -208,7 +219,7 @@ export default function IntakeDocumento({
           detalhe: detalheDoc,
         });
         if (!r.success) throw new Error(r.error);
-        setOk(`Despesa registada (${TIPO_ROTULO[tipo]}).` + (r.avisoKm ? ` ${r.avisoKm}` : ""));
+        msgOk = `Despesa registada (${TIPO_ROTULO[tipo]}).` + (r.avisoKm ? ` ${r.avisoKm}` : "");
       } else if (destino === "seguro") {
         let despesaId: string | null = null;
         if (valor) {
@@ -227,7 +238,7 @@ export default function IntakeDocumento({
           despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docUrl },
         });
         if (!rs.success) throw new Error(rs.error);
-        setOk("Apólice de seguro registada" + (despesaId ? " (com despesa do prémio)." : "."));
+        msgOk = "Apólice de seguro registada" + (despesaId ? " (com despesa do prémio)." : ".");
       } else if (destino === "manutencao") {
         let despesaId: string | null = null;
         if (valor) {
@@ -247,8 +258,37 @@ export default function IntakeDocumento({
           despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docUrl },
         });
         if (!rm.success) throw new Error(rm.error);
-        setOk("Manutenção registada" + (despesaId ? " (com despesa)." : "."));
+        msgOk = "Manutenção registada" + (despesaId ? " (com despesa)." : ".");
       }
+
+      // Procedimento padrão: propor comunicação ao motorista (coima/portagem/carta verde).
+      const tipoComunic: ComunicacaoTipo | null =
+        tipo === "coima" ? "coima" : tipo === "portagem" ? "portagem" : tipo === "apolice_seguro" ? "seguro" : null;
+      if (tipoComunic) {
+        const rc = await prepararComunicacao({
+          tipo: tipoComunic,
+          veiculo_id: veiculoId,
+          motorista_id: tipoComunic === "seguro" ? null : motoristaId,
+          matricula: motos.find((m) => m.id === veiculoId)?.matricula ?? null,
+          valor: valor || null,
+          data: data ? dataBR(data) : null,
+          documento_url: docUrl,
+        });
+        if (rc.success && rc.dados) {
+          setComunicacao(rc.dados);
+          setTextoMsg(rc.dados.texto);
+          setOk(msgOk);
+          setFase("comunicar");
+          return;
+        }
+        // Sem motorista/telefone para comunicar: informa e segue em frente.
+        setOk(`${msgOk} (Comunicação não preparada: ${rc.error ?? "sem motorista"}.)`);
+        reset();
+        window.location.reload();
+        return;
+      }
+
+      setOk(msgOk);
       reset();
       window.location.reload();
     } catch (e) {
@@ -448,6 +488,42 @@ export default function IntakeDocumento({
               )}
             </div>
           )}
+
+          {fase === "comunicar" && comunicacao && (() => {
+            const digits = comunicacao.motorista.telefone_e164?.replace(/\D/g, "") ?? "";
+            const waLink = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(textoMsg)}` : null;
+            return (
+              <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-sm font-semibold text-slate-800">Avisar o motorista</p>
+                <p className="text-xs text-slate-600">
+                  Mensagem para <strong>{comunicacao.motorista.nome}</strong> ({comunicacao.idioma})
+                  {comunicacao.fallback ? " · template" : " · redigida pela IA"}. Revê e envia.
+                </p>
+                <textarea className={`${campo} h-32`} value={textoMsg} onChange={(e) => setTextoMsg(e.target.value)} />
+                <div className="flex flex-wrap gap-3">
+                  {waLink && (
+                    <a
+                      href={waLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      Abrir WhatsApp
+                    </a>
+                  )}
+                  <button
+                    onClick={() => {
+                      reset();
+                      window.location.reload();
+                    }}
+                    className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white"
+                  >
+                    Concluir
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
