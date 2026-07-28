@@ -19,14 +19,11 @@ import {
 import { validarIdentidadeMotorista } from "@/actions/notificacaoActions";
 import { urlAssinado, lerDocumentoIA } from "@/actions/fotoActions";
 import { enviarFotoPrivada } from "@/lib/uploads";
+import { Botao, Modal, campo, etiqueta } from "@/components/ui";
 
 export interface MotoristaComAvaliacoes extends Motorista {
   avaliacoes: Avaliacao[];
 }
-
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
-const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 
 const CORES: Record<AvaliacaoTipo, string> = {
   positiva: "bg-emerald-100 text-emerald-700",
@@ -171,12 +168,9 @@ export default function MotoristasList({
             </button>
           )}
         </div>
-        <button
-          className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          onClick={() => setACriar(true)}
-        >
+        <Botao tamanho="lg" onClick={() => setACriar(true)}>
           + Novo motorista
-        </button>
+        </Botao>
       </div>
 
       {filtrados.length === 0 ? (
@@ -783,20 +777,12 @@ function FichaKYC({
       {erro && <p className="text-sm text-red-700">{erro}</p>}
 
       <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={() => setAEditar(false)}
-          className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-        >
+        <Botao type="button" variante="secondary" className="flex-1" onClick={() => setAEditar(false)}>
           Cancelar
-        </button>
-        <button
-          type="submit"
-          disabled={aGravar}
-          className="flex-1 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-        >
+        </Botao>
+        <Botao type="submit" className="flex-1" disabled={aGravar}>
           {aGravar ? "A gravar..." : "Guardar ficha"}
-        </button>
+        </Botao>
       </div>
     </form>
   );
@@ -1024,28 +1010,9 @@ function FormMotorista({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
-    >
-      <div
-        className="my-8 w-full max-w-lg rounded-3xl bg-white p-6 shadow-lg sm:p-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <h2 className="text-2xl font-semibold text-slate-950">Novo motorista</h2>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
-            onClick={onClose}
-            type="button"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
-
-        <form ref={formRef} onSubmit={handleSubmit} className="mt-6 space-y-4">
-          {/* Carregar documento → OCR → pré-preenche (best-effort, sempre confirmar) */}
+    <Modal onClose={onClose} titulo="Novo motorista" maxWidth="max-w-lg">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+          {/* Carregar documentos → IA pré-preenche (best-effort, sempre confirmar) */}
           <LeitorDocumento formRef={formRef} />
 
           <label className={etiqueta}>
@@ -1143,23 +1110,14 @@ function FormMotorista({
           )}
 
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-            >
+            <Botao type="button" variante="secondary" tamanho="lg" className="flex-1" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={aGravar}
-              className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-            >
+            </Botao>
+            <Botao type="submit" tamanho="lg" className="flex-1" disabled={aGravar}>
               {aGravar ? "A criar..." : "Criar motorista"}
-            </button>
+            </Botao>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
