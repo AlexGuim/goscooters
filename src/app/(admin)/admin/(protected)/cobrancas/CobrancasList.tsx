@@ -13,6 +13,7 @@ import {
 } from "@/actions/pagamentoActions";
 import { cobrancasDaSemana } from "@/actions/cobrancaActions";
 import { rotuloSemanaMes } from "@/lib/datas";
+import { Botao, Badge, Modal, classesBotao, campo, etiqueta } from "@/components/ui";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface CobrancaPainel {
@@ -37,10 +38,6 @@ export interface CobrancaPainel {
   estado_liquidacao: EstadoLiquidacao;
   tipo: CobrancaTipo;
 }
-
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
-const etiqueta = "block space-y-1.5 text-sm font-medium text-slate-700";
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 const dataCurta = (d: string) => d.slice(8, 10) + "/" + d.slice(5, 7);
@@ -286,24 +283,12 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-slate-950">{c.motorista_nome}</p>
                       {c.em_atraso ? (
-                        <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
-                          em atraso
-                        </span>
+                        <Badge tom="danger">em atraso</Badge>
                       ) : (
-                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                          vence {dataCurta(c.data_vencimento)}
-                        </span>
+                        <Badge tom="warning">vence {dataCurta(c.data_vencimento)}</Badge>
                       )}
-                      {c.estado_liquidacao === "parcial" && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-                          parcial
-                        </span>
-                      )}
-                      {c.tipo !== "renda" && (
-                        <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
-                          {TIPO_ROTULO[c.tipo] ?? c.tipo}
-                        </span>
-                      )}
+                      {c.estado_liquidacao === "parcial" && <Badge tom="warning">parcial</Badge>}
+                      {c.tipo !== "renda" && <Badge tom="info">{TIPO_ROTULO[c.tipo] ?? c.tipo}</Badge>}
                     </div>
                     <p className="text-sm text-slate-500">
                       {c.tipo === "renda"
@@ -312,23 +297,15 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-semibold text-slate-950">{formatarPreco(c.em_falta)}</span>
+                    <span className="font-semibold tabular-nums text-slate-950">{formatarPreco(c.em_falta)}</span>
                     {wa && (
-                      <a
-                        href={wa}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                      >
+                      <a href={wa} target="_blank" rel="noreferrer" className={classesBotao("secondary", "sm")}>
                         Lembrete WhatsApp
                       </a>
                     )}
-                    <button
-                      onClick={() => setPagar(c)}
-                      className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700"
-                    >
+                    <Botao variante="volt" tamanho="sm" onClick={() => setPagar(c)}>
                       Registar pagamento
-                    </button>
+                    </Botao>
                   </div>
                 </div>
               );
@@ -421,39 +398,33 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-slate-950">{c.motorista_nome}</p>
                         {c.estado_liquidacao === "liquidada" ? (
-                          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">✓ pago</span>
+                          <Badge tom="success">✓ pago</Badge>
                         ) : c.estado_liquidacao === "isenta" ? (
-                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">isento</span>
+                          <Badge tom="neutral">isento</Badge>
                         ) : c.estado_liquidacao === "parcial" ? (
-                          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                            parcial · falta {formatarPreco(c.em_falta)}
-                          </span>
+                          <Badge tom="warning">parcial · falta {formatarPreco(c.em_falta)}</Badge>
                         ) : c.em_atraso ? (
-                          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">em atraso</span>
+                          <Badge tom="danger">em atraso</Badge>
                         ) : (
-                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">por pagar</span>
+                          <Badge tom="neutral">por pagar</Badge>
                         )}
-                        {c.tipo !== "renda" && (
-                          <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-700">
-                            {TIPO_ROTULO[c.tipo] ?? c.tipo}
-                          </span>
-                        )}
+                        {c.tipo !== "renda" && <Badge tom="info">{TIPO_ROTULO[c.tipo] ?? c.tipo}</Badge>}
                       </div>
                       <p className="text-sm text-slate-500">{c.veiculo_matricula} · vence {dataCurta(c.data_vencimento)}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className={`font-semibold ${feito ? "text-slate-400 line-through" : "text-slate-950"}`}>
+                      <span className={`font-semibold tabular-nums ${feito ? "text-slate-400 line-through" : "text-slate-950"}`}>
                         {formatarPreco(c.valor_devido)}
                       </span>
                       {!feito && wa && (
-                        <a href={wa} target="_blank" rel="noreferrer" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                        <a href={wa} target="_blank" rel="noreferrer" className={classesBotao("secondary", "sm")}>
                           Lembrete
                         </a>
                       )}
                       {!feito && (
-                        <button onClick={() => setPagar(c)} className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700">
+                        <Botao variante="volt" tamanho="sm" onClick={() => setPagar(c)}>
                           Registar pagamento
-                        </button>
+                        </Botao>
                       )}
                     </div>
                   </div>
@@ -592,12 +563,12 @@ function LivroPagamentos() {
           {opcoes.motos.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
         {(fMes || fParceiro || fMotorista || fMoto) && (
-          <button
+          <Botao
+            variante="ghost"
             onClick={() => { setFMes(""); setFParceiro(""); setFMotorista(""); setFMoto(""); }}
-            className="rounded-2xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:text-slate-900"
           >
             Limpar
-          </button>
+          </Botao>
         )}
       </div>
       {!filtrados.length && (
@@ -617,9 +588,7 @@ function LivroPagamentos() {
             </div>
             <div className="flex items-center gap-2">
               {p.bloqueado ? (
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                  🔒 em acerto fechado
-                </span>
+                <Badge tom="neutral">🔒 em acerto fechado</Badge>
               ) : (
                 <>
                   <select
@@ -631,13 +600,9 @@ function LivroPagamentos() {
                     <option value="goscooters">Recebido: GoScooters</option>
                     <option value="proprietario">Recebido: parceiro</option>
                   </select>
-                  <button
-                    onClick={() => estornar(p)}
-                    disabled={aAgir === p.id}
-                    className="rounded-2xl px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-                  >
+                  <Botao variante="danger" tamanho="sm" onClick={() => estornar(p)} disabled={aAgir === p.id}>
                     Estornar
-                  </button>
+                  </Botao>
                 </>
               )}
             </div>
@@ -724,27 +689,13 @@ function FormPagamento({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      titulo="Registar pagamento"
+      subtitulo={cobrancaClicada.motorista_nome}
+      maxWidth="max-w-lg"
     >
-      <div className="my-8 w-full max-w-lg rounded-3xl bg-white p-6 shadow-lg sm:p-8" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-950">Registar pagamento</h2>
-            <p className="text-sm text-slate-600">{cobrancaClicada.motorista_nome}</p>
-          </div>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
-            onClick={onClose}
-            type="button"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="mt-6 space-y-4">
+        <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={etiqueta}>
               <span>Valor recebido (€)</span>
@@ -836,24 +787,21 @@ function FormPagamento({
           )}
 
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50"
-            >
+            <Botao type="button" variante="secondary" tamanho="lg" className="flex-1" onClick={onClose}>
               Cancelar
-            </button>
-            <button
+            </Botao>
+            <Botao
               type="button"
+              variante="volt"
+              tamanho="lg"
+              className="flex-1"
               onClick={handleSubmit}
               disabled={aGravar || !(Number(valor) > 0)}
-              className="flex-1 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
             >
               {aGravar ? "A gravar..." : "Registar pagamento"}
-            </button>
+            </Botao>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
