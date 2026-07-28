@@ -37,6 +37,14 @@ const MODO: Record<ProcedimentoModo, string> = {
   auto: "Automático (envia sozinho)",
 };
 
+// Gatilhos cujo limiar é em DIAS (avisar N dias antes) e/ou KM.
+const GATILHOS_DIAS: ProcedimentoGatilho[] = [
+  "pagamento_a_vencer", "seguro_a_expirar", "doc_motorista_a_expirar", "manutencao_a_vencer",
+];
+const GATILHOS_VALOR: ProcedimentoGatilho[] = ["coima_registada", "portagem_registada"];
+const diasDefault = (g: ProcedimentoGatilho) => (g === "pagamento_a_vencer" ? 1 : 30);
+const KM_DEFAULT = 500;
+
 export default function ProcedimentosList({ inicial }: { inicial: Procedimento[] }) {
   const [procs, setProcs] = useState<Procedimento[]>(inicial);
   const [erro, setErro] = useState<string | null>(null);
@@ -93,26 +101,41 @@ export default function ProcedimentosList({ inicial }: { inicial: Procedimento[]
                   <p className="text-sm font-medium text-slate-950">{p.nome}</p>
                   <p className="text-xs text-slate-500">
                     Quando: <strong>{GATILHO[p.gatilho]}</strong> → {ACAO[p.acao]}
-                    {p.gatilho === "pagamento_a_vencer"
-                      ? ` · ${p.condicoes?.dias_antes ?? 1} dia(s) antes`
-                      : p.condicoes?.valor_min != null
-                        ? ` · só se ≥ ${p.condicoes.valor_min} €`
-                        : ""}
+                    {GATILHOS_DIAS.includes(p.gatilho) &&
+                      ` · ${p.condicoes?.dias_antes ?? diasDefault(p.gatilho)} dia(s) antes`}
+                    {p.gatilho === "manutencao_a_vencer" &&
+                      ` ou ${p.condicoes?.km_antes ?? KM_DEFAULT} km antes`}
+                    {GATILHOS_VALOR.includes(p.gatilho) && p.condicoes?.valor_min != null &&
+                      ` · só se ≥ ${p.condicoes.valor_min} €`}
                   </p>
                 </div>
-                {p.gatilho === "pagamento_a_vencer" ? (
+                {p.gatilho === "manutencao_a_vencer" && (
+                  <input
+                    className={`${campo} w-20`}
+                    inputMode="numeric"
+                    placeholder="km antes"
+                    defaultValue={p.condicoes?.km_antes ?? KM_DEFAULT}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      editar(p.id, { condicoes: { ...(p.condicoes ?? {}), km_antes: v ? Number(v) : KM_DEFAULT } });
+                    }}
+                    title="Avisar quando faltarem estes km para a próxima manutenção"
+                  />
+                )}
+                {GATILHOS_DIAS.includes(p.gatilho) && (
                   <input
                     className={`${campo} w-24`}
                     inputMode="numeric"
                     placeholder="dias antes"
-                    defaultValue={p.condicoes?.dias_antes ?? 1}
+                    defaultValue={p.condicoes?.dias_antes ?? diasDefault(p.gatilho)}
                     onBlur={(e) => {
                       const v = e.target.value.trim();
-                      editar(p.id, { condicoes: { ...(p.condicoes ?? {}), dias_antes: v ? Number(v) : 1 } });
+                      editar(p.id, { condicoes: { ...(p.condicoes ?? {}), dias_antes: v ? Number(v) : diasDefault(p.gatilho) } });
                     }}
-                    title="Lembrar quantos dias antes do vencimento (0 = no próprio dia)"
+                    title="Avisar quantos dias antes (0 = no próprio dia)"
                   />
-                ) : (
+                )}
+                {GATILHOS_VALOR.includes(p.gatilho) && (
                   <input
                     className={`${campo} w-24`}
                     inputMode="decimal"
@@ -187,6 +210,11 @@ export default function ProcedimentosList({ inicial }: { inicial: Procedimento[]
       <p className="text-xs text-slate-400">
         Modo <strong>automático</strong> envia sem confirmação (WhatsApp/SMS via Twilio para o motorista; Telegram para o gestor) — usa com cuidado.
         Modo <strong>manual</strong> prepara a mensagem e tu envias com 1 clique.
+      </p>
+      <p className="text-xs text-slate-400">
+        Nos alertas de frota (<strong>seguro</strong>, <strong>manutenção</strong>, <strong>documentos a expirar</strong>), o
+        campo <strong>dias antes</strong> (e <strong>km antes</strong>, na manutenção) define com que antecedência aparecem
+        na caixa de notificações. Desativar a regra <strong>desliga</strong> esse alerta.
       </p>
     </div>
   );

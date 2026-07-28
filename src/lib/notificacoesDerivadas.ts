@@ -142,7 +142,21 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
     const { data: motosMat } = await supabaseAdmin.from("moto").select("id, matricula");
     const matriculaDe = new Map((motosMat ?? []).map((m) => [m.id as string, (m.matricula as string) ?? "?"]));
 
-    // 5. Seguro a expirar (por veículo: a apólice ATIVA mais recente, ≤ 30 dias).
+    // Limiares CONFIGURÁVEIS: cada alerta lê o seu dias_antes / km_antes da regra
+    // (Procedimento) com o mesmo gatilho — default quando não há regra ou condição.
+    // Se a regra existir e estiver INATIVA, o alerta fica desligado (interruptor).
+    const { data: procsAlerta } = await supabaseAdmin
+      .from("procedimento")
+      .select("gatilho, condicoes, ativo")
+      .in("gatilho", ["seguro_a_expirar", "manutencao_a_vencer", "doc_motorista_a_expirar"]);
+    const cfgAlerta = new Map((procsAlerta ?? []).map((p) => [p.gatilho as string, p]));
+    const alertaLigado = (gatilho: string) => (cfgAlerta.get(gatilho)?.ativo ?? true) !== false;
+    const limiar = (gatilho: string, chave: "dias_antes" | "km_antes", fallback: number) => {
+      const v = (cfgAlerta.get(gatilho)?.condicoes as Record<string, number> | null | undefined)?.[chave];
+      return v != null && Number.isFinite(Number(v)) ? Number(v) : fallback;
+    };
+
+    // 5. Seguro a expirar (por veículo: a apólice ATIVA mais recente).
     const { data: segs } = await supabaseAdmin
       .from("vw_seguro_estado")
       .select("veiculo_id, seguradora, data_fim, dias_para_expirar, estado")
@@ -159,12 +173,49 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
         });
       }
     }
-    for (const [vid, s] of segAtual) {
-      if (s.dias <= DIAS_ALERTA) {
+    if (alertaLigado("seguro_a_expirar")) {
+      const diasSeg = limiar("seguro_a_expirar", "dias_antes", DIAS_ALERTA);
+      for (const [vid, s] of segAtual) {
+        if (s.dias <= diasSeg) {
+          add({
+            tipo: "seguro_a_expirar",
+            titulo: "Seguro a expirar",
+            detalhe: `${matriculaDe.get(vid) ?? "moto"} — ${s.dias < 0 ? `expirou há ${-s.dias} dia(s)` : `expira em ${s.dias} dia(s)`}${s.seguradora ? ` (${s.seguradora})` : ""}`,
+            href: "/admin/motas",
+            entidade: "moto",
+            entidade_id: vid,
+          });
+        }
+      }
+    }
+
+    // 6. Manutenção/pneu a vencer (por veículo, agregando os tipos em falta).
+    if (alertaLigado("manutencao_a_vencer")) {
+      const kmAlerta = limiar("manutencao_a_vencer", "km_antes", KM_ALERTA);
+      const diasAlerta = limiar("manutencao_a_vencer", "dias_antes", DIAS_ALERTA);
+      const { data: manut } = await supabaseAdmin
+        .from("vw_manutencao_proxima")
+        .select("veiculo_id, tipo, matricula, km_em_falta, dias_em_falta");
+      const manutPorMoto = new Map<string, { matricula: string; itens: string[] }>();
+      for (const m of manut ?? []) {
+        const km = m.km_em_falta != null ? Number(m.km_em_falta) : null;
+        const dias = m.dias_em_falta != null ? Number(m.dias_em_falta) : null;
+        const kmDue = km != null && km <= kmAlerta;
+        const dataDue = dias != null && dias <= diasAlerta;
+        if (!kmDue && !dataDue) continue;
+        const vid = m.veiculo_id as string;
+        const g = manutPorMoto.get(vid) ?? { matricula: (m.matricula as string) ?? matriculaDe.get(vid) ?? "moto", itens: [] };
+        const partes: string[] = [];
+        if (kmDue) partes.push(km! <= 0 ? `${-km!} km passados` : `faltam ${km} km`);
+        if (dataDue) partes.push(dias! < 0 ? `atrasada ${-dias!} d` : `em ${dias} d`);
+        g.itens.push(`${rotuloManut(m.tipo as string)} (${partes.join(", ")})`);
+        manutPorMoto.set(vid, g);
+      }
+      for (const [vid, g] of manutPorMoto) {
         add({
-          tipo: "seguro_a_expirar",
-          titulo: "Seguro a expirar",
-          detalhe: `${matriculaDe.get(vid) ?? "moto"} — ${s.dias < 0 ? `expirou há ${-s.dias} dia(s)` : `expira em ${s.dias} dia(s)`}${s.seguradora ? ` (${s.seguradora})` : ""}`,
+          tipo: "manutencao_a_vencer",
+          titulo: "Manutenção a vencer",
+          detalhe: `${g.matricula} — ${g.itens.join(" · ")}`,
           href: "/admin/motas",
           entidade: "moto",
           entidade_id: vid,
@@ -172,56 +223,29 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
       }
     }
 
-    // 6. Manutenção/pneu a vencer (por veículo, agregando os tipos em falta).
-    const { data: manut } = await supabaseAdmin
-      .from("vw_manutencao_proxima")
-      .select("veiculo_id, tipo, matricula, km_em_falta, dias_em_falta");
-    const manutPorMoto = new Map<string, { matricula: string; itens: string[] }>();
-    for (const m of manut ?? []) {
-      const km = m.km_em_falta != null ? Number(m.km_em_falta) : null;
-      const dias = m.dias_em_falta != null ? Number(m.dias_em_falta) : null;
-      const kmDue = km != null && km <= KM_ALERTA;
-      const dataDue = dias != null && dias <= DIAS_ALERTA;
-      if (!kmDue && !dataDue) continue;
-      const vid = m.veiculo_id as string;
-      const g = manutPorMoto.get(vid) ?? { matricula: (m.matricula as string) ?? matriculaDe.get(vid) ?? "moto", itens: [] };
-      const partes: string[] = [];
-      if (kmDue) partes.push(km! <= 0 ? `${-km!} km passados` : `faltam ${km} km`);
-      if (dataDue) partes.push(dias! < 0 ? `atrasada ${-dias!} d` : `em ${dias} d`);
-      g.itens.push(`${rotuloManut(m.tipo as string)} (${partes.join(", ")})`);
-      manutPorMoto.set(vid, g);
-    }
-    for (const [vid, g] of manutPorMoto) {
-      add({
-        tipo: "manutencao_a_vencer",
-        titulo: "Manutenção a vencer",
-        detalhe: `${g.matricula} — ${g.itens.join(" · ")}`,
-        href: "/admin/motas",
-        entidade: "moto",
-        entidade_id: vid,
-      });
-    }
-
-    // 7. Documento do motorista a expirar (identidade ou carta) ≤ 30 dias.
-    const horizonte = new Date(Date.now() + DIAS_ALERTA * 86400000).toISOString().slice(0, 10);
-    const { data: docsMot } = await supabaseAdmin
-      .from("motorista")
-      .select("id, nome, doc_id_validade, carta_validade")
-      .eq("estado", "ativo")
-      .or(`doc_id_validade.lte.${horizonte},carta_validade.lte.${horizonte}`);
-    for (const m of docsMot ?? []) {
-      const quais: string[] = [];
-      if (m.doc_id_validade && (m.doc_id_validade as string) <= horizonte) quais.push(`documento (${m.doc_id_validade})`);
-      if (m.carta_validade && (m.carta_validade as string) <= horizonte) quais.push(`carta (${m.carta_validade})`);
-      if (!quais.length) continue;
-      add({
-        tipo: "doc_motorista_a_expirar",
-        titulo: "Documento do motorista a expirar",
-        detalhe: `${m.nome} — ${quais.join(", ")}`,
-        href: `/admin/motoristas?m=${m.id}`,
-        entidade: "motorista",
-        entidade_id: m.id as string,
-      });
+    // 7. Documento do motorista a expirar (identidade ou carta).
+    if (alertaLigado("doc_motorista_a_expirar")) {
+      const diasDoc = limiar("doc_motorista_a_expirar", "dias_antes", DIAS_ALERTA);
+      const horizonte = new Date(Date.now() + diasDoc * 86400000).toISOString().slice(0, 10);
+      const { data: docsMot } = await supabaseAdmin
+        .from("motorista")
+        .select("id, nome, doc_id_validade, carta_validade")
+        .eq("estado", "ativo")
+        .or(`doc_id_validade.lte.${horizonte},carta_validade.lte.${horizonte}`);
+      for (const m of docsMot ?? []) {
+        const quais: string[] = [];
+        if (m.doc_id_validade && (m.doc_id_validade as string) <= horizonte) quais.push(`documento (${m.doc_id_validade})`);
+        if (m.carta_validade && (m.carta_validade as string) <= horizonte) quais.push(`carta (${m.carta_validade})`);
+        if (!quais.length) continue;
+        add({
+          tipo: "doc_motorista_a_expirar",
+          titulo: "Documento do motorista a expirar",
+          detalhe: `${m.nome} — ${quais.join(", ")}`,
+          href: `/admin/motoristas?m=${m.id}`,
+          entidade: "motorista",
+          entidade_id: m.id as string,
+        });
+      }
     }
 
     // 8. Lembretes de pagamento a comunicar (config: procedimento pagamento_a_vencer).

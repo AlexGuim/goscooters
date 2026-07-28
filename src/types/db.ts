@@ -372,7 +372,7 @@ export type Procedimento = {
   acao: ProcedimentoAcao;
   canal: ProcedimentoCanal;
   modo: ProcedimentoModo;
-  condicoes: { valor_min?: number; categoria?: string; dias_antes?: number } | null;
+  condicoes: { valor_min?: number; categoria?: string; dias_antes?: number; km_antes?: number } | null;
   ativo: boolean;
   created_at: string;
   updated_at: string;
