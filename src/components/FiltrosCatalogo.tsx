@@ -1,5 +1,6 @@
 import { PERIODOS } from "@/lib/precos";
 import { preencher, type Dicionario, type Locale } from "@/lib/i18n";
+import { classesBotao, campo } from "@/components/ui";
 
 export interface FiltrosAtivos {
   periodo?: string;
@@ -8,9 +9,6 @@ export interface FiltrosAtivos {
 }
 
 export const CILINDRADAS = ["ate125", "126a250", "mais250"] as const;
-
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 
 /**
  * Filtros do catálogo.
@@ -95,18 +93,12 @@ export default function FiltrosCatalogo({
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <button
-          className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          type="submit"
-        >
+        <button className={classesBotao("volt", "lg")} type="submit">
           {dic.filtros.filtrar}
         </button>
 
         {temFiltros && (
-          <a
-            className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            href={`/${locale}`}
-          >
+          <a className={classesBotao("secondary", "lg")} href={`/${locale}`}>
             {dic.filtros.limpar}
           </a>
         )}

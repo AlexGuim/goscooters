@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import { createPedido } from "@/actions/createPedido";
 import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
+import { Botao, classesBotao, campo } from "@/components/ui";
 import type { Dicionario, Locale } from "@/lib/i18n";
 import type { Moto, Periodo } from "@/types/db";
 
@@ -19,9 +20,6 @@ type State = {
   pedidoId?: string;
   whatsappLink?: string;
 };
-
-const campo =
-  "w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500";
 
 export default function PedidoForm({ moto, locale, dic }: PedidoFormProps) {
   const precos = precosDisponiveis(moto, rotulosDe(dic));
@@ -80,19 +78,11 @@ export default function PedidoForm({ moto, locale, dic }: PedidoFormProps) {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
               {state.whatsappLink && (
-                <a
-                  className="inline-flex items-center justify-center rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  href={state.whatsappLink}
-                  target="_blank"
-                  rel="noreferrer"
-                >
+                <a className={classesBotao("volt", "lg")} href={state.whatsappLink} target="_blank" rel="noreferrer">
                   {dic.detalhe.whatsapp}
                 </a>
               )}
-              <Link
-                className="inline-flex items-center justify-center rounded-3xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-950 transition hover:border-slate-400 hover:bg-slate-50"
-                href={`/${locale}`}
-              >
+              <Link className={classesBotao("secondary", "lg")} href={`/${locale}`}>
                 {dic.pedido.voltarCatalogo}
               </Link>
             </div>
@@ -274,17 +264,10 @@ export default function PedidoForm({ moto, locale, dic }: PedidoFormProps) {
             )}
 
             <div className="flex flex-col gap-3 pt-4 sm:flex-row">
-              <button
-                className="flex-1 rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                type="submit"
-                disabled={isPending}
-              >
+              <Botao variante="volt" tamanho="lg" className="flex-1" type="submit" disabled={isPending}>
                 {isPending ? dic.pedido.aGravar : dic.pedido.submeter}
-              </button>
-              <Link
-                className="flex-1 rounded-3xl border border-slate-300 bg-white px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:border-slate-400 hover:bg-slate-50"
-                href={`/${locale}/moto/${moto.id}`}
-              >
+              </Botao>
+              <Link className={`flex-1 ${classesBotao("secondary", "lg")}`} href={`/${locale}/moto/${moto.id}`}>
                 {dic.pedido.cancelar}
               </Link>
             </div>

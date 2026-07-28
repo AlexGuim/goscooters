@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseClient";
+import { Botao, classesBotao, campo } from "@/components/ui";
 
 const MINIMO = 8;
 
@@ -63,10 +64,7 @@ export default function RedefinirPasswordPage() {
           <p className="mt-3 text-slate-600">
             Já podes entrar na administração com a nova password.
           </p>
-          <Link
-            className="mt-6 inline-flex w-full items-center justify-center rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-            href="/admin/motas"
-          >
+          <Link className={`mt-6 w-full ${classesBotao("volt", "lg")}`} href="/admin/motas">
             Ir para a administração
           </Link>
         </div>
@@ -88,7 +86,7 @@ export default function RedefinirPasswordPage() {
           <label className="block space-y-2">
             <span className="text-sm font-medium text-slate-700">Nova password</span>
             <input
-              className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+              className={campo}
               type="password"
               name="password"
               autoComplete="new-password"
@@ -106,7 +104,7 @@ export default function RedefinirPasswordPage() {
               Confirmar password
             </span>
             <input
-              className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500"
+              className={campo}
               type="password"
               name="confirmacao"
               autoComplete="new-password"
@@ -121,20 +119,13 @@ export default function RedefinirPasswordPage() {
             </div>
           )}
 
-          <button
-            className="w-full rounded-3xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-            type="submit"
-            disabled={aGravar}
-          >
+          <Botao variante="volt" tamanho="lg" className="w-full" type="submit" disabled={aGravar}>
             {aGravar ? "A guardar..." : "Guardar nova password"}
-          </button>
+          </Botao>
         </form>
 
         <div className="mt-6 text-center text-sm">
-          <Link
-            className="font-medium text-emerald-600 hover:text-emerald-700"
-            href="/admin/login"
-          >
+          <Link className="font-medium text-emerald-700 hover:text-emerald-600" href="/admin/login">
             Voltar à entrada
           </Link>
         </div>
