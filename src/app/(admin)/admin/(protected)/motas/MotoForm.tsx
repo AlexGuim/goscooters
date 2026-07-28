@@ -11,6 +11,7 @@ import type {
 import { createMoto, updateMoto } from "@/actions/motoActions";
 import { deleteFotoMoto } from "@/actions/fotoActions";
 import { enviarFoto, enviarVideo } from "@/lib/uploads";
+import { campo, etiqueta } from "@/components/ui";
 
 interface MotoFormProps {
   /** Mota a editar; ausente significa criar uma nova. */
@@ -28,9 +29,8 @@ const ESTADO_OP: { valor: EstadoOperacional; rotulo: string }[] = [
   { valor: "inativo", rotulo: "Inativo" },
 ];
 
-const campo =
-  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none focus:border-emerald-500";
-const etiqueta = "block space-y-2 text-sm font-medium text-slate-700";
+// `campo` e `etiqueta` canónicos vêm de @/components/ui (fim do drift — recupera
+// o text-sm que esta cópia tinha perdido).
 
 export default function MotoForm({
   moto,

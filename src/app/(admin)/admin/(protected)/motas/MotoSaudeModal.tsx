@@ -11,6 +11,7 @@ import {
 } from "@/actions/frotaSaudeActions";
 import { dataBR } from "@/lib/datas";
 import { formatarPreco } from "@/lib/precos";
+import { Modal, Botao } from "@/components/ui";
 
 const campo =
   "w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
@@ -167,28 +168,11 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 sm:p-6"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      titulo="Seguros e manutenção"
+      subtitulo={`${moto.matricula ?? "?"} · ${moto.modelo}${moto.km_atual != null ? ` · ${moto.km_atual.toLocaleString("pt-PT")} km` : ""}`}
     >
-      <div className="my-8 w-full max-w-2xl rounded-3xl bg-white p-6 shadow-lg sm:p-8" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-950">Seguros e manutenção</h2>
-            <p className="text-sm text-slate-600">
-              {moto.matricula ?? "?"} · {moto.modelo}
-              {moto.km_atual != null ? ` · ${moto.km_atual.toLocaleString("pt-PT")} km` : ""}
-            </p>
-          </div>
-          <button
-            className="rounded-full px-3 py-1 text-2xl leading-none text-slate-500 transition hover:bg-slate-100"
-            onClick={onClose}
-            type="button"
-            aria-label="Fechar"
-          >
-            ×
-          </button>
-        </div>
 
         {erro && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-2 text-sm text-red-700">{erro}</p>}
 
@@ -235,9 +219,9 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
               <label className={etiqueta}><span>Prémio (€)</span><input className={campo} name="premio" inputMode="decimal" placeholder="120" /></label>
               <label className={etiqueta}><span>Quem paga</span><select className={campo} name="quem_paga" defaultValue="goscooters">{QUEM_PAGA.map((q) => <option key={q.v} value={q.v}>{q.r}</option>)}</select></label>
             </div>
-            <button type="submit" disabled={aGravar} className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+            <Botao type="submit" tamanho="sm" disabled={aGravar}>
               {aGravar ? "A gravar…" : "+ Adicionar apólice"}
-            </button>
+            </Botao>
           </form>
         </section>
 
@@ -285,12 +269,11 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
               <label className={etiqueta}><span>Próxima em km</span><input className={campo} name="proxima_km" inputMode="numeric" placeholder="ex.: 18000" /></label>
               <label className={etiqueta}><span>Próxima data</span><input className={campo} type="date" name="proxima_data" /></label>
             </div>
-            <button type="submit" disabled={aGravar} className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+            <Botao type="submit" tamanho="sm" disabled={aGravar}>
               {aGravar ? "A gravar…" : "+ Adicionar manutenção"}
-            </button>
+            </Botao>
           </form>
         </section>
-      </div>
-    </div>
+    </Modal>
   );
 }

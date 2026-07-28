@@ -62,3 +62,10 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+@layer utilities {
+  /* Dispositivo de assinatura: canto cortado a 45° (velocidade/movimento). */
+  .speed-cut {
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
+  }
+}

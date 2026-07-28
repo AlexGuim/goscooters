@@ -8,6 +8,7 @@ import type { HistoricoAtivo } from "@/lib/ativoHistorico";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import pt from "@/dictionaries/pt.json";
+import { Botao } from "@/components/ui";
 import MotoForm from "./MotoForm";
 import MotoSaudeModal from "./MotoSaudeModal";
 
@@ -139,12 +140,9 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
             <option value="carro">Só carros</option>
           </select>
         </div>
-        <button
-          className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          onClick={() => setModal({ tipo: "criar" })}
-        >
+        <Botao tamanho="lg" onClick={() => setModal({ tipo: "criar" })}>
           + Novo veículo
-        </button>
+        </Botao>
       </div>
 
       <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
@@ -283,12 +281,9 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
         {motas.length === 0 && (
           <div className="px-6 py-12 text-center">
             <p className="text-slate-600">Nenhuma mota registada.</p>
-            <button
-              className="mt-4 rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-              onClick={() => setModal({ tipo: "criar" })}
-            >
+            <Botao tamanho="lg" className="mt-4" onClick={() => setModal({ tipo: "criar" })}>
               + Criar a primeira mota
-            </button>
+            </Botao>
           </div>
         )}
       </div>

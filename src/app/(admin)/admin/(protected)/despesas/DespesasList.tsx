@@ -11,6 +11,7 @@ import type {
 } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
+import { Botao } from "@/components/ui";
 import {
   criarDespesa,
   atualizarDespesa,
@@ -158,12 +159,9 @@ export default function DespesasList({
             {filtradas.length} · total {formatarPreco(total)}
           </span>
         </div>
-        <button
-          className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          onClick={() => setModal("novo")}
-        >
+        <Botao tamanho="lg" onClick={() => setModal("novo")}>
           + Nova despesa
-        </button>
+        </Botao>
       </div>
 
       {filtradas.length === 0 ? (

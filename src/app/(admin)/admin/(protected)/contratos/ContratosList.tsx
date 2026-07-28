@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Botao, classesBotao } from "@/components/ui";
 import type {
   ContratoAluguer,
   ContratoEstado,
@@ -245,24 +246,15 @@ export default function ContratosList({
           <option value="cancelado">Cancelados</option>
         </select>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-            onClick={() => setRegisto(true)}
-          >
+          <Botao variante="secondary" tamanho="lg" onClick={() => setRegisto(true)}>
             Registar motorista (link)
-          </button>
-          <Link
-            href="/admin/aluguel/novo"
-            className="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-          >
+          </Botao>
+          <Link href="/admin/aluguel/novo" className={classesBotao("secondary", "lg")}>
             Criar aluguer (passo a passo)
           </Link>
-          <button
-            className="rounded-3xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-            onClick={() => setModal("novo")}
-          >
+          <Botao tamanho="lg" onClick={() => setModal("novo")}>
             + Novo contrato
-          </button>
+          </Botao>
         </div>
       </div>
 
