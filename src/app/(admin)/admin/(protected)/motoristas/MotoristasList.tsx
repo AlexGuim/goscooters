@@ -497,6 +497,7 @@ function FichaKYC({
   const [erro, setErro] = useState<string | null>(null);
   const [validado, setValidado] = useState(false);
   const [aValidar, setAValidar] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const handleValidar = async () => {
     setAValidar(true);
@@ -670,10 +671,12 @@ function FichaKYC({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl bg-white p-4 shadow-sm">
+    <form ref={formRef} onSubmit={handleSubmit} className="space-y-4 rounded-2xl bg-white p-4 shadow-sm">
       <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
         Editar ficha
       </h3>
+      {/* Carregar documento → OCR → pré-preenche a ficha (sempre disponível). */}
+      <LeitorDocumento formRef={formRef} />
       <div className="grid gap-4 sm:grid-cols-2">
         <label className={etiqueta}>
           <span>Nome</span>
@@ -798,6 +801,77 @@ function FichaKYC({
   );
 }
 
+/**
+ * Carregar documento (CC/passaporte) → OCR (MRZ) → pré-preenche os campos do
+ * formulário-pai (por `name`). Reutilizado no CRIAR e no EDITAR da ficha. Só
+ * preenche os campos que existem nesse formulário; nunca grava — o admin confirma.
+ */
+function LeitorDocumento({ formRef }: { formRef: React.RefObject<HTMLFormElement | null> }) {
+  // Campos preenchidos pela ÚLTIMA leitura — só estes se limpam antes de uma nova
+  // leitura, para não apagar o que foi escrito à mão.
+  const autoRef = useRef<Set<string>>(new Set());
+  const [aLer, setALer] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const ler = async (file: File | undefined) => {
+    if (!file) return;
+    const form = formRef.current;
+    if (!form) return;
+    setALer(true);
+    setStatus("A ler o documento…");
+    for (const name of autoRef.current) {
+      const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (el) el.value = "";
+    }
+    autoRef.current.clear();
+    try {
+      const texto = await ocrFicheiro(file, (fase, pct) => setStatus(`${fase} ${pct}%`));
+      const d = interpretarDocumento(texto);
+      const set = (name: string, valor: string | null | undefined) => {
+        if (!valor) return false;
+        const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+        if (!el) return false;
+        el.value = valor;
+        autoRef.current.add(name);
+        return true;
+      };
+      const preenchidos: string[] = [];
+      if (set("nome", d.nome)) preenchidos.push("nome");
+      if (set("data_nascimento", d.nascimento)) preenchidos.push("nascimento");
+      if (set("doc_id_numero", d.numero)) preenchidos.push("nº do documento");
+      if (set("doc_id_validade", d.validade)) preenchidos.push("validade");
+      if (set("doc_id_tipo", d.tipo)) preenchidos.push("tipo");
+      if (set("pais_iso", iso3ParaIso2(d.nacionalidade))) preenchidos.push("país");
+      setStatus(
+        preenchidos.length
+          ? `Preenchido: ${preenchidos.join(", ")}. Confirma tudo — o NIF não vem do documento.`
+          : "Não consegui ler a zona MRZ. Tenta uma foto mais nítida ou preenche à mão.",
+      );
+    } catch (err) {
+      console.error("OCR do documento falhou:", err);
+      setStatus("Erro ao ler o documento. Preenche à mão.");
+    } finally {
+      setALer(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 p-3">
+      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50">
+        <input
+          type="file"
+          accept="image/*,application/pdf"
+          className="hidden"
+          disabled={aLer}
+          onChange={(e) => ler(e.target.files?.[0])}
+        />
+        {aLer ? "A ler…" : "📷 Ler documento (CC / passaporte) — a IA preenche"}
+      </label>
+      {status && <p className="text-xs text-slate-600">{status}</p>}
+    </div>
+  );
+}
+
 function FormMotorista({
   onClose,
   onCriado,
@@ -810,59 +884,6 @@ function FormMotorista({
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  // Campos preenchidos pela ÚLTIMA leitura de documento (proveniência): só estes
-  // são limpos antes de uma nova leitura, para não apagar o que foi digitado à mão.
-  const autoRef = useRef<Set<string>>(new Set());
-  const [aLerDoc, setALerDoc] = useState(false);
-  const [statusOcr, setStatusOcr] = useState<string | null>(null);
-
-  // Lê a foto/PDF do documento, corre o OCR (MRZ) e pré-preenche o formulário.
-  // Nunca grava — o admin confirma sempre antes de criar. O NIF não vem na MRZ.
-  const lerDocumento = async (file: File | undefined) => {
-    if (!file) return;
-    const form = formRef.current;
-    if (!form) return;
-    setALerDoc(true);
-    setStatusOcr("A ler o documento…");
-    // Limpa APENAS os campos que a leitura ANTERIOR preencheu — senão uma leitura
-    // errada/falhada deixa colados os dados do documento anterior (contamina a
-    // pessoa errada). Os campos digitados à mão nunca entram aqui, por isso não
-    // se perdem. O NIF é sempre manual (não vem do OCR).
-    for (const name of autoRef.current) {
-      const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
-      if (el) el.value = "";
-    }
-    autoRef.current.clear();
-    try {
-      const texto = await ocrFicheiro(file, (fase, pct) => setStatusOcr(`${fase} ${pct}%`));
-      const d = interpretarDocumento(texto);
-      const set = (name: string, valor: string | null | undefined) => {
-        if (!valor) return false;
-        const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
-        if (!el) return false;
-        el.value = valor;
-        autoRef.current.add(name); // marca como preenchido por OCR (limpo na próxima leitura)
-        return true;
-      };
-      const preenchidos: string[] = [];
-      if (set("nome", d.nome)) preenchidos.push("nome");
-      if (set("data_nascimento", d.nascimento)) preenchidos.push("nascimento");
-      if (set("doc_id_numero", d.numero)) preenchidos.push("nº do documento");
-      if (set("doc_id_validade", d.validade)) preenchidos.push("validade");
-      if (set("doc_id_tipo", d.tipo)) preenchidos.push("tipo");
-      if (set("pais_iso", iso3ParaIso2(d.nacionalidade))) preenchidos.push("país");
-      setStatusOcr(
-        preenchidos.length
-          ? `Preenchido: ${preenchidos.join(", ")}. Confirma tudo — o NIF não vem do documento.`
-          : "Não consegui ler a zona MRZ. Tenta uma foto mais nítida ou preenche à mão.",
-      );
-    } catch (err) {
-      console.error("OCR do documento falhou:", err);
-      setStatusOcr("Erro ao ler o documento. Preenche à mão.");
-    } finally {
-      setALerDoc(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -963,20 +984,8 @@ function FormMotorista({
         </div>
 
         <form ref={formRef} onSubmit={handleSubmit} className="mt-6 space-y-4">
-          {/* OCR do documento — pré-preenche os campos (best-effort, sempre confirmar) */}
-          <div className="space-y-2 rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 p-3">
-            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50">
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                className="hidden"
-                disabled={aLerDoc}
-                onChange={(e) => lerDocumento(e.target.files?.[0])}
-              />
-              {aLerDoc ? "A ler…" : "📷 Ler documento (CC / passaporte)"}
-            </label>
-            {statusOcr && <p className="text-xs text-slate-600">{statusOcr}</p>}
-          </div>
+          {/* Carregar documento → OCR → pré-preenche (best-effort, sempre confirmar) */}
+          <LeitorDocumento formRef={formRef} />
 
           <label className={etiqueta}>
             <span>
