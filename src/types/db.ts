@@ -797,6 +797,14 @@ export interface Database {
         Row: Cobranca & { em_atraso: boolean; em_falta: string };
         Relationships: [];
       };
+      vw_seguro_estado: {
+        Row: SeguroEstadoView;
+        Relationships: [];
+      };
+      vw_manutencao_proxima: {
+        Row: ManutencaoProximaView;
+        Relationships: [];
+      };
     };
     Functions: {
       fn_gerar_cobrancas: {

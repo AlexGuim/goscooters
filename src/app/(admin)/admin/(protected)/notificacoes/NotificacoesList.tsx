@@ -14,6 +14,9 @@ const COR: Record<string, string> = {
   coima_reembolso: "bg-purple-500",
   dano_recolha: "bg-red-500",
   acerto_por_pagar: "bg-emerald-600",
+  seguro_a_expirar: "bg-amber-500",
+  manutencao_a_vencer: "bg-amber-500",
+  doc_motorista_a_expirar: "bg-amber-500",
 };
 
 function relativo(iso: string): string {

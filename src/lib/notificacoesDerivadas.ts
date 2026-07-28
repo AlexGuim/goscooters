@@ -19,7 +19,20 @@ const DERIVADOS = [
   "por_recolher",
   "kyc_incompleto",
   "cobranca_atraso",
+  "seguro_a_expirar",
+  "manutencao_a_vencer",
+  "doc_motorista_a_expirar",
 ];
+
+// Horizontes dos alertas proativos (dias / km). Sensatos por omissão.
+const DIAS_ALERTA = 30;
+const KM_ALERTA = 500;
+
+const ROTULO_MANUT: Record<string, string> = {
+  revisao: "revisão", oleo: "óleo", pneu_frente: "pneu (frente)", pneu_tras: "pneu (trás)",
+  pneus: "pneus", travoes: "travões", corrente: "corrente", inspecao: "inspeção", outro: "outro",
+};
+const rotuloManut = (t: string) => ROTULO_MANUT[t] ?? t;
 
 interface NotifIns {
   tipo: string;
@@ -120,6 +133,93 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
           entidade_id: motId,
         });
       }
+    }
+
+    // ── Alertas proativos (frota) ────────────────────────────────────────────
+    // Mapa de matrículas para as mensagens dos alertas de veículo.
+    const { data: motosMat } = await supabaseAdmin.from("moto").select("id, matricula");
+    const matriculaDe = new Map((motosMat ?? []).map((m) => [m.id as string, (m.matricula as string) ?? "?"]));
+
+    // 5. Seguro a expirar (por veículo: a apólice ATIVA mais recente, ≤ 30 dias).
+    const { data: segs } = await supabaseAdmin
+      .from("vw_seguro_estado")
+      .select("veiculo_id, seguradora, data_fim, dias_para_expirar, estado")
+      .eq("estado", "ativa");
+    const segAtual = new Map<string, { seguradora: string | null; data_fim: string; dias: number }>();
+    for (const s of segs ?? []) {
+      const vid = s.veiculo_id as string;
+      const cur = segAtual.get(vid);
+      if (!cur || (s.data_fim as string) > cur.data_fim) {
+        segAtual.set(vid, {
+          seguradora: (s.seguradora as string) ?? null,
+          data_fim: s.data_fim as string,
+          dias: Number(s.dias_para_expirar),
+        });
+      }
+    }
+    for (const [vid, s] of segAtual) {
+      if (s.dias <= DIAS_ALERTA) {
+        add({
+          tipo: "seguro_a_expirar",
+          titulo: "Seguro a expirar",
+          detalhe: `${matriculaDe.get(vid) ?? "moto"} — ${s.dias < 0 ? `expirou há ${-s.dias} dia(s)` : `expira em ${s.dias} dia(s)`}${s.seguradora ? ` (${s.seguradora})` : ""}`,
+          href: "/admin/motas",
+          entidade: "moto",
+          entidade_id: vid,
+        });
+      }
+    }
+
+    // 6. Manutenção/pneu a vencer (por veículo, agregando os tipos em falta).
+    const { data: manut } = await supabaseAdmin
+      .from("vw_manutencao_proxima")
+      .select("veiculo_id, tipo, matricula, km_em_falta, dias_em_falta");
+    const manutPorMoto = new Map<string, { matricula: string; itens: string[] }>();
+    for (const m of manut ?? []) {
+      const km = m.km_em_falta != null ? Number(m.km_em_falta) : null;
+      const dias = m.dias_em_falta != null ? Number(m.dias_em_falta) : null;
+      const kmDue = km != null && km <= KM_ALERTA;
+      const dataDue = dias != null && dias <= DIAS_ALERTA;
+      if (!kmDue && !dataDue) continue;
+      const vid = m.veiculo_id as string;
+      const g = manutPorMoto.get(vid) ?? { matricula: (m.matricula as string) ?? matriculaDe.get(vid) ?? "moto", itens: [] };
+      const partes: string[] = [];
+      if (kmDue) partes.push(km! <= 0 ? `${-km!} km passados` : `faltam ${km} km`);
+      if (dataDue) partes.push(dias! < 0 ? `atrasada ${-dias!} d` : `em ${dias} d`);
+      g.itens.push(`${rotuloManut(m.tipo as string)} (${partes.join(", ")})`);
+      manutPorMoto.set(vid, g);
+    }
+    for (const [vid, g] of manutPorMoto) {
+      add({
+        tipo: "manutencao_a_vencer",
+        titulo: "Manutenção a vencer",
+        detalhe: `${g.matricula} — ${g.itens.join(" · ")}`,
+        href: "/admin/motas",
+        entidade: "moto",
+        entidade_id: vid,
+      });
+    }
+
+    // 7. Documento do motorista a expirar (identidade ou carta) ≤ 30 dias.
+    const horizonte = new Date(Date.now() + DIAS_ALERTA * 86400000).toISOString().slice(0, 10);
+    const { data: docsMot } = await supabaseAdmin
+      .from("motorista")
+      .select("id, nome, doc_id_validade, carta_validade")
+      .eq("estado", "ativo")
+      .or(`doc_id_validade.lte.${horizonte},carta_validade.lte.${horizonte}`);
+    for (const m of docsMot ?? []) {
+      const quais: string[] = [];
+      if (m.doc_id_validade && (m.doc_id_validade as string) <= horizonte) quais.push(`documento (${m.doc_id_validade})`);
+      if (m.carta_validade && (m.carta_validade as string) <= horizonte) quais.push(`carta (${m.carta_validade})`);
+      if (!quais.length) continue;
+      add({
+        tipo: "doc_motorista_a_expirar",
+        titulo: "Documento do motorista a expirar",
+        detalhe: `${m.nome} — ${quais.join(", ")}`,
+        href: `/admin/motoristas?m=${m.id}`,
+        entidade: "motorista",
+        entidade_id: m.id as string,
+      });
     }
 
     // Reconcilia com o existente destes tipos (agrupado por chave).
