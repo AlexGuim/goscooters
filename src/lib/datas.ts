@@ -24,6 +24,25 @@ const MESES = [
 ];
 
 /**
+ * Saudação por hora de Lisboa + data por extenso (ex.: "segunda-feira, 28 de julho").
+ * Serve o hero de marca (dashboard admin e portal). Fuso fixo Europe/Lisbon para
+ * bater certo com a operação, independentemente do fuso do servidor.
+ */
+export function saudacaoLisboa(agora: Date = new Date()): { saudacao: string; data: string } {
+  const hora = Number(
+    new Intl.DateTimeFormat("pt-PT", { hour: "numeric", hour12: false, timeZone: "Europe/Lisbon" }).format(agora),
+  );
+  const saudacao = hora < 12 ? "Bom dia" : hora < 20 ? "Boa tarde" : "Boa noite";
+  const data = new Intl.DateTimeFormat("pt-PT", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "Europe/Lisbon",
+  }).format(agora);
+  return { saudacao, data };
+}
+
+/**
  * Rótulo "Semana N de <mês>" da semana de calendário (domingo→sábado) que contém
  * `iso`. A semana pertence ao mês onde está a MAIORIA dos seus dias — que, numa
  * semana domingo→sábado, é sempre o mês da quarta-feira (o 4.º dia). N é a posição

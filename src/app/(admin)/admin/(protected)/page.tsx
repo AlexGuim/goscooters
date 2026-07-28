@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { ContratoEstado, Notificacao } from "@/types/db";
+import { HeroMarca } from "@/components/HeroMarca";
+import { saudacaoLisboa } from "@/lib/datas";
 import NotificacoesList from "./notificacoes/NotificacoesList";
 
 /** Painel de entrada: a próxima ação de cada jornada + a caixa de notificações. */
@@ -43,12 +45,17 @@ export default async function AdminInicio() {
     { rotulo: "Contratos ativos", n: ativos.count ?? 0, href: "/admin/contratos", cor: "text-slate-950" },
   ];
 
+  const { saudacao, data } = saudacaoLisboa();
+  const porResolver = notifAbertas.count ?? 0;
+  const atraso = emAtraso.count ?? 0;
+  const partes: string[] = [];
+  if (porResolver) partes.push(`${porResolver} ${porResolver === 1 ? "ação por resolver" : "ações por resolver"}`);
+  if (atraso) partes.push(`${atraso} em atraso`);
+  const resumo = partes.length ? partes.join(" · ") : "Sem pendências — está tudo em dia.";
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold text-slate-950">Início</h1>
-        <p className="mt-1 text-slate-600">A próxima ação de cada jornada, num só sítio.</p>
-      </div>
+      <HeroMarca eyebrow={data} titulo={saudacao} subtitulo={resumo} />
 
       <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {tiles.map((t) => (

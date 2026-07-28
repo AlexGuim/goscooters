@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { Badge, type BadgeTom } from "@/components/ui";
+import { HeroMarca } from "@/components/HeroMarca";
+import { saudacaoLisboa } from "@/lib/datas";
 
 const ESTADO: Record<string, { rotulo: string; tom: BadgeTom }> = {
   disponivel: { rotulo: "Disponível", tom: "success" },
@@ -25,16 +27,15 @@ export default async function PortalDashboard() {
   const alugadas = lista.filter((m) => m.estado_operacional === "ocupado").length;
   const manutencao = lista.filter((m) => m.estado_operacional === "manutencao").length;
 
+  const { data } = saudacaoLisboa();
+  const resumo =
+    lista.length === 0
+      ? "Ainda sem motas associadas a ti."
+      : `${lista.length} ${lista.length === 1 ? "mota" : "motas"} · ${alugadas} ${alugadas === 1 ? "alugada" : "alugadas"}`;
+
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="font-display text-3xl font-extrabold tracking-tight text-slate-950">
-          Olá, {nome.split(" ")[0]}
-        </h1>
-        <p className="mt-1 text-slate-600">
-          Acompanha as tuas motos, os acertos mensais e o retorno de cada ativo.
-        </p>
-      </div>
+      <HeroMarca eyebrow={data} titulo={`Olá, ${nome.split(" ")[0]}`} subtitulo={resumo} />
 
       {lista.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
