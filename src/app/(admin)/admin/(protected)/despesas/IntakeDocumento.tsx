@@ -13,10 +13,11 @@ import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
 import { criarSeguro, criarManutencao } from "@/actions/frotaSaudeActions";
-import { type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
+import { prepararComunicacao, type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
 import { executarProcedimentos } from "@/actions/procedimentoActions";
 import type { ProcedimentoGatilho } from "@/types/db";
 import { dataBR } from "@/lib/datas";
+import { IDIOMAS } from "@/lib/lembretes";
 
 const campo =
   "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none focus:border-emerald-500";
@@ -94,6 +95,8 @@ export default function IntakeDocumento({
   const [docUrl, setDocUrl] = useState<string | null>(null);
   const [comunicacao, setComunicacao] = useState<ComunicacaoPreparada | null>(null);
   const [textoMsg, setTextoMsg] = useState("");
+  const [idiomaMsg, setIdiomaMsg] = useState("en");
+  const [aRedigir, setARedigir] = useState(false);
 
   // Campos editáveis (pré-preenchidos pela IA).
   const [tipo, setTipo] = useState<DocTipo>("fatura");
@@ -279,6 +282,7 @@ export default function IntakeDocumento({
         if (preparada?.comunicacao) {
           setComunicacao(preparada.comunicacao);
           setTextoMsg(preparada.comunicacao.texto);
+          setIdiomaMsg(preparada.comunicacao.idioma_cod);
           setOk(msgOk + (enviadas ? ` · ${enviadas} enviada(s) automaticamente.` : ""));
           setFase("comunicar");
           return;
@@ -295,6 +299,28 @@ export default function IntakeDocumento({
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao gravar.");
       setFase("rever");
+    }
+  };
+
+  // Re-redige a mensagem no idioma escolhido (antes de enviar).
+  const redigir = async (idioma: string) => {
+    setIdiomaMsg(idioma);
+    setARedigir(true);
+    const tipoC = tipo === "coima" ? "coima" : tipo === "portagem" ? "portagem" : "seguro";
+    const r = await prepararComunicacao({
+      tipo: tipoC,
+      veiculo_id: veiculoId,
+      motorista_id: tipoC === "seguro" ? null : motoristaId,
+      matricula: motos.find((m) => m.id === veiculoId)?.matricula ?? null,
+      valor: valor || null,
+      data: data ? dataBR(data) : null,
+      documento_url: docUrl,
+      idioma,
+    });
+    setARedigir(false);
+    if (r.success && r.dados) {
+      setComunicacao(r.dados);
+      setTextoMsg(r.dados.texto);
     }
   };
 
@@ -495,12 +521,27 @@ export default function IntakeDocumento({
             const waLink = digits ? `https://wa.me/${digits}?text=${encodeURIComponent(textoMsg)}` : null;
             return (
               <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-                <p className="text-sm font-semibold text-slate-800">Avisar o motorista</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800">Avisar o motorista</p>
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <span>Idioma:</span>
+                    <select
+                      className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                      value={idiomaMsg}
+                      onChange={(e) => redigir(e.target.value)}
+                      disabled={aRedigir}
+                    >
+                      {IDIOMAS.map((i) => (
+                        <option key={i.valor} value={i.valor}>{i.rotulo}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
                 <p className="text-xs text-slate-600">
-                  Mensagem para <strong>{comunicacao.motorista.nome}</strong> ({comunicacao.idioma})
+                  Mensagem para <strong>{comunicacao.motorista.nome}</strong>
                   {comunicacao.fallback ? " · template" : " · redigida pela IA"}. Revê e envia.
                 </p>
-                <textarea className={`${campo} h-32`} value={textoMsg} onChange={(e) => setTextoMsg(e.target.value)} />
+                <textarea className={`${campo} h-32`} value={aRedigir ? "A redigir…" : textoMsg} onChange={(e) => setTextoMsg(e.target.value)} disabled={aRedigir} />
                 <div className="flex flex-wrap gap-3">
                   {waLink && (
                     <a

@@ -55,12 +55,14 @@ export interface PrepararComunicacaoInput {
   valor?: string | null; // já em euros, ex. "2.40"
   data?: string | null; // formatada, ex. "12/07"
   documento_url?: string | null; // carta verde / comprovativo
+  idioma?: string | null; // código ISO (pt/en/es…) para redigir; default inglês
 }
 
 export interface ComunicacaoPreparada {
   motorista: { id: string; nome: string; telefone_e164: string | null };
   texto: string;
-  idioma: string;
+  idioma: string; // nome legível (ex.: "English")
+  idioma_cod: string; // código usado (ex.: "en") — para o seletor no cartão
   /** true se veio de template (IA indisponível). */
   fallback: boolean;
 }
@@ -79,7 +81,11 @@ export async function prepararComunicacao(
     return { success: false, error: `${m.nome} não tem telefone registado para enviar a mensagem.` };
   }
 
-  const idioma = nomeIdioma(m.idioma_preferido);
+  // Âncora do idioma: o override do seletor manda; senão INGLÊS por omissão (a
+  // maioria dos motoristas fala inglês; o `idioma_preferido` na BD é 'pt' por
+  // defeito e não é fiável). O gestor pode mudar antes de enviar.
+  const idiomaCod = (input.idioma || "en").slice(0, 2).toLowerCase();
+  const idioma = nomeIdioma(idiomaCod);
   const matricula = input.matricula ?? "?";
   const valor = input.valor ? `${input.valor} €` : "";
 
@@ -100,9 +106,9 @@ Tom cordial, direto e simples (o motorista pode ser imigrante). Sem assunto, sem
   if (!texto) {
     // Fallback sem IA: template (coima existe; portagem/seguro em pt/en simples).
     fallback = true;
-    const pt = (m.idioma_preferido || "pt").slice(0, 2).toLowerCase() === "pt";
+    const pt = idiomaCod === "pt";
     if (input.tipo === "coima") {
-      texto = textoCoima({ nome: m.nome, matricula, data: input.data ?? "", valor }, m.idioma_preferido);
+      texto = textoCoima({ nome: m.nome, matricula, data: input.data ?? "", valor }, idiomaCod);
     } else if (input.tipo === "portagem") {
       texto = pt
         ? `Olá ${m.nome}, a GoScooters registou uma portagem da mota ${matricula}${input.data ? ` de ${input.data}` : ""}${valor ? ` — valor ${valor}` : ""}. Este montante fica na tua conta. Qualquer dúvida, fala connosco.`
@@ -114,8 +120,9 @@ Tom cordial, direto e simples (o motorista pode ser imigrante). Sem assunto, sem
     }
   }
 
-  // A carta verde vai com o link do documento (nunca dependemos da IA para o URL).
-  if (input.tipo === "seguro" && input.documento_url) {
+  // O link do documento vai SEMPRE na mensagem (coima/portagem/carta verde) — o
+  // motorista vê o documento original. Nunca dependemos da IA para o URL.
+  if (input.documento_url) {
     texto = `${texto.trim()}\n${input.documento_url}`;
   }
 
@@ -125,6 +132,7 @@ Tom cordial, direto e simples (o motorista pode ser imigrante). Sem assunto, sem
       motorista: { id: m.id, nome: m.nome, telefone_e164: m.telefone_e164 },
       texto: texto.trim(),
       idioma,
+      idioma_cod: idiomaCod,
       fallback,
     },
   };
