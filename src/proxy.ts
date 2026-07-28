@@ -89,6 +89,15 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Allowlist de admin (mesma fonte do dal). Serve só para o reencaminhar otimista
+  // abaixo — a autorização a sério continua a viver no dal, junto dos dados.
+  const emailsAdmin = (process.env.ADMIN_EMAIL ?? "")
+    .toLowerCase()
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const ehAdmin = !!user?.email && emailsAdmin.includes(user.email.toLowerCase());
+
   const isAdminArea = caminho.startsWith("/admin");
   const isLoginPage = caminho === "/admin/login";
 
@@ -97,8 +106,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Já autenticado não tem nada que fazer no ecrã de login.
-  if (isLoginPage && user) {
+  // Só reencaminha para /admin quem JÁ é admin. Reenviar QUALQUER sessão faria um
+  // utilizador autenticado mas SEM permissão (conta comum / parceiro) entrar em
+  // ciclo: o dal recusa /admin e devolve ao login, e o login reenviava outra vez
+  // para /admin → ERR_TOO_MANY_REDIRECTS. Um não-admin fica no login e pode trocar
+  // de conta. (Mesmo cuidado que já existe no bloco do portal, aqui em falta.)
+  if (isLoginPage && ehAdmin) {
     return NextResponse.redirect(new URL("/admin", request.url));
   }
 
