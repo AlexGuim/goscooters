@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Moto, MotoEstado, Proprietario } from "@/types/db";
-import { updateMoto, deleteMoto } from "@/actions/motoActions";
+import { updateMoto, deleteMoto, definirEstadoMoto, reconciliarEstadosMotas } from "@/actions/motoActions";
 import { historicoAtivo } from "@/actions/ativoActions";
 import type { HistoricoAtivo } from "@/lib/ativoHistorico";
 import { precosDisponiveis, formatarPreco } from "@/lib/precos";
@@ -43,13 +43,32 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
       atuais.map((m) => (m.id === motoId ? { ...m, ...alteracoes } : m)),
     );
 
+  const [aSincronizar, setASincronizar] = useState(false);
+
   const handleEstadoChange = async (motoId: string, novoEstado: MotoEstado) => {
-    const resultado = await updateMoto(motoId, { estado: novoEstado });
+    // Sincroniza os DOIS planos (catálogo + operacional/portal) e recusa libertar
+    // uma moto com contrato em curso — o portal deixa de divergir do admin.
+    const resultado = await definirEstadoMoto(motoId, novoEstado);
     if (resultado.success) {
-      aplicar(motoId, { estado: novoEstado });
+      const estado_operacional =
+        novoEstado === "alugada" ? "ocupado" : novoEstado === "manutencao" ? "manutencao" : "disponivel";
+      aplicar(motoId, { estado: novoEstado, estado_operacional });
     } else {
       alert(resultado.error);
     }
+  };
+
+  const handleSincronizar = async () => {
+    setASincronizar(true);
+    const r = await reconciliarEstadosMotas();
+    setASincronizar(false);
+    if (!r.success) return alert(r.error);
+    alert(
+      r.corrigidas
+        ? `${r.corrigidas} mota(s) sincronizada(s) com o contrato em curso.`
+        : "Tudo já estava sincronizado com os contratos.",
+    );
+    if (r.corrigidas) window.location.reload();
   };
 
   const handleAtivoChange = async (motoId: string, novoAtivo: boolean) => {
@@ -137,9 +156,14 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
             <option value="carro">Só carros</option>
           </select>
         </div>
-        <Botao tamanho="lg" onClick={() => setModal({ tipo: "criar" })}>
-          + Novo veículo
-        </Botao>
+        <div className="flex items-center gap-2">
+          <Botao variante="secondary" onClick={handleSincronizar} disabled={aSincronizar}>
+            {aSincronizar ? "A sincronizar…" : "Sincronizar estados"}
+          </Botao>
+          <Botao tamanho="lg" onClick={() => setModal({ tipo: "criar" })}>
+            + Novo veículo
+          </Botao>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
