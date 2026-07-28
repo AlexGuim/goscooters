@@ -39,6 +39,9 @@ const TIPO_MANUT: { v: ManutencaoTipo; r: string }[] = [
 ];
 const rotuloManut = (t: ManutencaoTipo) => TIPO_MANUT.find((x) => x.v === t)?.r ?? t;
 
+const docDe = (detalhe: unknown): string | null =>
+  (detalhe as { documento_url?: string } | null)?.documento_url ?? null;
+
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasEntre = (iso: string) =>
   Math.round((new Date(iso + "T00:00:00Z").getTime() - new Date(hoje() + "T00:00:00Z").getTime()) / 86400000);
@@ -212,7 +215,12 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
                       {s.premio ? ` · ${formatarPreco(s.premio)}` : ""} · paga {QUEM_PAGA.find((q) => q.v === s.quem_paga)?.r}
                     </p>
                   </div>
-                  <button onClick={() => delSeguro(s.id)} className="px-2 text-slate-400 hover:text-red-600" aria-label="Apagar">×</button>
+                  <div className="flex items-center gap-2">
+                    {docDe(s.detalhe) && (
+                      <a href={docDe(s.detalhe)!} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">doc</a>
+                    )}
+                    <button onClick={() => delSeguro(s.id)} className="px-2 text-slate-400 hover:text-red-600" aria-label="Apagar">×</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -257,7 +265,12 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
                       {m.proxima_km != null || m.proxima_data ? ` · próxima: ${m.proxima_km != null ? `${m.proxima_km.toLocaleString("pt-PT")} km` : ""}${m.proxima_km != null && m.proxima_data ? "/" : ""}${m.proxima_data ? dataBR(m.proxima_data) : ""}` : ""}
                     </p>
                   </div>
-                  <button onClick={() => delManut(m.id)} className="px-2 text-slate-400 hover:text-red-600" aria-label="Apagar">×</button>
+                  <div className="flex items-center gap-2">
+                    {docDe(m.detalhe) && (
+                      <a href={docDe(m.detalhe)!} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">doc</a>
+                    )}
+                    <button onClick={() => delManut(m.id)} className="px-2 text-slate-400 hover:text-red-600" aria-label="Apagar">×</button>
+                  </div>
                 </div>
               ))}
             </div>

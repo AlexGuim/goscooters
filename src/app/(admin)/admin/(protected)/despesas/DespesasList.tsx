@@ -205,6 +205,19 @@ export default function DespesasList({
                 </div>
                 <div className="flex items-center gap-4">
                   <span className="font-semibold text-slate-950">{formatarPreco(d.valor_total)}</span>
+                  {(() => {
+                    const docUrl = (d.detalhe as { documento_url?: string } | null)?.documento_url;
+                    return docUrl ? (
+                      <a
+                        href={docUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-slate-600 transition hover:text-slate-900"
+                      >
+                        Documento
+                      </a>
+                    ) : null;
+                  })()}
                   <button
                     className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-700"
                     onClick={() => setModal(d)}
