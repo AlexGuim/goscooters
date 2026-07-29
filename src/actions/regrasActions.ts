@@ -17,24 +17,35 @@ const norm = (idioma: string | null | undefined): "pt" | "en" =>
  */
 export async function regrasAtivas(idioma: string = "pt"): Promise<RegrasAtivas | null> {
   const lang = norm(idioma);
+  const sel = "versao, conteudo, hash, created_at";
   const { data, error } = await supabaseAdmin
     .from("regras_aluguer")
-    .select("versao, conteudo, hash, created_at")
+    .select(sel)
     .eq("ativa", true)
     .eq("idioma", lang)
     .maybeSingle();
-  if (error) return null; // tabela/coluna ainda não migrada — não parte
-  if (data) return data;
-  if (lang !== "pt") {
-    const { data: pt } = await supabaseAdmin
-      .from("regras_aluguer")
-      .select("versao, conteudo, hash, created_at")
-      .eq("ativa", true)
-      .eq("idioma", "pt")
-      .maybeSingle();
-    return pt ?? null;
+  if (!error) {
+    if (data) return data;
+    if (lang !== "pt") {
+      const { data: pt } = await supabaseAdmin
+        .from("regras_aluguer")
+        .select(sel)
+        .eq("ativa", true)
+        .eq("idioma", "pt")
+        .maybeSingle();
+      return pt ?? null;
+    }
+    return null;
   }
-  return null;
+  // A coluna `idioma` ainda não existe (fase9 por correr): recua para a versão
+  // única ativa (comportamento antigo), para as regras não desaparecerem no
+  // intervalo entre o deploy e a migração.
+  const { data: legado } = await supabaseAdmin
+    .from("regras_aluguer")
+    .select(sel)
+    .eq("ativa", true)
+    .maybeSingle();
+  return legado ?? null;
 }
 
 /** Grava uma NOVA versão (com hash) para uma LÍNGUA e marca-a como ativa nessa língua. */

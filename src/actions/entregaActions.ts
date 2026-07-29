@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { mensagemLinkEntrega, mensagemLinkRegisto } from "@/lib/mensagens";
+import { regrasAtivas } from "@/actions/regrasActions";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import { notificar } from "@/lib/notificacoes";
 import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
@@ -353,25 +354,11 @@ export async function sessaoPorToken(
 
   // No registo (sem contrato) as regras do aluguer não se aplicam ainda — só se
   // aceitam na entrega, para a mota concreta. E mostra-se a versão ativa NA LÍNGUA
-  // do motorista (com recuo para PT se essa língua ainda não tiver versão).
+  // do motorista (recuo para PT; e recuo para a versão única se fase9 por correr).
   let regras: { versao: string; hash: string; conteudo: string } | null = null;
   if (!registo) {
-    const { data } = await supabaseAdmin
-      .from("regras_aluguer")
-      .select("versao, hash, conteudo")
-      .eq("ativa", true)
-      .eq("idioma", idioma)
-      .maybeSingle();
-    regras = data ?? null;
-    if (!regras && idioma !== "pt") {
-      const { data: pt } = await supabaseAdmin
-        .from("regras_aluguer")
-        .select("versao, hash, conteudo")
-        .eq("ativa", true)
-        .eq("idioma", "pt")
-        .maybeSingle();
-      regras = pt ?? null;
-    }
+    const r = await regrasAtivas(idioma);
+    regras = r ? { versao: r.versao, hash: r.hash, conteudo: r.conteudo } : null;
   }
 
   return {
@@ -527,22 +514,8 @@ export async function concluirPorToken(
         .maybeSingle();
       idiomaMot = (m?.idioma_preferido || "pt").slice(0, 2).toLowerCase() === "en" ? "en" : "pt";
     }
-    const { data } = await supabaseAdmin
-      .from("regras_aluguer")
-      .select("versao, hash")
-      .eq("ativa", true)
-      .eq("idioma", idiomaMot)
-      .maybeSingle();
-    regra = data ?? null;
-    if (!regra && idiomaMot !== "pt") {
-      const { data: pt } = await supabaseAdmin
-        .from("regras_aluguer")
-        .select("versao, hash")
-        .eq("ativa", true)
-        .eq("idioma", "pt")
-        .maybeSingle();
-      regra = pt ?? null;
-    }
+    const r = await regrasAtivas(idiomaMot);
+    regra = r ? { versao: r.versao, hash: r.hash } : null;
     if (!regra) return { ok: false, error: "Regras não configuradas." };
   }
 
