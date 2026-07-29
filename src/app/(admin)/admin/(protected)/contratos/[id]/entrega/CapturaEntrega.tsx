@@ -181,6 +181,11 @@ export default function CapturaEntrega({
         if (c.carta_numero) setCartaNumero(c.carta_numero);
         if (c.carta_validade) setCartaValidade(c.carta_validade);
       }
+      // Morada — quando o documento a mostra (título de residência, comprovativo,
+      // IDs estrangeiros). Só preenche se ainda estiver vazia (não pisa o manual).
+      if (c.morada_linha1) setMorada((prev) => prev || c.morada_linha1!);
+      if (c.codigo_postal) setCodigoPostal((prev) => prev || c.codigo_postal!);
+      if (c.localidade) setLocalidade((prev) => prev || c.localidade!);
     } else if (r.semIA && grupo === "identidade") {
       // Plano B (sem Gemini): OCR da MRZ no browser — só o documento de identidade.
       const files = Object.values(identidadeFilesRef.current);

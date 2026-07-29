@@ -891,9 +891,12 @@ function LeitorDocumento({ formRef }: { formRef: React.RefObject<HTMLFormElement
           if (preencher("carta_categoria", d.carta_categoria)) feitos.push("categoria carta");
           if (preencher("carta_pais", d.carta_pais)) feitos.push("país carta");
           if (preencher("carta_validade", d.carta_validade)) feitos.push("validade carta");
+          if (preencher("morada_linha1", d.morada_linha1)) feitos.push("morada");
+          if (preencher("codigo_postal", d.codigo_postal)) feitos.push("código postal");
+          if (preencher("localidade", d.localidade)) feitos.push("localidade");
           setStatus(
             feitos.length
-              ? `Preenchido: ${feitos.join(", ")}. Confirma tudo. A morada preenche-se à mão.`
+              ? `Preenchido: ${feitos.join(", ")}. Confirma tudo.`
               : "Li os documentos mas não extraí campos — preenche à mão.",
           );
           return;

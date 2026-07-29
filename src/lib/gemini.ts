@@ -21,6 +21,11 @@ export interface CamposDocumento {
   carta_categoria: string | null; // ex.: A1, A, B
   carta_pais: string | null; // ISO-2
   carta_validade: string | null; // ISO
+  // Morada — quando visível no documento (título de residência, comprovativo de
+  // morada, cartas de condução/IDs estrangeiros). O CC português não a mostra.
+  morada_linha1: string | null; // rua e número
+  codigo_postal: string | null; // ex.: 1000-001
+  localidade: string | null; // cidade/localidade
 }
 
 /**
@@ -119,8 +124,12 @@ Extrai APENAS o que conseguires ler com confiança e devolve um objeto JSON com 
   "carta_numero": string|null,         // nº da carta de condução
   "carta_categoria": string|null,      // categorias, ex.: A1, A, B
   "carta_pais": string|null,           // país emissor da carta em ISO-2
-  "carta_validade": string|null        // AAAA-MM-DD
+  "carta_validade": string|null,       // AAAA-MM-DD
+  "morada_linha1": string|null,        // morada (rua e número), SE estiver visível no documento
+  "codigo_postal": string|null,        // código postal, ex.: 1000-001
+  "localidade": string|null            // localidade/cidade
 }
+Extrai a MORADA quando aparecer (título de residência, comprovativo de morada, cartas/IDs estrangeiros); o Cartão de Cidadão português NÃO mostra a morada — deixa null nesse caso.
 Datas SEMPRE em AAAA-MM-DD. Países SEMPRE em ISO-2. Responde só com o JSON, sem texto à volta.`;
 
 const PROMPT_CLASSIFICAR = `És um assistente de uma empresa de aluguer de scooters. Lês documentos (faturas, apólices de seguro, faturas de oficina/manutenção, portagens/Via Verde, coimas, documentos de identidade) a partir de fotografias ou PDFs.
