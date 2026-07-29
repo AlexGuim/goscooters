@@ -29,7 +29,10 @@ export default async function EntregaPage({
     supabaseAdmin.from("vistoria").select("id").eq("contrato_id", id).eq("tipo", "entrega").maybeSingle(),
   ]);
 
-  const regras = await regrasAtivas();
+  // As regras são mostradas na língua do motorista (recuo para PT), pois é ele
+  // que as aceita na entrega.
+  const idiomaMot = (mot as { idioma_preferido?: string | null } | null)?.idioma_preferido ?? "pt";
+  const regras = await regrasAtivas(idiomaMot);
 
   const m = mot as Record<string, unknown> | null;
   const motorista =

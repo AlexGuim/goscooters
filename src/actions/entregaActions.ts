@@ -348,18 +348,31 @@ export async function sessaoPorToken(
     const { data: m } = await supabaseAdmin.from("moto").select("matricula, modelo").eq("id", c.veiculo_id).maybeSingle();
     if (m) veiculo = `${m.matricula ?? ""} ${m.modelo}`.trim();
   }
+  const idiomaMot = (mot as { idioma_preferido?: string | null } | null)?.idioma_preferido;
+  const idioma: "pt" | "en" = (idiomaMot || "pt").slice(0, 2).toLowerCase() === "pt" ? "pt" : "en";
+
   // No registo (sem contrato) as regras do aluguer não se aplicam ainda — só se
-  // aceitam na entrega, para a mota concreta.
-  const { data: regras } = registo
-    ? { data: null }
-    : await supabaseAdmin
+  // aceitam na entrega, para a mota concreta. E mostra-se a versão ativa NA LÍNGUA
+  // do motorista (com recuo para PT se essa língua ainda não tiver versão).
+  let regras: { versao: string; hash: string; conteudo: string } | null = null;
+  if (!registo) {
+    const { data } = await supabaseAdmin
+      .from("regras_aluguer")
+      .select("versao, hash, conteudo")
+      .eq("ativa", true)
+      .eq("idioma", idioma)
+      .maybeSingle();
+    regras = data ?? null;
+    if (!regras && idioma !== "pt") {
+      const { data: pt } = await supabaseAdmin
         .from("regras_aluguer")
         .select("versao, hash, conteudo")
         .eq("ativa", true)
+        .eq("idioma", "pt")
         .maybeSingle();
-
-  const idiomaMot = (mot as { idioma_preferido?: string | null } | null)?.idioma_preferido;
-  const idioma: "pt" | "en" = (idiomaMot || "pt").slice(0, 2).toLowerCase() === "pt" ? "pt" : "en";
+      regras = pt ?? null;
+    }
+  }
 
   return {
     ok: true,
@@ -501,14 +514,37 @@ export async function concluirPorToken(
   }
   if (precisaRegras && !input.regras_versao) return { ok: false, error: "Falta aceitar as regras." };
 
-  // A prova das regras é carimbada pelo SERVIDOR (a versão/hash reais da regra
-  // ativa), nunca pelo que o cliente diz — senão a prova seria repudiável.
-  const { data: regra } = await supabaseAdmin
-    .from("regras_aluguer")
-    .select("versao, hash")
-    .eq("ativa", true)
-    .maybeSingle();
-  if (precisaRegras && !regra) return { ok: false, error: "Regras não configuradas." };
+  // A prova das regras é carimbada pelo SERVIDOR (versão/hash reais da regra ativa
+  // NA LÍNGUA do motorista — a que ele viu), nunca pelo que o cliente diz.
+  let regra: { versao: string; hash: string } | null = null;
+  if (precisaRegras) {
+    let idiomaMot: "pt" | "en" = "pt";
+    if (s.motorista_id) {
+      const { data: m } = await supabaseAdmin
+        .from("motorista")
+        .select("idioma_preferido")
+        .eq("id", s.motorista_id)
+        .maybeSingle();
+      idiomaMot = (m?.idioma_preferido || "pt").slice(0, 2).toLowerCase() === "en" ? "en" : "pt";
+    }
+    const { data } = await supabaseAdmin
+      .from("regras_aluguer")
+      .select("versao, hash")
+      .eq("ativa", true)
+      .eq("idioma", idiomaMot)
+      .maybeSingle();
+    regra = data ?? null;
+    if (!regra && idiomaMot !== "pt") {
+      const { data: pt } = await supabaseAdmin
+        .from("regras_aluguer")
+        .select("versao, hash")
+        .eq("ativa", true)
+        .eq("idioma", "pt")
+        .maybeSingle();
+      regra = pt ?? null;
+    }
+    if (!regra) return { ok: false, error: "Regras não configuradas." };
+  }
 
   const h = await headers();
   const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || null;

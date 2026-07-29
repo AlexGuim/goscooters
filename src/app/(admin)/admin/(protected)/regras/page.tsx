@@ -5,6 +5,6 @@ import RegrasEditor from "./RegrasEditor";
 
 export default async function RegrasPage() {
   await requireAdmin();
-  const ativas = await regrasAtivas();
-  return <RegrasEditor inicial={ativas} rascunho={REGRAS_RASCUNHO} />;
+  const [pt, en] = await Promise.all([regrasAtivas("pt"), regrasAtivas("en")]);
+  return <RegrasEditor pt={pt} en={en} rascunho={REGRAS_RASCUNHO} />;
 }

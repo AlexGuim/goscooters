@@ -417,6 +417,7 @@ export type Acerto = {
 export type RegrasAluguer = {
   id: string;
   versao: string;
+  idioma: string; // 'pt' | 'en' — versão ativa por língua
   conteudo: string;
   hash: string;
   ativa: boolean;
