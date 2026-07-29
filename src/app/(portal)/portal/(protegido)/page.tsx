@@ -24,8 +24,26 @@ export default async function PortalDashboard() {
     .order("matricula");
 
   const lista = motos ?? [];
-  const alugadas = lista.filter((m) => m.estado_operacional === "ocupado").length;
-  const manutencao = lista.filter((m) => m.estado_operacional === "manutencao").length;
+
+  // O estado mostrado é DERIVADO dos contratos em curso — uma moto com contrato
+  // ativo/pendente_fecho está ocupada, independentemente do valor guardado em
+  // estado_operacional (que pode ficar dessincronizado). Só a manutenção/inativo
+  // vêm do campo guardado. Assim o portal nunca diverge dos contratos.
+  const ids = lista.map((m) => m.id);
+  let ocupadas = new Set<string>();
+  if (ids.length > 0) {
+    const { data: cts } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("veiculo_id")
+      .in("veiculo_id", ids)
+      .in("estado", ["ativo", "pendente_fecho"]);
+    ocupadas = new Set((cts ?? []).map((c) => c.veiculo_id as string));
+  }
+  const estadoDe = (m: (typeof lista)[number]): string =>
+    ocupadas.has(m.id) ? "ocupado" : m.estado_operacional;
+
+  const alugadas = lista.filter((m) => estadoDe(m) === "ocupado").length;
+  const manutencao = lista.filter((m) => estadoDe(m) === "manutencao").length;
 
   const { data } = saudacaoLisboa();
   const resumo =
@@ -56,7 +74,8 @@ export default async function PortalDashboard() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {lista.map((m) => {
-              const e = ESTADO[m.estado_operacional] ?? { rotulo: m.estado_operacional, tom: "neutral" as BadgeTom };
+              const est = estadoDe(m);
+              const e = ESTADO[est] ?? { rotulo: est, tom: "neutral" as BadgeTom };
               return (
                 <Link
                   key={m.id}

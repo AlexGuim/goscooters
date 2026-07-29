@@ -213,11 +213,6 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
                         ? nomeDono.get(moto.proprietario_id) ?? "—"
                         : "—"}
                     </p>
-                    {moto.comissao_valor_override != null && (
-                      <p className="text-xs text-amber-600">
-                        {moto.comissao_valor_override}% (específica)
-                      </p>
-                    )}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-1">
