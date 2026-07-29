@@ -8,6 +8,7 @@ import { requireAdminForAction } from "@/lib/dal";
 import { mensagemLinkEntrega, mensagemLinkRegisto } from "@/lib/mensagens";
 import { regrasAtivas } from "@/actions/regrasActions";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
+import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import { notificar } from "@/lib/notificacoes";
 import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
@@ -527,7 +528,7 @@ export async function concluirPorToken(
   // Materializa no motorista os dados e documentos (sessão é âmbito estrito).
   if (s.motorista_id) {
     const upd: MotoristaUpdate = {};
-    if (input.nome?.trim()) upd.nome = input.nome.trim();
+    if (input.nome?.trim() && !ehNomePlaceholder(input.nome)) upd.nome = input.nome.trim();
     if (input.nif?.trim()) {
       const d = input.nif.replace(/\D/g, "");
       upd.nif = d;

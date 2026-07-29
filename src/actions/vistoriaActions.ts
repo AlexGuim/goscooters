@@ -6,6 +6,7 @@ import { requireAdminForAction } from "@/lib/dal";
 import { notificar } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 import { prontoParaEntrega, nifValidoPT } from "@/lib/kyc";
+import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import type { DocIdTipo, Database } from "@/types/db";
 
 type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
@@ -126,7 +127,7 @@ export async function submeterVistoriaEntrega(
     // Gate passou — grava o KYC.
     const upd: MotoristaUpdate = {};
     // Nome capturado na entrega: corrige o placeholder "Motorista (por confirmar)".
-    if (input.nome?.trim()) upd.nome = input.nome.trim();
+    if (input.nome?.trim() && !ehNomePlaceholder(input.nome)) upd.nome = input.nome.trim();
     if (novoNif) { upd.nif = novoNif; upd.nif_valido = nifValidoPT(novoNif); }
     if (input.doc_id_tipo) upd.doc_id_tipo = input.doc_id_tipo as DocIdTipo;
     if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();

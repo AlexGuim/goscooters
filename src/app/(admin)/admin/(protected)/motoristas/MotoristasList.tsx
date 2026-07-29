@@ -8,6 +8,7 @@ import { IDIOMAS } from "@/lib/lembretes";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento, iso3ParaIso2 } from "@/lib/documentos";
 import { kycCompleto } from "@/lib/kyc";
+import { nomeInicial } from "@/lib/nomeMotorista";
 import {
   criarMotorista,
   atualizarMotorista,
@@ -714,7 +715,13 @@ function FichaKYC({
       <div className="grid gap-4 sm:grid-cols-2">
         <label className={etiqueta}>
           <span>Nome</span>
-          <input className={campo} name="nome" defaultValue={motorista.nome} required />
+          <input
+            className={campo}
+            name="nome"
+            defaultValue={nomeInicial(motorista.nome)}
+            placeholder="Nome completo do motorista"
+            required
+          />
         </label>
         <label className={etiqueta}>
           <span>Telefone</span>

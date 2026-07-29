@@ -7,6 +7,7 @@ import { submeterVistoriaEntrega, submeterVistoriaRecolha, type DanoPrevio, type
 import { lerDocumentoIA, urlAssinado } from "@/actions/fotoActions";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento } from "@/lib/documentos";
+import { nomeInicial } from "@/lib/nomeMotorista";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 import { formatarPreco } from "@/lib/precos";
 
@@ -139,9 +140,7 @@ export default function CapturaEntrega({
 
   // KYC do motorista (só na entrega): pré-preenchido com o que já existe. O nome
   // começa vazio quando ainda é o placeholder, para forçar a confirmação.
-  const [nomeKyc, setNomeKyc] = useState(
-    motorista?.nome && motorista.nome !== "Motorista (por confirmar)" ? motorista.nome : "",
-  );
+  const [nomeKyc, setNomeKyc] = useState(nomeInicial(motorista?.nome));
   const [nif, setNif] = useState(motorista?.nif ?? "");
   const [docTipo, setDocTipo] = useState(motorista?.doc_id_tipo ?? "cc");
   const [docNumero, setDocNumero] = useState(motorista?.doc_id_numero ?? "");

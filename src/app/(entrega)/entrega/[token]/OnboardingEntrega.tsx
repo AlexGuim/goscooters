@@ -10,6 +10,7 @@ import {
 } from "@/actions/entregaActions";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento } from "@/lib/documentos";
+import { nomeInicial } from "@/lib/nomeMotorista";
 import { campo } from "@/components/ui";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 
@@ -156,7 +157,9 @@ export default function OnboardingEntrega({
   const [docs, setDocs] = useState<Record<string, string>>({});
   const [aCarregar, setACarregar] = useState<string | null>(null);
   // Dados
-  const [nome, setNome] = useState(sessao.motorista_nome);
+  // Começa vazio quando o guardado é o placeholder, para o motorista escrever o
+  // nome real (a IA preenche-o ao ler o documento) em vez de reenviar o placeholder.
+  const [nome, setNome] = useState(nomeInicial(sessao.motorista_nome));
   const [nif, setNif] = useState("");
   const [tipo, setTipo] = useState("cc");
   const [numero, setNumero] = useState("");
@@ -371,7 +374,7 @@ export default function OnboardingEntrega({
             <>
               <label className="block space-y-1.5 text-sm font-medium text-slate-700">
                 <span>{t.nome_completo}</span>
-                <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} />
+                <input className={campo} value={nome} onChange={(e) => setNome(e.target.value)} required />
               </label>
               <label className="block space-y-1.5 text-sm font-medium text-slate-700">
                 <span>{t.nif_label}</span>
