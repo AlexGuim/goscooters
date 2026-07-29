@@ -5,6 +5,8 @@ import Link from "next/link";
 import { enviarFotoPrivada, enviarVideoPrivado, enviarAssinaturaPrivada } from "@/lib/uploads";
 import { submeterVistoriaEntrega, submeterVistoriaRecolha, type DanoPrevio, type MaterialLinha } from "@/actions/vistoriaActions";
 import { lerDocumentoIA, urlAssinado } from "@/actions/fotoActions";
+import { ocrFicheiro } from "@/lib/ocr";
+import { interpretarDocumento } from "@/lib/documentos";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 import { formatarPreco } from "@/lib/precos";
 
@@ -149,6 +151,8 @@ export default function CapturaEntrega({
   // Espelho de docsKyc para o merge: uploads simultâneos leem sempre o valor mais
   // recente aqui (o estado da closure pode estar obsoleto entre awaits).
   const docsKycRef = useRef<Record<string, string>>({});
+  // Ficheiros do grupo identidade, para o OCR do browser (plano B sem Gemini).
+  const identidadeFilesRef = useRef<Record<string, File>>({});
   const [analisando, setAnalisando] = useState<string | null>(null);
   const temDocExistente = (motorista?.doc_urls?.length ?? 0) > 0;
   const temIdentidade = temDocExistente || !!docsKyc.identidade;
@@ -161,7 +165,6 @@ export default function CapturaEntrega({
     if (!paths.length) return;
     setAnalisando(grupo);
     const r = await lerDocumentoIA(paths);
-    setAnalisando(null);
     if (r.ok && r.dados) {
       const c = r.dados;
       if (grupo === "identidade") {
@@ -173,7 +176,22 @@ export default function CapturaEntrega({
         if (c.carta_numero) setCartaNumero(c.carta_numero);
         if (c.carta_validade) setCartaValidade(c.carta_validade);
       }
+    } else if (r.semIA && grupo === "identidade") {
+      // Plano B (sem Gemini): OCR da MRZ no browser — só o documento de identidade.
+      const files = Object.values(identidadeFilesRef.current);
+      if (files.length) {
+        try {
+          const textos = await Promise.all(files.map((f) => ocrFicheiro(f)));
+          const d = interpretarDocumento(textos.join("\n"));
+          if (d.numero) setDocNumero(d.numero);
+          if (d.validade) setDocValidade(d.validade);
+          if (d.tipo) setDocTipo(d.tipo);
+        } catch (e) {
+          console.error("OCR (entrega) falhou:", e);
+        }
+      }
     }
+    setAnalisando(null);
   };
 
   const carregarDocKyc = async (slot: string, grupo: "identidade" | "carta" | null, file: File | undefined) => {
@@ -187,6 +205,7 @@ export default function CapturaEntrega({
     const novos = { ...docsKycRef.current, [slot]: r.path };
     docsKycRef.current = novos;
     setDocsKyc(novos);
+    if (grupo === "identidade") identidadeFilesRef.current[slot] = file; // guarda p/ OCR
     if (grupo && file.type.startsWith("image/")) analisarGrupoKyc(grupo, novos);
   };
 
@@ -309,7 +328,12 @@ export default function CapturaEntrega({
       {/* Documentos do motorista (KYC) — só na entrega */}
       {!recolha && (
         <section className="space-y-4 rounded-3xl bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Documentos do motorista</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Documentos do motorista</h2>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+              ✨ IA preenche
+            </span>
+          </div>
           <p className="text-xs text-slate-500">
             Obrigatórios para finalizar: documento (com ficheiro), NIF, carta (com ficheiro), morada.
             Carrega frente e verso; a IA lê e preenche os campos automaticamente.

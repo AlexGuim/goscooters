@@ -17,9 +17,10 @@ import {
   type MotoristaEditavel,
 } from "@/actions/motoristaActions";
 import { validarIdentidadeMotorista } from "@/actions/notificacaoActions";
+import { criarLinkCompletarDados } from "@/actions/entregaActions";
 import { urlAssinado, lerDocumentoIA } from "@/actions/fotoActions";
 import { enviarFotoPrivada } from "@/lib/uploads";
-import { Botao, Modal, campo, etiqueta } from "@/components/ui";
+import { Botao, Modal, classesBotao, campo, etiqueta } from "@/components/ui";
 
 export interface MotoristaComAvaliacoes extends Motorista {
   avaliacoes: Avaliacao[];
@@ -493,6 +494,8 @@ function FichaKYC({
   const [validado, setValidado] = useState(false);
   const [aValidar, setAValidar] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const [aGerarLink, setAGerarLink] = useState(false);
+  const [linkGerado, setLinkGerado] = useState<{ link: string; whatsapp: string | null } | null>(null);
 
   const handleValidar = async () => {
     setAValidar(true);
@@ -500,6 +503,17 @@ function FichaKYC({
     setAValidar(false);
     if (r.success) setValidado(true);
     else setErro(r.error ?? "Erro ao validar.");
+  };
+
+  // Gera um link para o PRÓPRIO motorista completar o que falta (KYC com IA),
+  // apontado ao registo dele — para adiantar antes da entrega.
+  const gerarLinkCompletar = async () => {
+    setErro(null);
+    setAGerarLink(true);
+    const r = await criarLinkCompletarDados(motorista.id);
+    setAGerarLink(false);
+    if (r.success && r.link) setLinkGerado({ link: r.link, whatsapp: r.whatsapp ?? null });
+    else setErro(r.error ?? "Erro ao gerar o link.");
   };
 
   // Abre um ficheiro do documento (bucket privado) com link assinado temporário.
@@ -606,6 +620,31 @@ function FichaKYC({
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Identidade incompleta — falta: {kyc.faltam.join(", ")}
           </p>
+        )}
+
+        {/* Adiantar a entrega: link para o próprio motorista completar o que falta. */}
+        {linkGerado ? (
+          <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+            <p className="text-xs font-semibold text-emerald-800">Link para o motorista completar os dados (a IA preenche):</p>
+            <input
+              readOnly
+              value={linkGerado.link}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none"
+            />
+            <div className="flex flex-wrap gap-2">
+              {linkGerado.whatsapp && (
+                <a href={linkGerado.whatsapp} target="_blank" rel="noreferrer" className={classesBotao("volt", "sm")}>
+                  Enviar por WhatsApp
+                </a>
+              )}
+              <Botao variante="ghost" tamanho="sm" onClick={() => setLinkGerado(null)}>Fechar</Botao>
+            </div>
+          </div>
+        ) : (
+          <Botao variante="secondary" tamanho="sm" onClick={gerarLinkCompletar} disabled={aGerarLink}>
+            {aGerarLink ? "A gerar…" : "📲 Enviar link para completar dados"}
+          </Botao>
         )}
         {porValidar && !validado && (
           <button

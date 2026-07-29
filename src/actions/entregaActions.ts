@@ -241,6 +241,74 @@ export async function criarSessaoRegisto(input: {
   return { success: true, link, whatsapp, motorista_id: motoristaId };
 }
 
+/**
+ * Link de CONCLUSÃO de dados para um motorista JÁ existente (ficha incompleta):
+ * gera um link de modo "registo" (só recolhe KYC, com IA; sem regras/assinatura)
+ * apontado ao registo dele. Não duplica o motorista e — ao contrário do registo
+ * por telefone — aponta ao contrato EM CURSO se já houver um, em vez de criar um
+ * pré-contrato solto. Serve para adiantar a entrega: o motorista preenche o que
+ * falta e tudo cai na ficha dele.
+ */
+export async function criarLinkCompletarDados(
+  motoristaId: string,
+): Promise<{ success: boolean; link?: string; whatsapp?: string | null; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const { data: m } = await supabaseAdmin
+    .from("motorista")
+    .select("id, nome, telefone_e164, idioma_preferido")
+    .eq("id", motoristaId)
+    .maybeSingle();
+  if (!m) return { success: false, error: "Motorista não encontrado." };
+
+  // Aponta ao contrato da jornada em curso (o mais recente), se houver; senão,
+  // cria/reutiliza um pré-contrato — para não deixar um pré-contrato solto a quem
+  // já tem contrato.
+  const { data: contratos } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("id")
+    .eq("motorista_id", motoristaId)
+    .in("estado", ["pre_contrato", "rascunho", "ativo", "pendente_fecho", "suspenso"])
+    .order("created_at", { ascending: false });
+  let contratoId: string | null = contratos?.[0]?.id ?? null;
+  if (!contratoId) {
+    const { data: pc } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .insert({ motorista_id: motoristaId, estado: "pre_contrato" })
+      .select("id")
+      .maybeSingle();
+    contratoId = pc?.id ?? null;
+  }
+
+  const token = randomBytes(24).toString("base64url");
+  const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+  const { error } = await supabaseAdmin.from("entrega_sessao").insert({
+    token_hash: hashToken(token),
+    contrato_id: contratoId,
+    motorista_id: motoristaId,
+    estado: "enviado",
+    expira_em: expira,
+    dados: { origem: "registo" }, // KYC only — sem regras/assinatura (isso é na entrega).
+  });
+  if (error) {
+    console.error("criarLinkCompletarDados sessao error:", error);
+    return { success: false, error: "Erro ao criar a sessão (corre sql/fase4b_entrega_sessao)." };
+  }
+
+  const h = await headers();
+  const origin = h.get("origin") ?? `https://${h.get("host") ?? "goscooters.vercel.app"}`;
+  const link = `${origin}/entrega/${token}`;
+
+  let whatsapp: string | null = null;
+  if (m.telefone_e164) {
+    const num = m.telefone_e164.replace(/\D/g, "");
+    const texto = mensagemLinkRegisto(m.nome ?? "", link, m.idioma_preferido);
+    whatsapp = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+  }
+  return { success: true, link, whatsapp };
+}
+
 // ── Público (validado por token, sem conta) ──────────────────────────────────
 
 export interface SessaoPublica {

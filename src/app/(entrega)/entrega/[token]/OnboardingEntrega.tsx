@@ -325,7 +325,12 @@ export default function OnboardingEntrega({
       </div>
 
       <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.docs_titulo}</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.docs_titulo}</h2>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+            ✨ {lang === "en" ? "AI fills it" : "IA preenche"}
+          </span>
+        </div>
         <p className="text-xs text-slate-500">{t.docs_ajuda}</p>
         {DOC_SLOTS.map((s) => (
           <label key={s.key} className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-emerald-400">
