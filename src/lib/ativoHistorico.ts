@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import type { ImputarA } from "@/types/db";
 
 /**
  * Cálculo puro do histórico do ativo (P&L por moto), SEM autorização — quem
@@ -24,7 +25,10 @@ export interface HistoricoAtivo {
   n_rendas_pagas: number;
 }
 
-export async function calcularHistoricoAtivo(motoId: string): Promise<HistoricoAtivo | null> {
+export async function calcularHistoricoAtivo(
+  motoId: string,
+  opts?: { imputarA?: ImputarA[] },
+): Promise<HistoricoAtivo | null> {
   const { data: m } = await supabaseAdmin
     .from("moto")
     .select("matricula, modelo, data_aquisicao, valor_aquisicao")
@@ -32,9 +36,17 @@ export async function calcularHistoricoAtivo(motoId: string): Promise<HistoricoA
     .maybeSingle();
   if (!m) return null;
 
+  // Filtro OPCIONAL de quem suporta o custo. Sem `imputarA` conta TODAS as
+  // despesas (comportamento do admin, inalterado); o portal do parceiro passa
+  // ['proprietario'] para o "Custos" refletir só o que o dono realmente suporta.
+  let despesaQuery = supabaseAdmin.from("despesa").select("valor_total").eq("veiculo_id", motoId);
+  if (opts?.imputarA && opts.imputarA.length > 0) {
+    despesaQuery = despesaQuery.in("imputar_a", opts.imputarA);
+  }
+
   const [rendasRes, despesasRes, kmsRes] = await Promise.all([
     supabaseAdmin.from("cobranca").select("valor_pago").eq("veiculo_id", motoId).eq("tipo", "renda"),
-    supabaseAdmin.from("despesa").select("valor_total").eq("veiculo_id", motoId),
+    despesaQuery,
     supabaseAdmin.from("km_registo").select("km").eq("veiculo_id", motoId),
   ]);
 

@@ -11,7 +11,7 @@ import type {
 } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
-import { Botao, Badge, AcoesMenu, Modal, campo, etiqueta, type BadgeTom } from "@/components/ui";
+import { Botao, Badge, AcoesMenu, Modal, campo, etiqueta } from "@/components/ui";
 import {
   criarDespesa,
   atualizarDespesa,
@@ -19,18 +19,12 @@ import {
 } from "@/actions/despesaActions";
 import { registarCoima, resolverCondutor } from "@/actions/coimaActions";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
+import { CAT_ROTULO, CAT_COR, ESTADO_PAG_TOM, IMPUTAR_ROTULO } from "@/lib/despesasMeta";
 
 export interface DespesaComNomes extends Despesa {
   veiculo_matricula: string | null;
   proprietario_nome: string | null;
 }
-
-const ESTADO_PAG_TOM: Record<EstadoPagamentoDespesa, BadgeTom> = {
-  pendente: "warning",
-  parcial: "warning",
-  paga: "success",
-  isenta: "neutral",
-};
 
 const CATEGORIAS: { valor: DespesaCategoria; rotulo: string }[] = [
   { valor: "manutencao", rotulo: "Manutenção" },
@@ -40,22 +34,6 @@ const CATEGORIAS: { valor: DespesaCategoria; rotulo: string }[] = [
   { valor: "gps", rotulo: "GPS" },
   { valor: "outro", rotulo: "Outro" },
 ];
-const CAT_ROTULO: Record<DespesaCategoria, string> = {
-  manutencao: "Manutenção", portagem: "Portagem", coima: "Coima",
-  seguro: "Seguro", gps: "GPS", comissao: "Comissão", outro: "Outro",
-};
-const CAT_COR: Record<DespesaCategoria, string> = {
-  manutencao: "bg-blue-100 text-blue-700",
-  portagem: "bg-purple-100 text-purple-700",
-  coima: "bg-red-100 text-red-700",
-  seguro: "bg-emerald-100 text-emerald-700",
-  gps: "bg-slate-100 text-slate-700",
-  comissao: "bg-amber-100 text-amber-800",
-  outro: "bg-slate-100 text-slate-600",
-};
-const IMPUTAR_ROTULO: Record<ImputarA, string> = {
-  goscooters: "GoScooters", proprietario: "Proprietário", motorista: "Motorista",
-};
 // Quem costuma suportar cada tipo de custo (default; sempre editável).
 const IMPUTAR_PADRAO: Record<DespesaCategoria, ImputarA> = {
   manutencao: "proprietario",

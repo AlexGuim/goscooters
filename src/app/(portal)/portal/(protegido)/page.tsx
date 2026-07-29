@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { motoristaAtualDasMotos } from "@/lib/portal/queries";
 import { Badge, type BadgeTom } from "@/components/ui";
 import { HeroMarca } from "@/components/HeroMarca";
-import { saudacaoLisboa } from "@/lib/datas";
+import { saudacaoLisboa, dataBR } from "@/lib/datas";
 
 const ESTADO: Record<string, { rotulo: string; tom: BadgeTom }> = {
   disponivel: { rotulo: "Disponível", tom: "success" },
@@ -42,6 +43,9 @@ export default async function PortalDashboard() {
   const estadoDe = (m: (typeof lista)[number]): string =>
     ocupadas.has(m.id) ? "ocupado" : m.estado_operacional;
 
+  // Quem está com cada moto agora (só primeiro nome + desde quando; ver query).
+  const motoristas = await motoristaAtualDasMotos(proprietarioId, ids);
+
   const alugadas = lista.filter((m) => estadoDe(m) === "ocupado").length;
   const manutencao = lista.filter((m) => estadoDe(m) === "manutencao").length;
 
@@ -76,6 +80,7 @@ export default async function PortalDashboard() {
             {lista.map((m) => {
               const est = estadoDe(m);
               const e = ESTADO[est] ?? { rotulo: est, tom: "neutral" as BadgeTom };
+              const mot = motoristas.get(m.id);
               return (
                 <Link
                   key={m.id}
@@ -87,6 +92,13 @@ export default async function PortalDashboard() {
                       {m.matricula ?? "—"}
                     </p>
                     <p className="truncate text-sm text-slate-500">{m.modelo}</p>
+                    <p className="mt-1 truncate text-xs text-slate-400">
+                      {est === "ocupado"
+                        ? mot
+                          ? `Motorista: ${mot.primeiroNome}${mot.desde ? ` · desde ${dataBR(mot.desde)}` : ""}`
+                          : "Alugada"
+                        : "Sem motorista"}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge tom={e.tom}>{e.rotulo}</Badge>
