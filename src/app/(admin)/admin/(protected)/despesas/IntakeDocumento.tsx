@@ -12,7 +12,7 @@ import type { DocTipo } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
-import { criarSeguro, criarManutencao } from "@/actions/frotaSaudeActions";
+import { criarSeguro, criarManutencao, garantirManutencaoDeDespesa } from "@/actions/frotaSaudeActions";
 import { prepararComunicacao, type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
 import { executarProcedimentos } from "@/actions/procedimentoActions";
 import type { ProcedimentoGatilho } from "@/types/db";
@@ -220,6 +220,11 @@ export default function IntakeDocumento({
           detalhe: detalheDoc,
         });
         if (!r.success) throw new Error(r.error);
+        // Despesa de manutenção (mesmo guardada como "despesa") passa a ter registo
+        // operacional, para o painel de saúde e os alertas a verem.
+        if (categoria === "manutencao" && veiculoId && r.id) {
+          await garantirManutencaoDeDespesa(r.id);
+        }
         msgOk = `Despesa registada (${TIPO_ROTULO[tipo]}).` + (r.avisoKm ? ` ${r.avisoKm}` : "");
       } else if (destino === "seguro") {
         let despesaId: string | null = null;

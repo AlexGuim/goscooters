@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { garantirManutencaoDeDespesa } from "@/actions/frotaSaudeActions";
 import type {
   Database,
   DespesaCategoria,
@@ -83,6 +84,15 @@ export async function criarDespesa(
   }
 
   revalidatePath("/admin/despesas");
+  // Uma despesa de manutenção espelha-se num registo operacional (painel de saúde
+  // + alertas). Idempotente e best-effort — nunca falha a criação da despesa.
+  if (input.categoria === "manutencao" && input.veiculo_id) {
+    try {
+      await garantirManutencaoDeDespesa(data.id);
+    } catch (e) {
+      console.error("garantirManutencaoDeDespesa (criarDespesa):", e);
+    }
+  }
   return { success: true, id: data.id };
 }
 

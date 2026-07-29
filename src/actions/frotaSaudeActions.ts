@@ -112,6 +112,56 @@ export async function criarManutencao(
   return { success: true, manutencao: data as Manutencao };
 }
 
+/**
+ * Garante que uma despesa de categoria 'manutenção' tem o registo operacional
+ * correspondente — para aparecer no painel de saúde e alimentar os alertas de
+ * manutenção. IDEMPOTENTE: se já houver uma manutenção ligada a esta despesa, não
+ * faz nada, por isso é seguro chamar em qualquer fluxo (o intake que já cria a
+ * manutenção não duplica). Só cobre 'manutenção' — o seguro precisa da validade da
+ * apólice, que uma despesa simples não tem.
+ */
+export async function garantirManutencaoDeDespesa(
+  despesaId: string,
+): Promise<{ ok: boolean; criada?: boolean }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { ok: false };
+
+  const { data: d } = await supabaseAdmin
+    .from("despesa")
+    .select("id, categoria, veiculo_id, valor_total, data_despesa, descricao, fornecedor, origem, detalhe")
+    .eq("id", despesaId)
+    .maybeSingle();
+  if (!d || d.categoria !== "manutencao" || !d.veiculo_id) return { ok: true, criada: false };
+
+  const { data: existe } = await supabaseAdmin
+    .from("manutencao")
+    .select("id")
+    .eq("despesa_id", despesaId)
+    .limit(1)
+    .maybeSingle();
+  if (existe) return { ok: true, criada: false };
+
+  const docUrl = (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null;
+  const insert: ManutencaoInsert = {
+    veiculo_id: d.veiculo_id,
+    tipo: "outro",
+    data: d.data_despesa,
+    oficina: d.fornecedor ?? null,
+    custo: (d.valor_total as string | null) ?? null,
+    observacoes: d.descricao ?? null,
+    despesa_id: despesaId,
+    origem: d.origem === "ingestao" ? "ingestao" : "manual",
+    detalhe: docUrl ? { documento_url: docUrl } : null,
+  };
+  const { error } = await supabaseAdmin.from("manutencao").insert(insert);
+  if (error) {
+    console.error("garantirManutencaoDeDespesa error:", error);
+    return { ok: false };
+  }
+  revalidatePath("/admin/motas");
+  return { ok: true, criada: true };
+}
+
 export async function apagarManutencao(id: string): Promise<{ success: boolean; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
