@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { LOCALES, negociarLocale } from "@/lib/i18n";
 
 /** Caminhos que não pertencem ao site traduzido e não levam prefixo de idioma. */
-const SEM_IDIOMA = ["/admin", "/portal", "/entrega", "/auth", "/api"];
+const SEM_IDIOMA = ["/admin", "/portal", "/entrega", "/recibo", "/auth", "/api"];
 
 /**
  * Ficheiros que os motores de busca e os browsers procuram em caminhos fixos.

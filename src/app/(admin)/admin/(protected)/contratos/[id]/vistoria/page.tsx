@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import DanoForm from "./DanoForm";
+import ReciboBotao from "./ReciboBotao";
 
 interface Dano { zona?: string; nota?: string }
 interface Material { key?: string; rotulo?: string; qtd?: number; entregue?: boolean; devolvido?: boolean }
@@ -74,13 +75,16 @@ export default async function VistoriaComparacao({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href="/admin/contratos" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">← Contratos</Link>
-        <h1 className="mt-2 text-2xl font-semibold text-slate-950">Vistoria · {c.numero}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {moto ? `${moto.matricula ?? "?"} · ${moto.modelo}` : ""}
-          {kmRodados != null ? ` · ${kmRodados.toLocaleString("pt-PT")} km rodados` : ""}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Link href="/admin/contratos" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">← Contratos</Link>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-950">Vistoria · {c.numero}</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            {moto ? `${moto.matricula ?? "?"} · ${moto.modelo}` : ""}
+            {kmRodados != null ? ` · ${kmRodados.toLocaleString("pt-PT")} km rodados` : ""}
+          </p>
+        </div>
+        {entrega && <ReciboBotao contratoId={c.id} />}
       </div>
 
       {/* Caução */}
