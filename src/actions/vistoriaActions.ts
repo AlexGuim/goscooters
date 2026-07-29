@@ -46,6 +46,7 @@ export interface SubmeterEntregaInput {
   regras_aceite?: boolean;
   // KYC do motorista capturado na própria entrega (opcional — se o motorista já os
   // tinha, não é preciso reenviar). doc_paths → motorista.doc_urls (ficheiros).
+  nome?: string | null;
   nif?: string | null;
   doc_id_tipo?: string | null;
   doc_id_numero?: string | null;
@@ -124,6 +125,8 @@ export async function submeterVistoriaEntrega(
 
     // Gate passou — grava o KYC.
     const upd: MotoristaUpdate = {};
+    // Nome capturado na entrega: corrige o placeholder "Motorista (por confirmar)".
+    if (input.nome?.trim()) upd.nome = input.nome.trim();
     if (novoNif) { upd.nif = novoNif; upd.nif_valido = nifValidoPT(novoNif); }
     if (input.doc_id_tipo) upd.doc_id_tipo = input.doc_id_tipo as DocIdTipo;
     if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();

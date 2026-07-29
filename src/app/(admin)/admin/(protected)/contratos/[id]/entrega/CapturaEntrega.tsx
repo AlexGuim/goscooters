@@ -137,7 +137,11 @@ export default function CapturaEntrega({
   const [aSubmeter, setASubmeter] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  // KYC do motorista (só na entrega): pré-preenchido com o que já existe.
+  // KYC do motorista (só na entrega): pré-preenchido com o que já existe. O nome
+  // começa vazio quando ainda é o placeholder, para forçar a confirmação.
+  const [nomeKyc, setNomeKyc] = useState(
+    motorista?.nome && motorista.nome !== "Motorista (por confirmar)" ? motorista.nome : "",
+  );
   const [nif, setNif] = useState(motorista?.nif ?? "");
   const [docTipo, setDocTipo] = useState(motorista?.doc_id_tipo ?? "cc");
   const [docNumero, setDocNumero] = useState(motorista?.doc_id_numero ?? "");
@@ -168,6 +172,7 @@ export default function CapturaEntrega({
     if (r.ok && r.dados) {
       const c = r.dados;
       if (grupo === "identidade") {
+        if (c.nome) setNomeKyc((prev) => prev || c.nome!);
         if (c.nif) setNif(c.nif.replace(/\D/g, ""));
         if (c.doc_id_numero) setDocNumero(c.doc_id_numero);
         if (c.doc_id_validade) setDocValidade(c.doc_id_validade);
@@ -183,6 +188,7 @@ export default function CapturaEntrega({
         try {
           const textos = await Promise.all(files.map((f) => ocrFicheiro(f)));
           const d = interpretarDocumento(textos.join("\n"));
+          if (d.nome) setNomeKyc((prev) => prev || d.nome!);
           if (d.numero) setDocNumero(d.numero);
           if (d.validade) setDocValidade(d.validade);
           if (d.tipo) setDocTipo(d.tipo);
@@ -296,6 +302,7 @@ export default function CapturaEntrega({
           regras_versao: regras?.versao ?? null,
           regras_hash: regras?.hash ?? null,
           regras_aceite: regrasAceite,
+          nome: nomeKyc,
           nif,
           doc_id_tipo: docTipo,
           doc_id_numero: docNumero,
@@ -361,6 +368,10 @@ export default function CapturaEntrega({
               </label>
             ))}
           </div>
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>Nome completo</span>
+            <input className={campo} value={nomeKyc} onChange={(e) => setNomeKyc(e.target.value)} placeholder="Como está no documento" />
+          </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>NIF</span><input className={campo} value={nif} onChange={(e) => setNif(e.target.value)} inputMode="numeric" /></label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Tipo de documento</span><select className={campo} value={docTipo} onChange={(e) => setDocTipo(e.target.value)}>{DOC_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.r}</option>)}</select></label>
