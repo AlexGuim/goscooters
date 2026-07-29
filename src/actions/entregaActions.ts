@@ -262,24 +262,18 @@ export async function criarLinkCompletarDados(
     .maybeSingle();
   if (!m) return { success: false, error: "Motorista não encontrado." };
 
-  // Aponta ao contrato da jornada em curso (o mais recente), se houver; senão,
-  // cria/reutiliza um pré-contrato — para não deixar um pré-contrato solto a quem
-  // já tem contrato.
+  // Aponta ao contrato da jornada EM CURSO (o mais recente), se houver. Se não
+  // houver nenhum — ex.: motorista que voltou, contrato anterior concluído — a
+  // sessão fica SEM contrato: é uma pura conclusão de dados, que atualiza só a
+  // ficha. NÃO cria pré-contrato (o contrato novo cria-se à parte, no wizard),
+  // para nunca deixar um contrato órfão.
   const { data: contratos } = await supabaseAdmin
     .from("contrato_aluguer")
     .select("id")
     .eq("motorista_id", motoristaId)
     .in("estado", ["pre_contrato", "rascunho", "ativo", "pendente_fecho", "suspenso"])
     .order("created_at", { ascending: false });
-  let contratoId: string | null = contratos?.[0]?.id ?? null;
-  if (!contratoId) {
-    const { data: pc } = await supabaseAdmin
-      .from("contrato_aluguer")
-      .insert({ motorista_id: motoristaId, estado: "pre_contrato" })
-      .select("id")
-      .maybeSingle();
-    contratoId = pc?.id ?? null;
-  }
+  const contratoId: string | null = contratos?.[0]?.id ?? null;
 
   const token = randomBytes(24).toString("base64url");
   const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
