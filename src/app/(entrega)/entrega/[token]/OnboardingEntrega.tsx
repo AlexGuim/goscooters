@@ -66,6 +66,10 @@ const STR: Record<Lang, Record<string, string>> = {
     categoria: "Categoria",
     pais_emissor: "País emissor",
     validade: "Validade",
+    morada_titulo: "Morada",
+    morada_label: "Morada (rua e número)",
+    cp_label: "Código postal",
+    loc_label: "Localidade",
     regras_titulo: "Regras do aluguer",
     regras_pre: "Li e ",
     regras_strong: "aceito as regras",
@@ -111,6 +115,10 @@ const STR: Record<Lang, Record<string, string>> = {
     categoria: "Category",
     pais_emissor: "Issuing country",
     validade: "Expiry",
+    morada_titulo: "Address",
+    morada_label: "Address (street and number)",
+    cp_label: "Postal code",
+    loc_label: "City",
     regras_titulo: "Rental rules",
     regras_pre: "I have read and ",
     regras_strong: "accept the rules",
@@ -157,6 +165,9 @@ export default function OnboardingEntrega({
   const [cartaCategoria, setCartaCategoria] = useState("");
   const [cartaPais, setCartaPais] = useState("");
   const [cartaValidade, setCartaValidade] = useState("");
+  const [morada, setMorada] = useState("");
+  const [codigoPostal, setCodigoPostal] = useState("");
+  const [localidade, setLocalidade] = useState("");
   // Estado da leitura automática, por documento.
   const [estadoId, setEstadoId] = useState<EstadoLeitura>("idle");
   const [estadoCarta, setEstadoCarta] = useState<EstadoLeitura>("idle");
@@ -193,6 +204,7 @@ export default function OnboardingEntrega({
   const aplicar = (c: {
     nome?: string | null; nif?: string | null; numero?: string | null; validade?: string | null; tipo?: string | null;
     carta_numero?: string | null; carta_categoria?: string | null; carta_pais?: string | null; carta_validade?: string | null;
+    morada_linha1?: string | null; codigo_postal?: string | null; localidade?: string | null;
   }) => {
     if (c.nome) setNome(c.nome);
     if (c.nif) setNif(c.nif.replace(/\D/g, ""));
@@ -203,6 +215,9 @@ export default function OnboardingEntrega({
     if (c.carta_categoria) setCartaCategoria(c.carta_categoria);
     if (c.carta_pais) setCartaPais(c.carta_pais.toUpperCase());
     if (c.carta_validade) setCartaValidade(c.carta_validade);
+    if (c.morada_linha1) setMorada((p) => p || c.morada_linha1!);
+    if (c.codigo_postal) setCodigoPostal((p) => p || c.codigo_postal!);
+    if (c.localidade) setLocalidade((p) => p || c.localidade!);
   };
 
   // Lê um grupo (identidade OU carta). O Gemini extrai só os campos presentes na
@@ -217,11 +232,12 @@ export default function OnboardingEntrega({
       const r = await lerDocumentoIAporToken(token, paths);
       let ok = false;
       if (r.ok && r.dados) {
+        const morada = { morada_linha1: r.dados.morada_linha1, codigo_postal: r.dados.codigo_postal, localidade: r.dados.localidade };
         if (grupo === "identidade") {
-          aplicar({ nome: r.dados.nome, nif: r.dados.nif, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo });
+          aplicar({ nome: r.dados.nome, nif: r.dados.nif, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo, ...morada });
           ok = !!(r.dados.nome || r.dados.nif || r.dados.doc_id_numero || r.dados.doc_id_validade);
         } else {
-          aplicar({ carta_numero: r.dados.carta_numero, carta_categoria: r.dados.carta_categoria, carta_pais: r.dados.carta_pais, carta_validade: r.dados.carta_validade });
+          aplicar({ carta_numero: r.dados.carta_numero, carta_categoria: r.dados.carta_categoria, carta_pais: r.dados.carta_pais, carta_validade: r.dados.carta_validade, ...morada });
           ok = !!(r.dados.carta_numero || r.dados.carta_categoria || r.dados.carta_validade);
         }
       } else if (grupo === "identidade") {
@@ -289,6 +305,9 @@ export default function OnboardingEntrega({
       carta_categoria: cartaCategoria || null,
       carta_pais: cartaPais || null,
       carta_validade: cartaValidade || null,
+      morada_linha1: morada || null,
+      codigo_postal: codigoPostal || null,
+      localidade: localidade || null,
     });
     setASubmeter(false);
     if (!r.ok) return setErro(r.error ?? t.err_submeter);
@@ -406,6 +425,25 @@ export default function OnboardingEntrega({
           )}
         </section>
       )}
+
+      {/* Morada — sempre editável (a IA preenche se estiver no documento). */}
+      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t.morada_titulo}</h2>
+        <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+          <span>{t.morada_label}</span>
+          <input className={campo} value={morada} onChange={(e) => setMorada(e.target.value)} />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>{t.cp_label}</span>
+            <input className={campo} value={codigoPostal} onChange={(e) => setCodigoPostal(e.target.value)} placeholder="1000-001" />
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+            <span>{t.loc_label}</span>
+            <input className={campo} value={localidade} onChange={(e) => setLocalidade(e.target.value)} />
+          </label>
+        </div>
+      </section>
 
       {!registo && sessao.regras && (
         <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">

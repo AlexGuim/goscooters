@@ -469,6 +469,9 @@ export interface ConcluirEntregaInput {
   carta_categoria?: string | null;
   carta_pais?: string | null;
   carta_validade?: string | null;
+  morada_linha1?: string | null;
+  codigo_postal?: string | null;
+  localidade?: string | null;
 }
 
 /** Conclui o self-service: grava docs/dados no motorista + prova de aceite. */
@@ -525,6 +528,9 @@ export async function concluirPorToken(
     if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();
     if (input.doc_id_validade) upd.doc_id_validade = input.doc_id_validade;
     if (input.doc_paths.length) upd.doc_urls = input.doc_paths;
+    if (input.morada_linha1?.trim()) upd.morada_linha1 = input.morada_linha1.trim();
+    if (input.codigo_postal?.trim()) upd.codigo_postal = input.codigo_postal.trim();
+    if (input.localidade?.trim()) upd.localidade = input.localidade.trim();
     if (Object.keys(upd).length) {
       await supabaseAdmin.from("motorista").update(upd).eq("id", s.motorista_id);
     }
