@@ -226,24 +226,26 @@ export async function finalizarPreContrato(
  * passa-o a 'cancelado' (o invariante isenta 'cancelado') e resolve a notificação
  * de "à espera de mota". Só age sobre um 'pre_contrato' (guarda de transição).
  */
-export async function descartarPreContrato(
+export async function descartarContratoIncompleto(
   id: string,
 ): Promise<{ success: boolean; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
+  // Só contratos AINDA incompletos (sem entrega feita / faturação por iniciar):
+  // pré-contrato ou rascunho. Um contrato ativo/concluído nunca é descartado aqui.
   const { data, error } = await supabaseAdmin
     .from("contrato_aluguer")
     .update({ estado: "cancelado" })
     .eq("id", id)
-    .eq("estado", "pre_contrato")
+    .in("estado", ["pre_contrato", "rascunho"])
     .select("id")
     .maybeSingle();
   if (error) {
-    console.error("descartarPreContrato error:", error);
-    return { success: false, error: "Erro ao descartar o pré-contrato." };
+    console.error("descartarContratoIncompleto error:", error);
+    return { success: false, error: "Erro ao descartar o contrato." };
   }
-  if (!data) return { success: false, error: "Este contrato já não é um pré-contrato." };
+  if (!data) return { success: false, error: "Só dá para descartar pré-contratos ou rascunhos (sem entrega feita)." };
 
   await supabaseAdmin
     .from("notificacao")

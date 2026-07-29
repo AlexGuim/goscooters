@@ -15,7 +15,7 @@ import {
   criarContrato,
   atualizarContrato,
   finalizarPreContrato,
-  descartarPreContrato,
+  descartarContratoIncompleto,
   gerarCobrancas,
   terminarContrato,
   realinharCobrancasContrato,
@@ -179,7 +179,7 @@ export default function ContratosList({
 
   const handleDescartar = async (c: ContratoComNomes) => {
     if (!window.confirm(`Descartar a jornada ${c.numero}? Fica cancelada.`)) return;
-    const r = await descartarPreContrato(c.id);
+    const r = await descartarContratoIncompleto(c.id);
     if (r.success) {
       setContratos((atuais) => atuais.map((x) => (x.id === c.id ? { ...x, estado: "cancelado" } : x)));
     } else {
@@ -326,6 +326,7 @@ export default function ContratosList({
                       { rotulo: "Link ao motorista", onClick: () => handleLink(c) },
                       { rotulo: "Editar", onClick: () => setModal(c) },
                       { rotulo: "Suspender", onClick: () => handleSuspender(c, true), oculta: c.estado !== "ativo" },
+                      { rotulo: "Descartar", perigo: true, onClick: () => handleDescartar(c), oculta: c.estado !== "rascunho" },
                       { rotulo: "Terminar", perigo: true, onClick: () => handleTerminar(c), oculta: !(aberto || c.estado === "suspenso") },
                     ];
                     return (
