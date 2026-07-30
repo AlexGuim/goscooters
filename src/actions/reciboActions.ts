@@ -6,9 +6,10 @@ import { requireAdminForAction } from "@/lib/dal";
 import { assinarRecibo } from "@/lib/reciboToken";
 
 /**
- * Gera o link do recibo de entrega (página pública com token) para enviar ao
- * motorista, com a mensagem de WhatsApp pronta. O recibo mostra a vistoria de
- * entrega desse contrato (km, fotos, danos, materiais, assinatura).
+ * Gera o link do contrato + recibo de entrega (página pública com token) para
+ * enviar ao motorista, com a mensagem de WhatsApp pronta. O documento mostra as
+ * partes, o objeto e condições, as regras aceites e o estado na entrega (km,
+ * fotos, danos, materiais, assinatura) da vistoria de entrega desse contrato.
  */
 export async function criarLinkRecibo(
   contratoId: string,
@@ -48,8 +49,8 @@ export async function criarLinkRecibo(
       const primeiro = (m.nome ?? "").split(" ")[0];
       const texto =
         (m.idioma_preferido ?? "pt") !== "pt"
-          ? `Hi ${primeiro}, here is your GoScooters delivery receipt: ${link}`
-          : `Olá ${primeiro}, aqui está o recibo de entrega da tua mota (GoScooters): ${link}`;
+          ? `Hi ${primeiro}, here is your GoScooters rental contract & delivery receipt: ${link}`
+          : `Olá ${primeiro}, aqui está o teu contrato de aluguer e recibo de entrega (GoScooters): ${link}`;
       whatsapp = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
     }
   }

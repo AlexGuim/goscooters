@@ -21,6 +21,7 @@ import {
   realinharCobrancasContrato,
 } from "@/actions/contratoActions";
 import { criarSessaoEntrega, criarSessaoRegisto } from "@/actions/entregaActions";
+import { criarLinkRecibo } from "@/actions/reciboActions";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface ContratoComNomes extends ContratoAluguer {
@@ -177,6 +178,20 @@ export default function ContratosList({
     }
   };
 
+  // Atalho: gera o contrato + recibo de entrega e abre já o WhatsApp (ou mostra
+  // o link se não houver telefone E.164). Requer uma vistoria de entrega feita.
+  const handleRecibo = async (c: ContratoComNomes) => {
+    setAGerar(c.id);
+    const r = await criarLinkRecibo(c.id);
+    setAGerar(null);
+    if (r.success && r.link) {
+      if (r.whatsapp) window.open(r.whatsapp, "_blank");
+      else window.prompt("Link do contrato/recibo. Copia e envia ao motorista:", r.link);
+    } else {
+      alert(r.error);
+    }
+  };
+
   const handleDescartar = async (c: ContratoComNomes) => {
     if (!window.confirm(`Descartar a jornada ${c.numero}? Fica cancelada.`)) return;
     const r = await descartarContratoIncompleto(c.id);
@@ -323,6 +338,7 @@ export default function ContratosList({
                       { rotulo: "Entregar", href: `/admin/contratos/${c.id}/entrega`, oculta: c.estado === "concluido" || c.estado === "cancelado" || c.estado === "rascunho" },
                       { rotulo: "Devolver", href: `/admin/contratos/${c.id}/recolha`, oculta: !(aberto || c.estado === "suspenso") },
                       { rotulo: "Ver vistoria", href: `/admin/contratos/${c.id}/vistoria`, oculta: c.estado === "rascunho" || c.estado === "cancelado" },
+                      { rotulo: "Enviar contrato ao motorista", onClick: () => handleRecibo(c), oculta: !(aberto || c.estado === "suspenso" || c.estado === "concluido") },
                       { rotulo: "Link ao motorista", onClick: () => handleLink(c) },
                       { rotulo: "Editar", onClick: () => setModal(c) },
                       { rotulo: "Suspender", onClick: () => handleSuspender(c, true), oculta: c.estado !== "ativo" },
