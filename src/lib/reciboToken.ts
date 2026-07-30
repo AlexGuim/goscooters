@@ -2,28 +2,46 @@ import "server-only";
 import { createHmac } from "node:crypto";
 
 /**
- * Token do recibo de entrega, SEM ESTADO: `<vistoriaId>.<assinatura>`.
- * A assinatura é um HMAC-SHA256 da vistoria com a service-role key (server-only),
- * por isso o token não é forjável sem o segredo. Um recibo é um documento estático
- * (não muda, não precisa de revogação), logo não guardamos nada na BD — ao
- * contrário do token de entrega, que é uma sessão com estado.
+ * Token do contrato/recibo de entrega, SEM ESTADO: `<vistoriaId>.<iat>.<assinatura>`.
+ * A assinatura é um HMAC-SHA256 de (vistoria + data de emissão) com a service-role
+ * key (server-only), por isso o token não é forjável sem o segredo. Continua sem
+ * estado na BD; a data de emissão vai ASSINADA no próprio token e dá-lhe validade
+ * (VALIDADE_MS) — como o documento passou a expor KYC (NIF, nº documento, morada,
+ * carta), um link partilhável não pode ficar válido para sempre. Passada a
+ * validade, gera-se um novo link (o motorista guarda o PDF, que não expira).
  */
-function assinaturaDe(vistoriaId: string): string {
+const VALIDADE_MS = 90 * 24 * 60 * 60 * 1000; // 90 dias
+
+function assinaturaDe(payload: string): string {
   const chave = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  return createHmac("sha256", chave).update(`recibo:${vistoriaId}`).digest("base64url").slice(0, 32);
+  return createHmac("sha256", chave).update(payload).digest("base64url").slice(0, 32);
+}
+
+// Comparação em tempo constante (evita timing attacks na assinatura).
+function iguais(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 export function assinarRecibo(vistoriaId: string): string {
-  return `${vistoriaId}.${assinaturaDe(vistoriaId)}`;
+  const iat = Date.now().toString(36);
+  const sig = assinaturaDe(`recibo:${vistoriaId}:${iat}`);
+  return `${vistoriaId}.${iat}.${sig}`;
 }
 
-/** Devolve a vistoriaId se o token for válido, senão null. (UUID não contém ".") */
+/**
+ * Devolve a vistoriaId se o token for válido E dentro da validade, senão null.
+ * (UUID e iat/base36 e assinatura/base64url não contêm ".", logo o split é seguro.)
+ */
 export function validarRecibo(token: string): string | null {
-  const [id, sig] = (token ?? "").split(".");
-  if (!id || !sig) return null;
-  const esperado = assinaturaDe(id);
-  if (sig.length !== esperado.length) return null;
-  let diff = 0;
-  for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ esperado.charCodeAt(i);
-  return diff === 0 ? id : null;
+  const partes = (token ?? "").split(".");
+  if (partes.length !== 3) return null; // formato antigo (sem validade) já não é aceite
+  const [id, iat, sig] = partes;
+  if (!id || !iat || !sig) return null;
+  if (!iguais(sig, assinaturaDe(`recibo:${id}:${iat}`))) return null;
+  const ts = parseInt(iat, 36);
+  if (!Number.isFinite(ts) || Date.now() - ts > VALIDADE_MS) return null;
+  return id;
 }
