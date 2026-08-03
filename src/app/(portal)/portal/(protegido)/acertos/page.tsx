@@ -3,7 +3,6 @@ import { requirePartner } from "@/lib/dal";
 import { acertosDoParceiro } from "@/lib/portal/queries";
 import { formatarPreco } from "@/lib/precos";
 import { Badge } from "@/components/ui";
-import SubNavFinanceiro from "../SubNavFinanceiro";
 
 function nomeMes(competencia: string): string {
   const [ano, mes] = competencia.slice(0, 7).split("-");
@@ -21,7 +20,6 @@ export default async function PortalAcertosPage() {
         <h1 className="text-2xl font-semibold text-slate-950">Acertos</h1>
         <p className="mt-1 text-slate-600">O fecho de cada mês. Clica para ver o extrato.</p>
       </div>
-      <SubNavFinanceiro />
 
       {acertos.length === 0 ? (
         <div className="rounded-3xl bg-white p-8 text-center text-slate-600 shadow-sm">

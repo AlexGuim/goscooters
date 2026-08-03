@@ -2,7 +2,6 @@ import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { financeiroDoParceiro } from "@/lib/portal/queries";
 import { formatarPreco } from "@/lib/precos";
-import SubNavFinanceiro from "../SubNavFinanceiro";
 
 export default async function PortalFinanceiro() {
   const { proprietarioId } = await requirePartner();
@@ -18,8 +17,6 @@ export default async function PortalFinanceiro() {
           Receita cobrada e despesas suas, acumuladas por moto. Regime de caixa.
         </p>
       </div>
-
-      <SubNavFinanceiro />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile rotulo="Receita paga" valor={eur(f.receita)} cor="text-slate-950" />
