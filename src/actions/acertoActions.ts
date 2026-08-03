@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { formatarPreco } from "@/lib/precos";
 import { notificar } from "@/lib/notificacoes";
+import { rotuloSemanaMes, mesDaSemana } from "@/lib/datas";
 import type { AcertoLinhaTipo } from "@/types/db";
 
 /**
@@ -111,7 +112,13 @@ async function computar(
       .gte("data_vencimento", inicio)
       .lte("data_vencimento", fim);
 
-    const pagas = (cobs ?? []).filter((c) => Number(c.valor_pago) > 0);
+    // A que MÊS pertence cada semana decide-se pela sua quarta-feira (igual ao
+    // rótulo em Cobranças), não pela janela de datas — que assumia o vencimento
+    // ao domingo e cortava a 5.ª semana quando o vencimento calhava a meio da
+    // semana (contratos que começam noutro dia). Assim o acerto nunca diverge da
+    // lista de Cobranças.
+    const doMes = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competencia);
+    const pagas = doMes.filter((c) => Number(c.valor_pago) > 0);
     const cobIds = pagas.map((c) => c.id);
 
     // Quanto de cada renda foi recebido PELA GoScooters (o resto entrou na conta
@@ -140,15 +147,15 @@ async function computar(
       }
     }
 
-    // Ordena por veículo e por período, para numerar as semanas de cada moto
-    // (Semana 1, 2, 3…) em vez de mostrar as datas cruas — o pedido do Alex. A soma
-    // não depende da ordem, por isso a acumulação continua correta.
+    // Ordena por veículo e por período. A semana mostra-se pelo rótulo real do mês
+    // (rotuloSemanaMes: "Semana 5 de julho"), o MESMO que aparece em Cobranças —
+    // não um contador sequencial. Assim os gaps ficam visíveis (uma moto com as
+    // semanas 2, 4, 5 mostra-se assim, revelando a 1 e a 3 em falta).
     const pagasOrd = [...pagas].sort(
       (a, b) =>
         (a.veiculo_id ?? "").localeCompare(b.veiculo_id ?? "") ||
         a.periodo_inicio.localeCompare(b.periodo_inicio),
     );
-    const semanaPorVeiculo = new Map<string, number>();
     for (const c of pagasOrd) {
       const pago = Number(c.valor_pago);
       const gs = semRecebidoPor ? pago : Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
@@ -160,12 +167,10 @@ async function computar(
         c.veiculo_id,
         (comissaoPorVeiculo.get(c.veiculo_id) ?? 0) + com,
       );
-      const n = (semanaPorVeiculo.get(c.veiculo_id) ?? 0) + 1;
-      semanaPorVeiculo.set(c.veiculo_id, n);
       const canal = gs >= pago - 0.005 ? "GoScooters" : gs <= 0.005 ? "parceiro" : "misto";
       linhas.push({
         tipo: "receita",
-        descricao: `Semana ${n} · recebido: ${canal}`,
+        descricao: `${rotuloSemanaMes(c.data_vencimento)} · recebido: ${canal}`,
         matricula: matDe.get(c.veiculo_id) ?? null,
         veiculo_id: c.veiculo_id,
         cobranca_id: c.id,

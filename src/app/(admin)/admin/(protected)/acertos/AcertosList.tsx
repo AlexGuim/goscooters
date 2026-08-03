@@ -32,17 +32,25 @@ const mesAnterior = () => {
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-// Semanas de renda que "pertencem" ao mês. Regra do parceiro: uma semana que
-// atravessa dois meses pertence ao mês com mais dias — e numa semana de 7 dias
-// isso é sempre o mês do 4.º dia (início + 3). Como a data de vencimento é o
-// início da semana, a janela de vencimentos é [1.º dia − 3, último dia − 3].
-// Ex.: julho → 28/06 a 28/07 (inclui a semana 28/06–04/07, exclui a de 30/07).
+// Semanas de renda que "pertencem" ao mês. Regra do parceiro: uma semana
+// (domingo→sábado) pertence ao mês da sua quarta-feira (o 4.º dia, a maioria).
+// A janela vai do DOMINGO da 1.ª semana do mês (1.ª quarta − 3) ao SÁBADO da
+// última (última quarta + 3), cobrindo todos os dias em que um vencimento pode
+// calhar — mesmo quando o contrato começa a meio da semana. NÃO uses [1 − 3,
+// último − 3]: isso assume vencimento ao domingo e corta a 5.ª semana.
+// Ex.: julho 2026 → 28/06 a 01/08 (inclui a "Semana 5 de julho", venc 29–31/07).
 const limitesDoMes = (competencia: string) => {
   const [ano, mes] = competencia.split("-").map(Number);
-  const de = new Date(Date.UTC(ano, mes - 1, 1));
-  const ate = new Date(Date.UTC(ano, mes, 0));
-  de.setUTCDate(de.getUTCDate() - 3);
-  ate.setUTCDate(ate.getUTCDate() - 3);
+  const primeiro = new Date(Date.UTC(ano, mes - 1, 1));
+  const primQuarta = new Date(primeiro);
+  primQuarta.setUTCDate(1 + ((3 - primeiro.getUTCDay() + 7) % 7)); // 1.ª quarta do mês
+  const ultimo = new Date(Date.UTC(ano, mes, 0));
+  const ultQuarta = new Date(ultimo);
+  ultQuarta.setUTCDate(ultimo.getUTCDate() - ((ultimo.getUTCDay() - 3 + 7) % 7)); // última quarta
+  const de = new Date(primQuarta);
+  de.setUTCDate(de.getUTCDate() - 3); // domingo da 1.ª semana
+  const ate = new Date(ultQuarta);
+  ate.setUTCDate(ate.getUTCDate() + 3); // sábado da última semana
   return { inicio: iso(de), fim: iso(ate) };
 };
 

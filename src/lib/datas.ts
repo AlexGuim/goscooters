@@ -52,13 +52,36 @@ export function saudacaoLisboa(agora: Date = new Date()): { saudacao: string; da
  * início de um período de contrato à sexta), para que o rótulo bata certo com a
  * coluna do roster onde essa cobrança aparece.
  */
-export function rotuloSemanaMes(iso: string | null | undefined): string {
-  if (!iso) return "—";
+/**
+ * A quarta-feira (4.º dia, o representativo) da semana domingo→sábado que contém
+ * `iso`. É o dia que decide a que MÊS a semana pertence — fonte única partilhada
+ * por `rotuloSemanaMes` (o rótulo) e `mesDaSemana` (a atribuição do acerto), para
+ * que os dois nunca divirjam.
+ */
+function quartaDaSemana(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
   const [ano, mes, dia] = iso.slice(0, 10).split("-").map(Number);
-  if (!ano || !mes || !dia) return iso.slice(0, 10);
+  if (!ano || !mes || !dia) return null;
   const d = new Date(Date.UTC(ano, mes - 1, dia));
-  // Recua ao domingo e avança 3 dias → quarta-feira (dia representativo da semana).
-  d.setUTCDate(d.getUTCDate() - d.getUTCDay() + 3);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay() + 3); // recua ao domingo, avança à quarta
+  return d;
+}
+
+export function rotuloSemanaMes(iso: string | null | undefined): string {
+  const d = quartaDaSemana(iso);
+  if (!d) return iso ? iso.slice(0, 10) : "—";
   const n = Math.floor((d.getUTCDate() - 1) / 7) + 1;
   return `Semana ${n} de ${MESES[d.getUTCMonth()]}`;
+}
+
+/**
+ * "YYYY-MM" do mês a que a semana (domingo→sábado) de `iso` pertence — o mês da
+ * sua quarta-feira. Usado pelo acerto para incluir cada cobrança no mês certo,
+ * exatamente como o rótulo `rotuloSemanaMes` a mostra (independente do dia da
+ * semana em que o vencimento calha). Null se `iso` for inválido.
+ */
+export function mesDaSemana(iso: string | null | undefined): string | null {
+  const d = quartaDaSemana(iso);
+  if (!d) return null;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
