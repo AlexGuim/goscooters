@@ -8,6 +8,8 @@ import {
   calcularAcerto,
   fecharAcerto,
   marcarAcertoPago,
+  adicionarAjusteAcerto,
+  removerAjusteAcerto,
   type AcertoPreview,
 } from "@/actions/acertoActions";
 
@@ -88,6 +90,10 @@ export default function AcertosList({
   const [aFechar, setAFechar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [expandido, setExpandido] = useState<string | null>(null);
+  const [ajDesc, setAjDesc] = useState("");
+  const [ajValor, setAjValor] = useState("");
+  const [ajSinal, setAjSinal] = useState<"+" | "-">("+");
+  const [aAjustar, setAAjustar] = useState(false);
 
   const handleCalcular = async () => {
     setErro(null);
@@ -115,6 +121,24 @@ export default function AcertosList({
     }
     // Recarrega a página para trazer o acerto fechado com as linhas.
     window.location.reload();
+  };
+
+  const handleAddAjuste = async () => {
+    const bruto = Number(ajValor.replace(",", "."));
+    if (!Number.isFinite(bruto) || bruto <= 0) { setErro("Indica um valor válido."); return; }
+    const v = (ajSinal === "-" ? -1 : 1) * bruto;
+    setAAjustar(true);
+    const r = await adicionarAjusteAcerto(donoId, mes, ajDesc, v);
+    setAAjustar(false);
+    if (!r.success) { setErro(r.error ?? "Erro ao acrescentar."); return; }
+    setAjDesc(""); setAjValor(""); setErro(null);
+    await handleCalcular();
+  };
+
+  const handleRemoveAjuste = async (id: string) => {
+    const r = await removerAjusteAcerto(id);
+    if (!r.success) { alert(r.error); return; }
+    await handleCalcular();
   };
 
   const handlePago = async (a: AcertoComLinhas) => {
@@ -249,6 +273,63 @@ export default function AcertosList({
               </div>
             )}
 
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ajustes manuais</p>
+              {preview.ajustes.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {preview.ajustes.map((a) => (
+                    <li key={a.id} className="flex items-center justify-between gap-3">
+                      <span className="text-slate-700">{a.descricao}</span>
+                      <span className="flex items-center gap-2">
+                        <span className={`tabular-nums ${a.valor < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                          {formatarPreco(a.valor)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAjuste(a.id)}
+                          className="text-lg leading-none text-slate-400 transition hover:text-red-600"
+                          title="Remover"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <input
+                  className="min-w-[12rem] flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"
+                  value={ajDesc}
+                  onChange={(e) => setAjDesc(e.target.value)}
+                  placeholder="Descrição (ex.: acerto de caução)"
+                />
+                <select
+                  className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"
+                  value={ajSinal}
+                  onChange={(e) => setAjSinal(e.target.value as "+" | "-")}
+                >
+                  <option value="+">Soma (+)</option>
+                  <option value="-">Desconta (−)</option>
+                </select>
+                <input
+                  className="w-28 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={ajValor}
+                  onChange={(e) => setAjValor(e.target.value)}
+                  placeholder="0.00"
+                />
+                <Botao variante="secondary" onClick={handleAddAjuste} disabled={aAjustar || !ajDesc.trim() || !ajValor}>
+                  {aAjustar ? "A gravar…" : "Acrescentar"}
+                </Botao>
+              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Entra no líquido e congela ao fechar. (Requer a migração sql/fase10_acerto_ajuste.sql.)
+              </p>
+            </div>
+
             <Botao variante="volt" tamanho="lg" onClick={handleFechar} disabled={aFechar}>
               {aFechar ? "A fechar..." : "Fechar acerto (congelar)"}
             </Botao>
@@ -340,6 +421,7 @@ type LinhaDet = { tipo: string; descricao: string | null; matricula: string | nu
 function DetalheAgrupado({ linhas }: { linhas: LinhaDet[] }) {
   const receita = linhas.filter((l) => l.tipo === "receita" && l.veiculo_id);
   const ajustes = linhas.filter((l) => l.tipo === "receita" && !l.veiculo_id);
+  const ajusteManual = linhas.filter((l) => l.tipo === "ajuste");
   const comissao = linhas.filter((l) => l.tipo === "comissao");
   const despesa = linhas.filter((l) => l.tipo === "despesa");
   const soma = (arr: LinhaDet[]) => arr.reduce((s, l) => s + l.valor, 0);
@@ -382,6 +464,13 @@ function DetalheAgrupado({ linhas }: { linhas: LinhaDet[] }) {
               valor={l.valor}
               documentoUrl={l.documento_url}
             />
+          ))}
+        </SeccaoAcerto>
+      )}
+      {ajusteManual.length > 0 && (
+        <SeccaoAcerto titulo="Ajustes manuais" total={soma(ajusteManual)}>
+          {ajusteManual.map((l, i) => (
+            <LinhaAcerto key={i} texto={l.descricao ?? ""} valor={l.valor} />
           ))}
         </SeccaoAcerto>
       )}

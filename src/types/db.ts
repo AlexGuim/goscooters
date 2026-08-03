@@ -85,7 +85,7 @@ export type ProcedimentoModo = "manual" | "auto";
 
 // ── Acerto com parceiros (Fase 3) ───────────────────────────────────────────
 export type AcertoEstado = "rascunho" | "fechado" | "pago" | "parcial";
-export type AcertoLinhaTipo = "receita" | "despesa" | "comissao";
+export type AcertoLinhaTipo = "receita" | "despesa" | "comissao" | "ajuste";
 
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
@@ -459,6 +459,17 @@ export type AcertoLinha = {
   created_at: string;
 };
 
+/** Ajuste manual num acerto (valor avulso: bónus, correção, dedução). fase10. */
+export type AcertoAjuste = {
+  id: string;
+  proprietario_id: string;
+  competencia_mes: string; // 'YYYY-MM-01'
+  descricao: string;
+  valor: string; // assinado: + soma ao líquido, − desconta
+  criado_por: string | null;
+  created_at: string;
+};
+
 export type Motorista = {
   id: string;
   nome: string;
@@ -785,6 +796,22 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<AcertoLinha, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      acerto_ajuste: {
+        Row: AcertoAjuste;
+        Insert: Partial<Omit<AcertoAjuste, "id" | "created_at">> & {
+          proprietario_id: string;
+          competencia_mes: string;
+          descricao: string;
+          valor: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<AcertoAjuste, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };

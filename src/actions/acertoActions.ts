@@ -42,6 +42,13 @@ export interface PendentePreview {
   valor: number; // em falta (devido − pago)
 }
 
+/** Ajuste manual (entra no líquido): + soma, − desconta. */
+export interface AjustePreview {
+  id: string;
+  descricao: string;
+  valor: number;
+}
+
 export interface AcertoPreview {
   proprietario_id: string;
   proprietario_nome: string;
@@ -60,6 +67,8 @@ export interface AcertoPreview {
   linhas: AcertoLinhaPreview[];
   /** Rendas do mês por pagar (visibilidade; fora dos totais). */
   pendentes: PendentePreview[];
+  /** Ajustes manuais deste mês (já incluídos no líquido e nas linhas). */
+  ajustes: AjustePreview[];
 }
 
 function periodoDoMes(competencia: string): { inicio: string; fim: string } {
@@ -289,6 +298,34 @@ async function computar(
     });
   }
 
+  // Ajustes manuais deste mês (bónus/correção/dedução). Persistem em acerto_ajuste
+  // por (proprietário, competência) e entram no líquido; ao fechar congelam como
+  // linhas tipo 'ajuste'. Tolerante: sem a tabela (fase10 por correr) não há ajustes.
+  const ajustes: AjustePreview[] = [];
+  let ajusteTotal = 0;
+  const { data: ajRows } = await supabaseAdmin
+    .from("acerto_ajuste")
+    .select("id, descricao, valor")
+    .eq("proprietario_id", proprietarioId)
+    .eq("competencia_mes", `${competencia}-01`)
+    .order("created_at");
+  for (const a of ajRows ?? []) {
+    const v = Math.round(Number(a.valor) * 100) / 100;
+    ajusteTotal += v;
+    ajustes.push({ id: a.id, descricao: a.descricao, valor: v });
+    linhas.push({
+      tipo: "ajuste",
+      descricao: a.descricao,
+      matricula: null,
+      veiculo_id: null,
+      cobranca_id: null,
+      despesa_id: null,
+      periodo_inicio: null,
+      valor: v,
+    });
+  }
+  ajusteTotal = Math.round(ajusteTotal * 100) / 100;
+
   const receitaTotal = Math.round(receita * 100) / 100;
   const receitaGoscooters = Math.round(receitaGs * 100) / 100;
   comissaoTotal = Math.round(comissaoTotal * 100) / 100;
@@ -299,7 +336,7 @@ async function computar(
   // caso é o que o parceiro DEVE à GoScooters. pago_direto = houve renda direta.
   const pagoDireto = receitaParceiro > 0.005;
   const liquido =
-    Math.round((receitaGoscooters - comissaoTotal - despesaTotal) * 100) / 100;
+    Math.round((receitaGoscooters - comissaoTotal - despesaTotal + ajusteTotal) * 100) / 100;
 
   return {
     ok: true,
@@ -317,6 +354,7 @@ async function computar(
       liquido,
       linhas,
       pendentes,
+      ajustes,
     },
   };
 }
@@ -432,6 +470,63 @@ export async function marcarAcertoPago(
     .eq("id", id);
   if (error) return { success: false, error: "Erro ao marcar como pago." };
 
+  revalidatePath("/admin/acertos");
+  return { success: true };
+}
+
+/**
+ * Acrescenta um ajuste manual ao acerto de um mês (bónus/correção/dedução).
+ * Valor assinado: + soma ao líquido, − desconta. Persiste em acerto_ajuste, por
+ * isso sobrevive a recalcular; entra no líquido e congela ao fechar. Recusa se o
+ * mês já estiver fechado (aí o extrato está congelado).
+ */
+export async function adicionarAjusteAcerto(
+  proprietarioId: string,
+  competencia: string,
+  descricao: string,
+  valor: number,
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (!/^\d{4}-\d{2}$/.test(competencia)) return { success: false, error: "Mês inválido." };
+  const desc = descricao.trim();
+  if (!desc) return { success: false, error: "Indica uma descrição." };
+  if (!Number.isFinite(valor) || Math.abs(valor) < 0.005) {
+    return { success: false, error: "Indica um valor diferente de zero." };
+  }
+
+  const { data: ja } = await supabaseAdmin
+    .from("acerto")
+    .select("id")
+    .eq("proprietario_id", proprietarioId)
+    .eq("competencia_mes", `${competencia}-01`)
+    .maybeSingle();
+  if (ja) return { success: false, error: "Este mês já foi fechado — não dá para acrescentar ajustes." };
+
+  const { error } = await supabaseAdmin.from("acerto_ajuste").insert({
+    proprietario_id: proprietarioId,
+    competencia_mes: `${competencia}-01`,
+    descricao: desc,
+    valor: String(Math.round(valor * 100) / 100),
+    criado_por: auth.user.email ?? null,
+  });
+  if (error) {
+    console.error("adicionarAjusteAcerto error:", error);
+    return {
+      success: false,
+      error: "Erro ao gravar o ajuste (confirma que correste sql/fase10_acerto_ajuste.sql).",
+    };
+  }
+  revalidatePath("/admin/acertos");
+  return { success: true };
+}
+
+/** Remove um ajuste manual (só antes de fechar; depois de fechado está congelado). */
+export async function removerAjusteAcerto(id: string): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  const { error } = await supabaseAdmin.from("acerto_ajuste").delete().eq("id", id);
+  if (error) return { success: false, error: "Erro ao remover o ajuste." };
   revalidatePath("/admin/acertos");
   return { success: true };
 }
