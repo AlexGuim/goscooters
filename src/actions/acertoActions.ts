@@ -6,6 +6,7 @@ import { requireAdminForAction } from "@/lib/dal";
 import { formatarPreco } from "@/lib/precos";
 import { notificar } from "@/lib/notificacoes";
 import { rotuloSemanaMes, mesDaSemana } from "@/lib/datas";
+import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import type { AcertoLinhaTipo } from "@/types/db";
 
 /**
@@ -106,7 +107,7 @@ async function computar(
   if (veicIds.length > 0) {
     const { data: cobs } = await supabaseAdmin
       .from("cobranca")
-      .select("id, veiculo_id, valor_pago, periodo_inicio, periodo_fim, data_vencimento")
+      .select("id, veiculo_id, motorista_id, valor_pago, periodo_inicio, periodo_fim, data_vencimento")
       .in("veiculo_id", veicIds)
       .eq("tipo", "renda") // só renda gera comissão; caução/extra são reembolso
       .gte("data_vencimento", inicio)
@@ -147,6 +148,18 @@ async function computar(
       }
     }
 
+    // 1.º nome do motorista que pagou cada semana — ajuda o parceiro a saber quem
+    // esteve com a moto (uma moto pode trocar de motorista no mês). Só o 1.º nome
+    // (minimização RGPD, como no portal); o placeholder "por confirmar" não entra.
+    const nomeMot = new Map<string, string>();
+    const motIds = [...new Set(pagas.filter((c) => c.motorista_id).map((c) => c.motorista_id as string))];
+    if (motIds.length > 0) {
+      const { data: mots } = await supabaseAdmin.from("motorista").select("id, nome").in("id", motIds);
+      for (const m of mots ?? []) {
+        if (!ehNomePlaceholder(m.nome)) nomeMot.set(m.id as string, (m.nome as string).trim().split(/\s+/)[0]);
+      }
+    }
+
     // Ordena por veículo e por período. A semana mostra-se pelo rótulo real do mês
     // (rotuloSemanaMes: "Semana 5 de julho"), o MESMO que aparece em Cobranças —
     // não um contador sequencial. Assim os gaps ficam visíveis (uma moto com as
@@ -168,9 +181,10 @@ async function computar(
         (comissaoPorVeiculo.get(c.veiculo_id) ?? 0) + com,
       );
       const canal = gs >= pago - 0.005 ? "GoScooters" : gs <= 0.005 ? "parceiro" : "misto";
+      const nome = c.motorista_id ? nomeMot.get(c.motorista_id) : undefined;
       linhas.push({
         tipo: "receita",
-        descricao: `${rotuloSemanaMes(c.data_vencimento)} · recebido: ${canal}`,
+        descricao: `${rotuloSemanaMes(c.data_vencimento)}${nome ? ` · ${nome}` : ""} · recebido: ${canal}`,
         matricula: matDe.get(c.veiculo_id) ?? null,
         veiculo_id: c.veiculo_id,
         cobranca_id: c.id,
