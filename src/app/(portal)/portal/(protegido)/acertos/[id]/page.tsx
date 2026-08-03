@@ -101,7 +101,7 @@ export default async function PortalAcertoDetalhe({
               <details key={mat} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
                   <span className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                    <span className="text-slate-400 transition group-open:rotate-90">▸</span>
+                    <span className="text-xl leading-none text-emerald-500 transition group-open:rotate-90">▸</span>
                     {mat}
                     <span className="text-xs font-normal text-slate-400">
                       {ls.length} semana{ls.length > 1 ? "s" : ""}
