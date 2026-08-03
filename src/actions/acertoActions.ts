@@ -34,6 +34,14 @@ export interface AcertoLinhaPreview {
   valor: number; // receita + ; despesa/comissão −
 }
 
+/** Renda do mês que ficou POR PAGAR — informativa, NÃO entra nos totais do acerto. */
+export interface PendentePreview {
+  matricula: string | null;
+  semana: string; // rótulo "Semana N de <mês>"
+  motorista: string | null;
+  valor: number; // em falta (devido − pago)
+}
+
 export interface AcertoPreview {
   proprietario_id: string;
   proprietario_nome: string;
@@ -50,6 +58,8 @@ export interface AcertoPreview {
   /** Positivo = a transferir ao parceiro; negativo = o parceiro deve à GoScooters. */
   liquido: number;
   linhas: AcertoLinhaPreview[];
+  /** Rendas do mês por pagar (visibilidade; fora dos totais). */
+  pendentes: PendentePreview[];
 }
 
 function periodoDoMes(competencia: string): { inicio: string; fim: string } {
@@ -100,6 +110,7 @@ async function computar(
   const matDe = new Map((veiculos ?? []).map((v) => [v.id, v.matricula]));
 
   const linhas: AcertoLinhaPreview[] = [];
+  const pendentes: PendentePreview[] = [];
   let receita = 0;
   let receitaGs = 0; // parte cobrada pela GoScooters (o resto foi direto ao parceiro)
   const comissaoPorVeiculo = new Map<string, number>();
@@ -107,7 +118,7 @@ async function computar(
   if (veicIds.length > 0) {
     const { data: cobs } = await supabaseAdmin
       .from("cobranca")
-      .select("id, veiculo_id, motorista_id, valor_pago, periodo_inicio, periodo_fim, data_vencimento")
+      .select("id, veiculo_id, motorista_id, valor_pago, valor_devido, estado_liquidacao, periodo_inicio, periodo_fim, data_vencimento")
       .in("veiculo_id", veicIds)
       .eq("tipo", "renda") // só renda gera comissão; caução/extra são reembolso
       .gte("data_vencimento", inicio)
@@ -152,7 +163,7 @@ async function computar(
     // esteve com a moto (uma moto pode trocar de motorista no mês). Só o 1.º nome
     // (minimização RGPD, como no portal); o placeholder "por confirmar" não entra.
     const nomeMot = new Map<string, string>();
-    const motIds = [...new Set(pagas.filter((c) => c.motorista_id).map((c) => c.motorista_id as string))];
+    const motIds = [...new Set(doMes.filter((c) => c.motorista_id).map((c) => c.motorista_id as string))];
     if (motIds.length > 0) {
       const { data: mots } = await supabaseAdmin.from("motorista").select("id, nome").in("id", motIds);
       for (const m of mots ?? []) {
@@ -191,6 +202,28 @@ async function computar(
         despesa_id: null,
         periodo_inicio: c.periodo_inicio,
         valor: pago,
+      });
+    }
+
+    // Rendas do mês que ficaram POR PAGAR (fora dos totais — só visibilidade, para
+    // o parceiro ver o que não entrou por não ter sido pago). Exclui anuladas
+    // (contrato acabou) e isentas; mostra o que falta (devido − pago).
+    const porPagar = doMes
+      .filter((c) => {
+        const est = c.estado_liquidacao as string | null;
+        return est !== "anulada" && est !== "isenta" && Number(c.valor_pago) < Number(c.valor_devido);
+      })
+      .sort(
+        (a, b) =>
+          (a.veiculo_id ?? "").localeCompare(b.veiculo_id ?? "") ||
+          a.periodo_inicio.localeCompare(b.periodo_inicio),
+      );
+    for (const c of porPagar) {
+      pendentes.push({
+        matricula: matDe.get(c.veiculo_id) ?? null,
+        semana: rotuloSemanaMes(c.data_vencimento),
+        motorista: c.motorista_id ? nomeMot.get(c.motorista_id) ?? null : null,
+        valor: Math.round((Number(c.valor_devido) - Number(c.valor_pago)) * 100) / 100,
       });
     }
   }
@@ -283,6 +316,7 @@ async function computar(
       pago_direto: pagoDireto,
       liquido,
       linhas,
+      pendentes,
     },
   };
 }

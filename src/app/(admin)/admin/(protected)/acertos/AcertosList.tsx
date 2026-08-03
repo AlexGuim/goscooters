@@ -227,6 +227,28 @@ export default function AcertosList({
               </details>
             )}
 
+            {preview.pendentes.length > 0 && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                  Por cobrar este mês · {formatarPreco(preview.pendentes.reduce((s, p) => s + p.valor, 0))}
+                </p>
+                <p className="mt-0.5 text-xs text-amber-700">
+                  Rendas do mês que não foram pagas — não entram no acerto (regime de caixa).
+                </p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {preview.pendentes.map((p, i) => (
+                    <li key={i} className="flex items-baseline justify-between gap-3">
+                      <span className="text-slate-700">
+                        {p.matricula ? `${p.matricula} · ` : ""}{p.semana}
+                        {p.motorista ? ` · ${p.motorista}` : ""}
+                      </span>
+                      <span className="tabular-nums text-amber-800">{formatarPreco(p.valor)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <Botao variante="volt" tamanho="lg" onClick={handleFechar} disabled={aFechar}>
               {aFechar ? "A fechar..." : "Fechar acerto (congelar)"}
             </Botao>
