@@ -10,8 +10,10 @@ import { cx } from "./estilos";
  * visíveis como Botão. Resolve a poluição da "linha de ações" sem esconder nada.
  *
  * O popover é renderizado num PORTAL (document.body) com posição fixa, para não
- * ser cortado por um ancestral com `overflow-hidden` (cartões, tabelas). Fecha ao
- * scroll/resize para nunca mostrar uma posição obsoleta.
+ * ser cortado por um ancestral com `overflow-hidden` (cartões, tabelas). Posição
+ * CONSCIENTE DO ESPAÇO: abre para baixo se couber, senão para cima; encosta às
+ * margens laterais; e ganha scroll interno se for mais alto que o espaço (nunca
+ * corta opções). Fecha ao scroll da PÁGINA/resize para não mostrar posição obsoleta.
  */
 export interface AcaoMenu {
   rotulo: string;
@@ -23,11 +25,15 @@ export interface AcaoMenu {
 }
 
 const LARGURA = 208; // w-52
+const ITEM = 44; // altura estimada por item (só para decidir cima vs baixo)
+const M = 8; // margem à janela
+
+type Estilo = { left: number; maxHeight: number; top?: number; bottom?: number };
 
 export function AcoesMenu({ acoes, alinhar = "right" }: { acoes: AcaoMenu[]; alinhar?: "right" | "left" }) {
   const itens = acoes.filter((a) => !a.oculta);
   const [aberto, setAberto] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [estilo, setEstilo] = useState<Estilo | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -39,17 +45,23 @@ export function AcoesMenu({ acoes, alinhar = "right" }: { acoes: AcaoMenu[]; ali
       setAberto(false);
     };
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setAberto(false);
-    const fechar = () => setAberto(false);
+    // Fecha ao scroll da página — MAS não quando o scroll é DENTRO do próprio
+    // menu (senão um menu com scroll interno fechava-se ao tentar rolá-lo).
+    const aoScroll = (e: Event) => {
+      const t = e.target as Node | null;
+      if (t && menuRef.current?.contains(t)) return;
+      setAberto(false);
+    };
+    const aoResize = () => setAberto(false);
     document.addEventListener("mousedown", fora);
     document.addEventListener("keydown", esc);
-    // `true` para apanhar o scroll de qualquer contentor, não só o da janela.
-    window.addEventListener("scroll", fechar, true);
-    window.addEventListener("resize", fechar);
+    window.addEventListener("scroll", aoScroll, true);
+    window.addEventListener("resize", aoResize);
     return () => {
       document.removeEventListener("mousedown", fora);
       document.removeEventListener("keydown", esc);
-      window.removeEventListener("scroll", fechar, true);
-      window.removeEventListener("resize", fechar);
+      window.removeEventListener("scroll", aoScroll, true);
+      window.removeEventListener("resize", aoResize);
     };
   }, [aberto]);
 
@@ -60,8 +72,22 @@ export function AcoesMenu({ acoes, alinhar = "right" }: { acoes: AcaoMenu[]; ali
     }
     const r = btnRef.current?.getBoundingClientRect();
     if (r) {
-      const left = alinhar === "right" ? r.right - LARGURA : r.left;
-      setPos({ top: r.bottom + 8, left: Math.max(8, Math.round(left)) });
+      const vh = window.innerHeight;
+      const vw = window.innerWidth;
+      const menuH = itens.length * ITEM + 12; // estimativa (só para a decisão)
+      const espacoAbaixo = vh - r.bottom - M;
+      const espacoAcima = r.top - M;
+
+      let left = alinhar === "right" ? r.right - LARGURA : r.left;
+      left = Math.min(Math.max(M, Math.round(left)), Math.round(vw - LARGURA - M));
+
+      // Abre para baixo se couber, ou se houver mais espaço em baixo; senão, cima.
+      const paraBaixo = menuH <= espacoAbaixo || espacoAbaixo >= espacoAcima;
+      setEstilo(
+        paraBaixo
+          ? { top: Math.round(r.bottom + M), left, maxHeight: Math.max(120, Math.round(espacoAbaixo)) }
+          : { bottom: Math.round(vh - r.top + M), left, maxHeight: Math.max(120, Math.round(espacoAcima)) },
+      );
     }
     setAberto(true);
   };
@@ -82,13 +108,20 @@ export function AcoesMenu({ acoes, alinhar = "right" }: { acoes: AcaoMenu[]; ali
         ⋯
       </button>
       {aberto &&
-        pos &&
+        estilo &&
         createPortal(
           <div
             ref={menuRef}
             role="menu"
-            style={{ position: "fixed", top: pos.top, left: pos.left, width: LARGURA }}
-            className="z-50 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-lg"
+            style={{
+              position: "fixed",
+              left: estilo.left,
+              top: estilo.top,
+              bottom: estilo.bottom,
+              width: LARGURA,
+              maxHeight: estilo.maxHeight,
+            }}
+            className="z-50 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-1.5 shadow-lg"
           >
             {itens.map((a, i) => {
               const cls = cx(
