@@ -104,6 +104,11 @@ export default async function PortalAcertoDetalhe({
               </li>
             ))}
           </ul>
+          <div className="mt-4 print:hidden">
+            <Link href="/portal/despesas" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">
+              Ver todas as despesas das minhas motas →
+            </Link>
+          </div>
         </div>
 
         <p className="mt-6 text-xs text-slate-400">

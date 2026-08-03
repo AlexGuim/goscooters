@@ -7,6 +7,7 @@ import { cx } from "@/components/ui/estilos";
 const LINKS = [
   { href: "/portal", rotulo: "Início" },
   { href: "/portal/financeiro", rotulo: "Financeiro" },
+  { href: "/portal/despesas", rotulo: "Despesas" },
   { href: "/portal/acertos", rotulo: "Acertos" },
   { href: "/portal/palavra-passe", rotulo: "Palavra-passe" },
 ];

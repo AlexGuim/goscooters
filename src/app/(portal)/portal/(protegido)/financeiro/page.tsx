@@ -34,6 +34,14 @@ export default async function PortalFinanceiro() {
         />
       </div>
 
+      <Link
+        href="/portal/despesas"
+        className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm transition hover:border-slate-300 hover:shadow-md"
+      >
+        <span className="font-medium text-slate-950">Ver despesas detalhadas</span>
+        <span className="text-slate-500">por mês/ano, com documentos →</span>
+      </Link>
+
       <p className="text-xs text-slate-400">
         O «Resultado» é receita menos despesas suas e <strong>não inclui a comissão</strong> da
         GoScooters. O líquido efetivo a receber/pagar de cada mês está nos{" "}

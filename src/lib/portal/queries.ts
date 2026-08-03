@@ -20,6 +20,9 @@ export type DespesaPortal = {
   documento_url: string | null;
 };
 
+/** Uma despesa do parceiro com a matrícula da moto (para a lista de todas as motos). */
+export type DespesaParceiro = DespesaPortal & { matricula: string | null };
+
 /** O motorista que está com a moto agora (só o essencial, por privacidade). */
 export type MotoristaAtual = { primeiroNome: string; desde: string | null };
 
@@ -218,6 +221,43 @@ export async function despesasDaMotoDoParceiro(
     estado_pagamento: d.estado_pagamento as EstadoPagamentoDespesa,
     fornecedor: (d.fornecedor as string) ?? null,
     documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+  }));
+}
+
+/**
+ * TODAS as despesas que o parceiro suporta (imputar_a='proprietario'), de todas
+ * as suas motos, com a matrícula. Duplo guard (veiculo_id das motos do dono +
+ * proprietario_id) porque a tabela despesa não tem posse implícita. Só campos
+ * não-sensíveis; nunca coimas/portagens do motorista nem custos da GoScooters.
+ */
+export async function despesasDoParceiro(proprietarioId: string): Promise<DespesaParceiro[]> {
+  const { data: motos } = await supabaseAdmin
+    .from("moto")
+    .select("id, matricula")
+    .eq("proprietario_id", proprietarioId);
+  const lista = motos ?? [];
+  const ids = lista.map((m) => m.id as string);
+  if (ids.length === 0) return [];
+  const matDe = new Map(lista.map((m) => [m.id as string, (m.matricula as string) ?? null]));
+
+  const { data } = await supabaseAdmin
+    .from("despesa")
+    .select("id, veiculo_id, categoria, descricao, data_despesa, valor_total, estado_pagamento, fornecedor, detalhe")
+    .in("veiculo_id", ids)
+    .eq("proprietario_id", proprietarioId)
+    .eq("imputar_a", "proprietario")
+    .order("data_despesa", { ascending: false });
+
+  return (data ?? []).map((d) => ({
+    id: d.id as string,
+    categoria: d.categoria as DespesaCategoria,
+    descricao: (d.descricao as string) ?? null,
+    data_despesa: d.data_despesa as string,
+    valor_total: d.valor_total as string,
+    estado_pagamento: d.estado_pagamento as EstadoPagamentoDespesa,
+    fornecedor: (d.fornecedor as string) ?? null,
+    documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+    matricula: d.veiculo_id ? matDe.get(d.veiculo_id as string) ?? null : null,
   }));
 }
 
