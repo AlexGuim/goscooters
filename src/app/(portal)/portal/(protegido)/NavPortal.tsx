@@ -4,12 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cx } from "@/components/ui/estilos";
 
+// Despesas e Acertos vivem DENTRO de Financeiro (ver SubNavFinanceiro), por isso
+// "Financeiro" fica ativo em toda essa área.
 const LINKS = [
-  { href: "/portal", rotulo: "Início" },
-  { href: "/portal/financeiro", rotulo: "Financeiro" },
-  { href: "/portal/despesas", rotulo: "Despesas" },
-  { href: "/portal/acertos", rotulo: "Acertos" },
-  { href: "/portal/palavra-passe", rotulo: "Palavra-passe" },
+  { href: "/portal", rotulo: "Início", match: (p: string) => p === "/portal" },
+  {
+    href: "/portal/financeiro",
+    rotulo: "Financeiro",
+    match: (p: string) =>
+      p.startsWith("/portal/financeiro") ||
+      p.startsWith("/portal/despesas") ||
+      p.startsWith("/portal/acertos"),
+  },
+  { href: "/portal/palavra-passe", rotulo: "Palavra-passe", match: (p: string) => p.startsWith("/portal/palavra-passe") },
 ];
 
 /** Navegação do portal com o separador ativo destacado (pill ink). */
@@ -18,7 +25,7 @@ export default function NavPortal() {
   return (
     <nav className="flex items-center gap-1 text-sm font-medium">
       {LINKS.map((l) => {
-        const ativo = l.href === "/portal" ? pathname === "/portal" : pathname.startsWith(l.href);
+        const ativo = l.match(pathname);
         return (
           <Link
             key={l.href}

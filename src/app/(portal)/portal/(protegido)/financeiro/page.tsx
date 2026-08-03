@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { financeiroDoParceiro } from "@/lib/portal/queries";
 import { formatarPreco } from "@/lib/precos";
+import SubNavFinanceiro from "../SubNavFinanceiro";
 
 export default async function PortalFinanceiro() {
   const { proprietarioId } = await requirePartner();
@@ -18,6 +19,8 @@ export default async function PortalFinanceiro() {
         </p>
       </div>
 
+      <SubNavFinanceiro />
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile rotulo="Receita paga" valor={eur(f.receita)} cor="text-slate-950" />
         <Tile rotulo="Despesas suas" valor={eur(f.custo)} cor="text-red-600" />
@@ -33,14 +36,6 @@ export default async function PortalFinanceiro() {
           cor={f.resultado >= 0 ? "text-emerald-700" : "text-red-600"}
         />
       </div>
-
-      <Link
-        href="/portal/despesas"
-        className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm transition hover:border-slate-300 hover:shadow-md"
-      >
-        <span className="font-medium text-slate-950">Ver despesas detalhadas</span>
-        <span className="text-slate-500">por mês/ano, com documentos →</span>
-      </Link>
 
       <p className="text-xs text-slate-400">
         O «Resultado» é receita menos despesas suas e <strong>não inclui a comissão</strong> da
@@ -92,19 +87,6 @@ export default async function PortalFinanceiro() {
           </div>
         )}
       </section>
-
-      <Link
-        href="/portal/acertos"
-        className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-      >
-        <div>
-          <p className="font-semibold text-slate-950">Acertos mensais</p>
-          <p className="text-sm text-slate-500">
-            O fecho de cada mês com a comissão aplicada e o líquido a receber.
-          </p>
-        </div>
-        <span className="shrink-0 text-slate-300">→</span>
-      </Link>
     </div>
   );
 }

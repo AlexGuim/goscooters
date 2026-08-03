@@ -30,6 +30,21 @@ export default async function PortalAcertoDetalhe({
   const liq = Number(acerto.liquido);
   const aReceber = liq >= 0;
 
+  // Agrupa o extrato: a receita por moto (colapsável, com total por moto) e as
+  // restantes linhas (comissão, despesas, ajustes, renda direta) numa lista.
+  type Linha = (typeof linhas)[number];
+  const receitaPorMoto = new Map<string, Linha[]>();
+  const outras: Linha[] = [];
+  for (const l of linhas) {
+    if (l.tipo === "receita" && l.matricula_snapshot) {
+      const arr = receitaPorMoto.get(l.matricula_snapshot) ?? [];
+      arr.push(l);
+      receitaPorMoto.set(l.matricula_snapshot, arr);
+    } else {
+      outras.push(l);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
@@ -76,35 +91,67 @@ export default async function PortalAcertoDetalhe({
           </p>
         )}
 
-        <div className="mt-6">
+        <div className="mt-6 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Extrato</h2>
-          <ul className="mt-2 divide-y divide-slate-100">
-            {linhas.map((l) => (
-              <li key={l.id} className="flex items-baseline justify-between gap-3 py-2 text-sm">
-                <span className="text-slate-600">
-                  {l.matricula_snapshot ? `${l.matricula_snapshot} · ` : ""}
-                  {l.descricao}
-                  {l.documento_url && (
-                    <a
-                      href={l.documento_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="ml-2 inline-flex items-center gap-1 align-baseline font-medium text-emerald-700 transition hover:text-emerald-600"
-                    >
-                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                      </svg>
-                      ver documento
-                    </a>
-                  )}
-                </span>
-                <span className={`tabular-nums ${Number(l.valor) < 0 ? "text-red-600" : "text-slate-900"}`}>
-                  {formatarPreco(Number(l.valor))}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 print:hidden">
+
+          {/* Receita por moto: total à vista, clica para ver as semanas. */}
+          {[...receitaPorMoto.entries()].map(([mat, ls]) => {
+            const total = ls.reduce((s, l) => s + Number(l.valor), 0);
+            return (
+              <details key={mat} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                    <span className="text-slate-400 transition group-open:rotate-90">▸</span>
+                    {mat}
+                    <span className="text-xs font-normal text-slate-400">
+                      {ls.length} semana{ls.length > 1 ? "s" : ""}
+                    </span>
+                  </span>
+                  <span className="tabular-nums font-semibold text-slate-950">{formatarPreco(total)}</span>
+                </summary>
+                <ul className="border-t border-slate-100 px-4 py-1">
+                  {ls.map((l) => (
+                    <li key={l.id} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
+                      <span className="text-slate-600">{l.descricao}</span>
+                      <span className="tabular-nums text-slate-900">{formatarPreco(Number(l.valor))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            );
+          })}
+
+          {/* Comissão, despesas, ajustes e renda recebida direto. */}
+          {outras.length > 0 && (
+            <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white px-4">
+              {outras.map((l) => (
+                <li key={l.id} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+                  <span className="text-slate-600">
+                    {l.matricula_snapshot ? `${l.matricula_snapshot} · ` : ""}
+                    {l.descricao}
+                    {l.documento_url && (
+                      <a
+                        href={l.documento_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-2 inline-flex items-center gap-1 align-baseline font-medium text-emerald-700 transition hover:text-emerald-600"
+                      >
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                        </svg>
+                        ver documento
+                      </a>
+                    )}
+                  </span>
+                  <span className={`tabular-nums ${Number(l.valor) < 0 ? "text-red-600" : "text-slate-900"}`}>
+                    {formatarPreco(Number(l.valor))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="mt-1 print:hidden">
             <Link href="/portal/despesas" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">
               Ver todas as despesas das minhas motas →
             </Link>

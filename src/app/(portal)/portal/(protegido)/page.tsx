@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { motoristaAtualDasMotos } from "@/lib/portal/queries";
+import { motoristaAtualDasMotos, acertosDoParceiro } from "@/lib/portal/queries";
 import { Badge, type BadgeTom } from "@/components/ui";
 import { HeroMarca } from "@/components/HeroMarca";
 import { saudacaoLisboa, dataBR } from "@/lib/datas";
+import { formatarPreco } from "@/lib/precos";
+
+function nomeMes(competencia: string): string {
+  const [ano, mes] = competencia.slice(0, 7).split("-");
+  const meses = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${meses[Number(mes)]} ${ano}`;
+}
 
 const ESTADO: Record<string, { rotulo: string; tom: BadgeTom }> = {
   disponivel: { rotulo: "Disponível", tom: "success" },
@@ -45,6 +52,9 @@ export default async function PortalDashboard() {
 
   // Quem está com cada moto agora (só primeiro nome + desde quando; ver query).
   const motoristas = await motoristaAtualDasMotos(proprietarioId, ids);
+
+  // Acerto mais recente (o cartão no fundo mostra-o em vez de só linkar).
+  const ultimoAcerto = (await acertosDoParceiro(proprietarioId))[0] ?? null;
 
   const alugadas = lista.filter((m) => estadoDe(m) === "ocupado").length;
   const manutencao = lista.filter((m) => estadoDe(m) === "manutencao").length;
@@ -113,18 +123,47 @@ export default async function PortalDashboard() {
         )}
       </section>
 
-      <Link
-        href="/portal/acertos"
-        className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-      >
-        <div>
-          <p className="font-semibold text-slate-950">Acertos mensais</p>
-          <p className="text-sm text-slate-500">
-            O fecho de cada mês: receita, comissão, despesas e o líquido a receber.
-          </p>
-        </div>
-        <span className="shrink-0 text-slate-300">→</span>
-      </Link>
+      {ultimoAcerto ? (
+        <Link
+          href={`/portal/acertos/${ultimoAcerto.id}`}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+        >
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-400">Acerto mais recente</p>
+            <div className="mt-0.5 flex items-center gap-2">
+              <p className="font-semibold text-slate-950">{nomeMes(ultimoAcerto.competencia_mes)}</p>
+              <Badge tom={ultimoAcerto.estado === "pago" ? "success" : "neutral"}>
+                {ultimoAcerto.estado === "pago" ? "Pago" : "Fechado"}
+              </Badge>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-500">
+              {Number(ultimoAcerto.liquido) >= 0 ? "A receber" : "A pagar à GoScooters"}
+            </p>
+            <p
+              className={`text-lg font-bold tabular-nums ${
+                Number(ultimoAcerto.liquido) >= 0 ? "text-emerald-700" : "text-red-600"
+              }`}
+            >
+              {formatarPreco(Math.abs(Number(ultimoAcerto.liquido)))}
+            </p>
+          </div>
+        </Link>
+      ) : (
+        <Link
+          href="/portal/financeiro"
+          className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+        >
+          <div>
+            <p className="font-semibold text-slate-950">Financeiro</p>
+            <p className="text-sm text-slate-500">
+              Receita, despesas e o fecho de cada mês (acertos).
+            </p>
+          </div>
+          <span className="shrink-0 text-slate-300">→</span>
+        </Link>
+      )}
     </div>
   );
 }
