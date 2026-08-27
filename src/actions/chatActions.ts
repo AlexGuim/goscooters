@@ -2,7 +2,7 @@
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import { geminiConfigurado, gerarJsonTexto, gerarTextoGemini } from "@/lib/gemini";
+import { geminiConfigurado, gerarJsonTexto, gerarTextoGemini, ultimoErroDaIA } from "@/lib/gemini";
 import { encontrarMatricula } from "@/lib/matriculas";
 import { quemTinhaAMoto } from "@/actions/intakeActions";
 import type { DespesaCategoria } from "@/types/db";
@@ -194,25 +194,42 @@ export async function perguntar(pergunta: string): Promise<{ success: boolean; d
 
   const hoje = new Date().toISOString().slice(0, 10);
 
-  // Passo 1 — planeador: escolhe a ferramenta e os argumentos.
-  const planoPrompt = `És o planeador de um assistente da GoScooters (gestão de frota de scooters em Lisboa). Hoje é ${hoje}.
+  try {
+    // Passo 1 — planeador: escolhe a ferramenta e os argumentos.
+    const planoPrompt = `És o planeador de um assistente da GoScooters (gestão de frota de scooters em Lisboa). Hoje é ${hoje}.
 Dada a pergunta do gestor, escolhe UMA ferramenta e os seus argumentos, ou "nenhuma" se não der para responder com os dados.
 Ferramentas:
 ${FERRAMENTAS.map((f) => `- ${f.nome}: ${f.descricao}`).join("\n")}
 Devolve só JSON: { "ferramenta": "<nome>"|"nenhuma", "args": { ... } }
 Pergunta: ${p}`;
-  const plano = (await gerarJsonTexto(planoPrompt)) as { ferramenta?: string; args?: Args } | null;
-  const ferramenta = plano?.ferramenta && plano.ferramenta !== "nenhuma" ? plano.ferramenta : null;
+    const plano = (await gerarJsonTexto(planoPrompt)) as { ferramenta?: string; args?: Args } | null;
+    if (plano === null) {
+      // gerarJsonTexto devolve null quando o Gemini falha (chave inválida, sem
+      // quota, todos os modelos 404). É a causa nº1 de "o assistente não responde".
+      const motivo = ultimoErroDaIA();
+      return { success: false, error: `A IA não respondeu${motivo ? ` — ${motivo}` : " (verifica a chave/quota do Gemini)"}. Tenta de novo daqui a pouco.` };
+    }
+    const ferramenta = plano?.ferramenta && plano.ferramenta !== "nenhuma" ? plano.ferramenta : null;
 
-  // Passo 2 — executa (se houver ferramenta).
-  const dados = ferramenta ? await executar(ferramenta, plano?.args ?? {}) : null;
+    // Passo 2 — executa (se houver ferramenta).
+    const dados = ferramenta ? await executar(ferramenta, plano?.args ?? {}) : null;
 
-  // Passo 3 — redige a resposta a partir dos dados.
-  const respPrompt = `És o assistente da GoScooters. Responde à pergunta do gestor em português, de forma directa e concisa, SÓ com base nos dados fornecidos. Se os dados estiverem vazios ou não responderem, diz isso claramente (não inventes). Formata valores em euros e datas de forma legível. Hoje é ${hoje}.
+    // Passo 3 — redige a resposta a partir dos dados.
+    const respPrompt = `És o assistente da GoScooters. Responde à pergunta do gestor em português, de forma directa e concisa, SÓ com base nos dados fornecidos. Se os dados estiverem vazios ou não responderem, diz isso claramente (não inventes). Formata valores em euros e datas de forma legível. Hoje é ${hoje}.
 Pergunta: ${p}
 ${ferramenta ? `Dados (da ferramenta ${ferramenta}):\n${JSON.stringify(dados)}` : "Não havia nenhuma ferramenta adequada para esta pergunta — explica que só consegues responder sobre seguros a expirar, manutenção a vencer, quem tinha uma moto numa data, dívidas de motoristas e despesas recentes."}`;
-  const resposta = await gerarTextoGemini(respPrompt);
-  if (!resposta) return { success: false, error: "Não consegui gerar a resposta." };
+    const resposta = await gerarTextoGemini(respPrompt);
+    if (!resposta) {
+      const motivo = ultimoErroDaIA();
+      return { success: false, error: `A IA não gerou a resposta${motivo ? ` — ${motivo}` : " (verifica a chave/quota do Gemini)"}.` };
+    }
 
-  return { success: true, dados: { resposta, ferramenta } };
+    return { success: true, dados: { resposta, ferramenta } };
+  } catch (e) {
+    // Uma query que rebenta (ferramenta) ou um erro inesperado deixava a acção a
+    // lançar — e a UI presa. Aqui devolvemos sempre um erro legível.
+    console.error("assistente perguntar error:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: `Erro ao processar a pergunta: ${msg}` };
+  }
 }

@@ -68,6 +68,14 @@ export function geminiConfigurado(): boolean {
   return !!process.env.GEMINI_API_KEY;
 }
 
+// Última razão de falha da IA (ex.: "HTTP 429 — quota"), para diagnóstico. Os
+// wrappers devolvem null (para os fallbacks funcionarem); quem quer explicar ao
+// utilizador porque falhou lê isto. Best-effort — serve para mensagens de erro.
+let ultimoErroGemini: string | null = null;
+export function ultimoErroDaIA(): string | null {
+  return ultimoErroGemini;
+}
+
 const API = "https://generativelanguage.googleapis.com/v1beta";
 
 // Os aliases fixos (gemini-2.x-flash) vão sendo descontinuados e, pior, a API às
@@ -191,6 +199,7 @@ async function chamarGemini(corpo: string): Promise<string | null> {
 
   const candidatos = (await listarCandidatos(key)).filter((m) => !modelosMortos.has(m)).slice(0, 10);
   if (!candidatos.length) {
+    ultimoErroGemini = "sem modelos utilizáveis para esta chave Gemini";
     console.error("Gemini: sem modelos utilizáveis para esta chave.");
     return null;
   }
@@ -212,13 +221,21 @@ async function chamarGemini(corpo: string): Promise<string | null> {
       }
       if (!res.ok) {
         // Erro não-404 (quota, chave, etc.): não adianta tentar outro modelo.
-        console.error("Gemini HTTP", res.status, (await res.text()).slice(0, 800));
+        const corpoErro = (await res.text()).slice(0, 800);
+        ultimoErroGemini =
+          res.status === 429
+            ? "quota do Gemini esgotada (HTTP 429)"
+            : res.status === 400 || res.status === 403
+              ? `chave Gemini rejeitada (HTTP ${res.status})`
+              : `Gemini HTTP ${res.status}`;
+        console.error("Gemini HTTP", res.status, corpoErro);
         return null;
       }
       const json = await res.json();
       const cand = json?.candidates?.[0];
       const texto: string | undefined = cand?.content?.parts?.[0]?.text;
       if (!texto) {
+        ultimoErroGemini = `resposta vazia do Gemini (${cand?.finishReason ?? json?.promptFeedback?.blockReason ?? "sem motivo"})`;
         console.error(
           "Gemini sem texto:",
           JSON.stringify({
@@ -228,9 +245,11 @@ async function chamarGemini(corpo: string): Promise<string | null> {
         );
         return null;
       }
+      ultimoErroGemini = null;
       console.log("Gemini OK com modelo:", modelo);
       return texto;
     } catch (err) {
+      ultimoErroGemini = err instanceof Error && err.name === "AbortError" ? "Gemini demorou demais (timeout)" : "falha de rede a contactar o Gemini";
       console.error("chamarGemini falhou:", err);
       return null;
     } finally {
@@ -238,6 +257,7 @@ async function chamarGemini(corpo: string): Promise<string | null> {
     }
   }
 
+  ultimoErroGemini = "todos os modelos Gemini indisponíveis (404)";
   console.error("Gemini: todos os modelos candidatos deram 404.");
   return null;
 }

@@ -30,9 +30,16 @@ export default function AssistenteChat() {
     setMsgs((m) => [...m, { de: "user", texto: p }]);
     setInput("");
     setAPensar(true);
-    const r = await perguntar(p);
-    setAPensar(false);
-    setMsgs((m) => [...m, { de: "ia", texto: r.success ? r.dados!.resposta : r.error ?? "Erro." }]);
+    try {
+      const r = await perguntar(p);
+      setMsgs((m) => [...m, { de: "ia", texto: r.success ? r.dados!.resposta : r.error ?? "Erro." }]);
+    } catch (e) {
+      // Sem isto, uma excepção na acção deixava o "A pensar…" preso para sempre.
+      const msg = e instanceof Error ? e.message : String(e);
+      setMsgs((m) => [...m, { de: "ia", texto: `Falha ao contactar o assistente: ${msg}` }]);
+    } finally {
+      setAPensar(false);
+    }
   };
 
   return (
