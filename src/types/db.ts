@@ -470,6 +470,50 @@ export type AcertoAjuste = {
   created_at: string;
 };
 
+/** Semana coberta por um pagamento, congelada no comprovativo emitido. */
+export type ComprovativoSemana = {
+  matricula: string | null;
+  inicio: string;
+  fim: string;
+  tipo: string | null;
+  valor: string;
+};
+
+/**
+ * Comprovativo de pagamento: documento de gestão EMITIDO ao motorista (não é
+ * fatura nem recibo fiscal). Guarda snapshot do destinatário e do total — o que
+ * saiu impresso não pode mudar depois. Cobre 1..N pagamentos (ver itens).
+ */
+export type ComprovativoPagamento = {
+  id: string;
+  numero: string; // 'CP-000123' — referência de gestão, gerada pela BD
+  motorista_id: string | null;
+  motorista_nome: string;
+  motorista_nif: string | null;
+  data_emissao: string;
+  valor_total: string;
+  idioma: "pt" | "en";
+  observacoes: string | null;
+  anulado_em: string | null;
+  anulado_motivo: string | null;
+  criado_por: string | null;
+  created_at: string;
+};
+
+/** Um pagamento incluído num comprovativo, com os valores congelados. */
+export type ComprovativoItem = {
+  id: string;
+  comprovativo_id: string;
+  /** Anulável: sobrevive ao estorno, que apaga o pagamento. */
+  pagamento_id: string | null;
+  data_recebimento: string;
+  valor: string;
+  metodo: string | null;
+  referencia: string | null;
+  semanas: ComprovativoSemana[];
+  created_at: string;
+};
+
 export type Motorista = {
   id: string;
   nome: string;
@@ -796,6 +840,36 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<AcertoLinha, "id" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      comprovativo_pagamento: {
+        Row: ComprovativoPagamento;
+        // `numero` é gerado pela BD (sequence) — nunca se escreve do TypeScript.
+        Insert: Partial<Omit<ComprovativoPagamento, "id" | "numero" | "created_at">> & {
+          motorista_nome: string;
+          valor_total: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<ComprovativoPagamento, "id" | "numero" | "created_at">> & {
+          id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      comprovativo_pagamento_item: {
+        Row: ComprovativoItem;
+        Insert: Partial<Omit<ComprovativoItem, "id" | "created_at">> & {
+          comprovativo_id: string;
+          data_recebimento: string;
+          valor: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<ComprovativoItem, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
         };

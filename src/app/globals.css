@@ -69,3 +69,25 @@
     clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
   }
 }
+
+/* ── Impressão de documentos (comprovativo, contrato/entrega) ───────────────
+   Sem isto o cabeçalho asfalto sai BRANCO no PDF (os browsers não imprimem
+   fundos por omissão) — num documento financeiro lê-se como avaria. */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff;
+  }
+  /* Força a impressão de fundos/cores nos elementos que os usam como identidade. */
+  .print-exact {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Não parte uma secção a meio entre páginas. */
+  .print-junto {
+    break-inside: avoid;
+  }
+}

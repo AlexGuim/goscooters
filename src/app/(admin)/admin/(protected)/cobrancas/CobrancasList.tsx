@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CobrancaTipo, EstadoLiquidacao, PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
 import {
@@ -11,9 +11,16 @@ import {
   type AlocacaoInput,
   type PagamentoLista,
 } from "@/actions/pagamentoActions";
+import {
+  emitirComprovativo,
+  linkComprovativo,
+  anularComprovativo,
+  type ComprovativoPronto,
+} from "@/actions/comprovativoActions";
 import { cobrancasDaSemana } from "@/actions/cobrancaActions";
 import { rotuloSemanaMes } from "@/lib/datas";
-import { Botao, Badge, Modal, classesBotao, campo, etiqueta } from "@/components/ui";
+import { Botao, Badge, Modal, AcoesMenu, classesBotao, campo, etiqueta } from "@/components/ui";
+import type { AcaoMenu } from "@/components/ui";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
 
 export interface CobrancaPainel {
@@ -467,6 +474,12 @@ function LivroPagamentos() {
   const [fMotorista, setFMotorista] = useState("");
   const [fMoto, setFMoto] = useState("");
   const [fParceiro, setFParceiro] = useState("");
+  // Selecção múltipla: 1 pagamento = comprovativo simples; N = consolidado.
+  // Só do MESMO motorista — o documento tem um único destinatário.
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [pronto, setPronto] = useState<ComprovativoPronto | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const painelRef = useRef<HTMLDivElement>(null);
 
   const opcoes = useMemo(() => {
     const meses = new Set<string>(), mots = new Set<string>(), motos = new Set<string>(), parceiros = new Set<string>();
@@ -516,9 +529,22 @@ function LivroPagamentos() {
   };
 
   const estornar = async (p: PagamentoLista) => {
+    // Quantos pagamentos o comprovativo cobre: anular um consolidado deixa os
+    // outros sem documento, e isso tem de estar dito ANTES de confirmar.
+    const irmaos = p.comprovativo_id
+      ? pags.filter((x) => x.comprovativo_id === p.comprovativo_id)
+      : [];
+    const avisoDoc = !p.comprovativo_numero
+      ? ""
+      : irmaos.length > 1
+        ? `\n\nO comprovativo ${p.comprovativo_numero} cobre ${irmaos.length} pagamentos (${formatarPreco(
+            irmaos.reduce((t, x) => t + Number(x.valor), 0),
+          )}) e fica TODO ANULADO — terás de emitir um novo para os restantes. Avisa o motorista.`
+        : `\n\nO comprovativo ${p.comprovativo_numero} fica ANULADO — avisa o motorista.`;
     if (
       !window.confirm(
-        `Estornar o pagamento de ${formatarPreco(p.valor)} de ${p.motorista_nome} (${dataCurta(p.data_recebimento)})?\n\nAs semanas que cobria voltam a ficar por pagar.`,
+        `Estornar o pagamento de ${formatarPreco(p.valor)} de ${p.motorista_nome} (${dataCurta(p.data_recebimento)})?\n\nAs semanas que cobria voltam a ficar por pagar.` +
+          avisoDoc,
       )
     )
       return;
@@ -526,7 +552,108 @@ function LivroPagamentos() {
     setAAgir(p.id);
     const r = await estornarPagamento(p.id);
     setAAgir(null);
-    if (r.success) setPags((atuais) => atuais.filter((x) => x.id !== p.id));
+    if (r.success) {
+      setPags((atuais) =>
+        atuais
+          .filter((x) => x.id !== p.id)
+          // O documento foi anulado no servidor: as linhas irmãs também o perdem.
+          .map((x) =>
+            p.comprovativo_id && x.comprovativo_id === p.comprovativo_id
+              ? { ...x, comprovativo_id: null, comprovativo_numero: null }
+              : x,
+          ),
+      );
+      // Sem isto ficava um id fantasma na selecção, a falsear o contador e a
+      // guarda "mesmo motorista".
+      setSel((atual) => {
+        if (!atual.has(p.id)) return atual;
+        const novo = new Set(atual);
+        novo.delete(p.id);
+        return novo;
+      });
+    } else setErro(r.error ?? "Erro.");
+  };
+
+  // Selecção EFECTIVA: só o que está visível no filtro actual. Derivar de
+  // `filtrados` (e não de `pags`) garante "o que vês é o que emites" — de outro
+  // modo, mudar de filtro deixava marcados pagamentos fora do ecrã que entravam
+  // no documento à mesma. Também dispensa limpar a selecção a cada filtro.
+  const selecionados = filtrados.filter((p) => sel.has(p.id));
+  // Só se podem juntar pagamentos do mesmo motorista: o comprovativo tem um só
+  // destinatário. Escolhido o primeiro, os outros motoristas ficam por escolher.
+  const motoristaSel = selecionados[0]?.motorista_id ?? null;
+  const totalSel = selecionados.reduce((t, p) => t + Number(p.valor), 0);
+
+  const alternarSel = (p: PagamentoLista) => {
+    setSel((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(p.id)) novo.delete(p.id);
+      else novo.add(p.id);
+      return novo;
+    });
+  };
+
+  const mostrarPainel = (d: ComprovativoPronto) => {
+    setCopiado(false);
+    setPronto(d);
+    // O painel fica no topo da lista: emitir a partir de uma linha lá em baixo
+    // não dava sinal nenhum de que algo tinha acontecido.
+    requestAnimationFrame(() => painelRef.current?.scrollIntoView({ block: "nearest" }));
+  };
+
+  /** `emLote` distingue a barra de selecção do menu ⋯ de uma linha. */
+  const emitir = async (ids: string[], emLote: boolean) => {
+    setErro(null);
+    setAAgir(ids[0]);
+    const r = await emitirComprovativo(ids);
+    setAAgir(null);
+    if (!r.success || !r.dados) {
+      setErro(r.error ?? "Erro.");
+      return;
+    }
+    const d = r.dados;
+    setPags((atuais) =>
+      atuais.map((x) =>
+        ids.includes(x.id) ? { ...x, comprovativo_id: d.id, comprovativo_numero: d.numero } : x,
+      ),
+    );
+    // Emitir de uma linha não deita fora uma selecção que o gestor está a montar.
+    if (emLote) setSel(new Set());
+    mostrarPainel(d);
+  };
+
+  const reabrirLink = async (p: PagamentoLista) => {
+    if (!p.comprovativo_id) return;
+    setErro(null);
+    setAAgir(p.id);
+    const r = await linkComprovativo(p.comprovativo_id);
+    setAAgir(null);
+    if (r.success && r.dados) mostrarPainel(r.dados);
+    else setErro(r.error ?? "Erro.");
+  };
+
+  const anular = async (p: PagamentoLista) => {
+    if (!p.comprovativo_id) return;
+    if (
+      !window.confirm(
+        `Anular o comprovativo ${p.comprovativo_numero}?\n\nO link continua a abrir, mas passa a mostrar "ANULADO". Usa isto quando o documento saiu com dados errados — depois emites outro.`,
+      )
+    )
+      return;
+    setErro(null);
+    setAAgir(p.id);
+    const r = await anularComprovativo(p.comprovativo_id);
+    setAAgir(null);
+    if (r.success)
+      // Por DOCUMENTO, não por linha: um comprovativo consolidado cobre vários
+      // pagamentos e todos deixam de o ter.
+      setPags((atuais) =>
+        atuais.map((x) =>
+          x.comprovativo_id === p.comprovativo_id
+            ? { ...x, comprovativo_id: null, comprovativo_numero: null }
+            : x,
+        ),
+      );
     else setErro(r.error ?? "Erro.");
   };
 
@@ -541,8 +668,9 @@ function LivroPagamentos() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-500">
-        Últimos pagamentos. Corrige o recebedor ou estorna um lançamento errado (as semanas voltam a ficar
-        por pagar). Um pagamento já num acerto fechado fica trancado.
+        Últimos pagamentos. Marca um ou vários (do mesmo motorista) para emitir um comprovativo de
+        pagamento. Corrige o recebedor ou estorna um lançamento errado (as semanas voltam a ficar por
+        pagar). Um pagamento já num acerto fechado fica trancado.
       </p>
       {erro && <p className="text-sm text-red-700">{erro}</p>}
       <div className="flex flex-wrap gap-2">
@@ -574,23 +702,157 @@ function LivroPagamentos() {
       {!filtrados.length && (
         <p className="rounded-2xl bg-white p-6 text-center text-slate-600 shadow-sm">Nenhum pagamento neste filtro.</p>
       )}
-      {filtrados.map((p) => (
-        <div key={p.id} className="rounded-2xl bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="font-semibold text-slate-950">
-                {p.motorista_nome} · {formatarPreco(p.valor)}
-              </p>
-              <p className="text-xs text-slate-500">
-                {dataCurta(p.data_recebimento)}
-                {p.semanas.length ? ` · ${p.semanas.join(" · ")}` : " · sem alocação"}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {p.bloqueado ? (
-                <Badge tom="neutral">🔒 em acerto fechado</Badge>
-              ) : (
-                <>
+      {sel.size > 0 && (
+        <div className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
+          <p className="text-sm text-slate-700">
+            <span className="font-semibold text-slate-950">
+              {sel.size} {sel.size === 1 ? "pagamento" : "pagamentos"}
+            </span>{" "}
+            · {formatarPreco(totalSel)}
+            {selecionados[0] ? ` · ${selecionados[0].motorista_nome}` : ""}
+          </p>
+          <div className="flex items-center gap-2">
+            <Botao variante="ghost" tamanho="sm" onClick={() => setSel(new Set())}>
+              Limpar
+            </Botao>
+            <Botao
+              variante="volt"
+              tamanho="sm"
+              onClick={() => emitir(selecionados.map((p) => p.id), true)}
+              disabled={aAgir !== null}
+            >
+              {sel.size === 1 ? "Emitir comprovativo" : `Emitir comprovativo (${sel.size})`}
+            </Botao>
+          </div>
+        </div>
+      )}
+
+      {pronto && (
+        <div ref={painelRef} className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+          <p className="text-sm font-semibold text-slate-950">
+            Comprovativo {pronto.numero} pronto a enviar
+          </p>
+          <input
+            readOnly
+            value={pronto.link}
+            onFocus={(e) => e.currentTarget.select()}
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700"
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {pronto.whatsapp && (
+              <a
+                href={pronto.whatsapp}
+                target="_blank"
+                rel="noreferrer"
+                className={classesBotao("volt", "sm")}
+              >
+                Enviar por WhatsApp
+              </a>
+            )}
+            <a
+              href={pronto.link}
+              target="_blank"
+              rel="noreferrer"
+              className={classesBotao("secondary", "sm")}
+            >
+              Abrir
+            </a>
+            <Botao
+              variante="secondary"
+              tamanho="sm"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(pronto.link);
+                  setCopiado(true);
+                } catch {
+                  setErro("Não foi possível copiar — seleciona o link acima e copia à mão.");
+                }
+              }}
+            >
+              {copiado ? "Copiado ✓" : "Copiar link"}
+            </Botao>
+            <Botao variante="ghost" tamanho="sm" onClick={() => setPronto(null)}>
+              Fechar
+            </Botao>
+          </div>
+          {!pronto.whatsapp && (
+            <p className="mt-2 text-xs text-slate-500">
+              Sem telemóvel na ficha do motorista — copia o link e envia como preferires.
+            </p>
+          )}
+        </div>
+      )}
+
+      {filtrados.map((p) => {
+        // Bloqueado para selecção: outro motorista, ou já tem comprovativo activo.
+        const outroMotorista = !!motoristaSel && p.motorista_id !== motoristaSel;
+        const naoSelecionavel = outroMotorista || !!p.comprovativo_numero;
+        const acoes: AcaoMenu[] = [
+          {
+            // Rótulo distinto do botão em lote: daqui emite-se SÓ este pagamento.
+            rotulo: sel.size > 0 ? "Emitir só deste pagamento" : "Emitir comprovativo",
+            onClick: () => emitir([p.id], false),
+            oculta: !!p.comprovativo_numero,
+          },
+          {
+            rotulo: "Abrir / reenviar comprovativo",
+            onClick: () => reabrirLink(p),
+            oculta: !p.comprovativo_numero,
+          },
+          {
+            rotulo: "Anular comprovativo",
+            onClick: () => anular(p),
+            perigo: true,
+            oculta: !p.comprovativo_numero,
+          },
+          {
+            rotulo: "Estornar pagamento",
+            onClick: () => estornar(p),
+            perigo: true,
+            oculta: p.bloqueado,
+          },
+        ];
+        return (
+          <div
+            key={p.id}
+            className={`rounded-2xl bg-white p-4 shadow-sm transition ${
+              sel.has(p.id) ? "ring-2 ring-emerald-500" : ""
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={sel.has(p.id)}
+                  disabled={naoSelecionavel}
+                  onChange={() => alternarSel(p)}
+                  aria-label={`Selecionar pagamento de ${p.motorista_nome}`}
+                  title={
+                    p.comprovativo_numero
+                      ? `Já tem o comprovativo ${p.comprovativo_numero}`
+                      : outroMotorista
+                        ? "Só podes juntar pagamentos do mesmo motorista"
+                        : "Juntar a um comprovativo"
+                  }
+                  className="mt-1 h-4 w-4 shrink-0 accent-emerald-500 disabled:opacity-30"
+                />
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-950">
+                    {p.motorista_nome} · {formatarPreco(p.valor)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {dataCurta(p.data_recebimento)}
+                    {p.semanas.length ? ` · ${p.semanas.join(" · ")}` : " · sem alocação"}
+                  </p>
+                  {p.comprovativo_numero && (
+                    <p className="mt-0.5 font-mono text-[11px] text-slate-400">{p.comprovativo_numero}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {p.bloqueado ? (
+                  <Badge tom="neutral">🔒 em acerto fechado</Badge>
+                ) : (
                   <select
                     value={p.recebido_por}
                     disabled={aAgir === p.id}
@@ -600,15 +862,13 @@ function LivroPagamentos() {
                     <option value="goscooters">Recebido: GoScooters</option>
                     <option value="proprietario">Recebido: parceiro</option>
                   </select>
-                  <Botao variante="danger" tamanho="sm" onClick={() => estornar(p)} disabled={aAgir === p.id}>
-                    Estornar
-                  </Botao>
-                </>
-              )}
+                )}
+                <AcoesMenu acoes={acoes} />
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

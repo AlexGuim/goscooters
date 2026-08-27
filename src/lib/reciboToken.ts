@@ -45,3 +45,33 @@ export function validarRecibo(token: string): string | null {
   if (!Number.isFinite(ts) || Date.now() - ts > VALIDADE_MS) return null;
   return id;
 }
+
+/**
+ * Token do COMPROVATIVO DE PAGAMENTO — mesmo mecanismo, namespace diferente.
+ *
+ * O payload assinado começa por "comprovativo:" (e não "recibo:"), por isso um
+ * token de contrato/entrega nunca valida como comprovativo, nem o inverso:
+ * trocar de documento exigiria forjar uma assinatura. Validade maior (1 ano)
+ * porque este documento expõe muito menos dados pessoais — nome, NIF e montantes,
+ * sem morada, nº de documento ou carta — e é precisamente o papel que o motorista
+ * vai querer meses depois.
+ */
+const VALIDADE_COMPROVATIVO_MS = 365 * 24 * 60 * 60 * 1000;
+
+export function assinarComprovativo(comprovativoId: string): string {
+  const iat = Date.now().toString(36);
+  const sig = assinaturaDe(`comprovativo:${comprovativoId}:${iat}`);
+  return `${comprovativoId}.${iat}.${sig}`;
+}
+
+/** Devolve o comprovativoId se o token for válido e dentro da validade, senão null. */
+export function validarComprovativo(token: string): string | null {
+  const partes = (token ?? "").split(".");
+  if (partes.length !== 3) return null;
+  const [id, iat, sig] = partes;
+  if (!id || !iat || !sig) return null;
+  if (!iguais(sig, assinaturaDe(`comprovativo:${id}:${iat}`))) return null;
+  const ts = parseInt(iat, 36);
+  if (!Number.isFinite(ts) || Date.now() - ts > VALIDADE_COMPROVATIVO_MS) return null;
+  return id;
+}

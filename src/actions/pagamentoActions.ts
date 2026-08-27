@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
+import { comprovativosAtivosDe } from "@/lib/comprovativos";
 import type { PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 
 export interface AlocacaoInput {
@@ -120,6 +121,21 @@ export interface PagamentoLista {
   matriculas: string[]; // motos abrangidas (para o filtro por moto)
   proprietarios: string[]; // parceiros abrangidos (para o filtro por parceiro)
   bloqueado: boolean;
+  /** Comprovativo ACTIVO que cobre este pagamento (null = ainda não emitido). */
+  comprovativo_id: string | null;
+  comprovativo_numero: string | null;
+}
+
+/**
+ * Comprovativos ACTIVOS que cobrem estes pagamentos — versão TOLERANTE, só para
+ * a listagem: se falhar (migração fase11 por correr, rede), mostra-se a lista
+ * sem as referências em vez de a esvaziar. O estorno usa a versão estrita.
+ */
+async function comprovativosAtivos(
+  pagIds: string[],
+): Promise<Map<string, { id: string; numero: string }>> {
+  const r = await comprovativosAtivosDe(pagIds);
+  return r.ok ? r.mapa : new Map();
 }
 
 /** Livro de pagamentos recentes, para corrigir o recebedor ou estornar erros. */
@@ -187,6 +203,8 @@ export async function listarPagamentos(): Promise<PagamentoLista[]> {
     if (bloqueadas.has(a.cobranca_id as string)) bloqPorPag.set(pid, true);
   }
 
+  const compDe = await comprovativosAtivos(pagIds);
+
   return pags.map((p) => ({
     id: p.id,
     motorista_id: p.motorista_id as string,
@@ -198,6 +216,8 @@ export async function listarPagamentos(): Promise<PagamentoLista[]> {
     matriculas: [...(matPorPag.get(p.id) ?? [])],
     proprietarios: [...(propPorPag.get(p.id) ?? [])],
     bloqueado: bloqPorPag.get(p.id) ?? false,
+    comprovativo_id: compDe.get(p.id)?.id ?? null,
+    comprovativo_numero: compDe.get(p.id)?.numero ?? null,
   }));
 }
 
@@ -234,8 +254,45 @@ export async function estornarPagamento(
   if (await pagamentoEmAcertoFechado(pagamentoId)) {
     return { success: false, error: "Pagamento já num acerto fechado — reabre o acerto antes de estornar." };
   }
+
+  // Um comprovativo já enviado não pode continuar a certificar dinheiro que foi
+  // devolvido. FALHA FECHADO: se não se conseguir apurar se existe, não se
+  // estorna — apagar o pagamento deixando o documento vivo é irreversível
+  // (o pagamento desaparece e o documento fica órfão, a certificar o nada).
+  const activos = await comprovativosAtivosDe([pagamentoId]);
+  if (!activos.ok) {
+    return {
+      success: false,
+      error: activos.semTabela
+        ? "Erro ao estornar o pagamento."
+        : "Não foi possível verificar o comprovativo deste pagamento. Tenta de novo.",
+    };
+  }
+  const comp = activos.mapa.get(pagamentoId);
+
+  // Anula ANTES de apagar (o documento não desaparece: o link do motorista
+  // continua a abrir e passa a mostrar "ANULADO"). Se o apagar falhar a seguir,
+  // desfaz-se a anulação — senão ficava um documento anulado sem estorno feito.
+  if (comp) {
+    const { error: eAnular } = await supabaseAdmin
+      .from("comprovativo_pagamento")
+      .update({ anulado_em: new Date().toISOString(), anulado_motivo: "Pagamento estornado" })
+      .eq("id", comp.id)
+      .is("anulado_em", null);
+    if (eAnular) {
+      console.error("estornarPagamento anular error:", eAnular);
+      return { success: false, error: `Não foi possível anular o comprovativo ${comp.numero} — estorno cancelado.` };
+    }
+  }
+
   const { error } = await supabaseAdmin.from("pagamento").delete().eq("id", pagamentoId);
   if (error) {
+    if (comp) {
+      await supabaseAdmin
+        .from("comprovativo_pagamento")
+        .update({ anulado_em: null, anulado_motivo: null })
+        .eq("id", comp.id);
+    }
     console.error("estornarPagamento error:", error);
     return { success: false, error: "Erro ao estornar o pagamento." };
   }
