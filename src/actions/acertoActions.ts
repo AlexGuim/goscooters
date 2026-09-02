@@ -1,13 +1,15 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { formatarPreco } from "@/lib/precos";
 import { notificar } from "@/lib/notificacoes";
 import { rotuloSemanaMes, mesDaSemana, semanasDoMes } from "@/lib/datas";
-import type { SemanaEstado, SemanaMoto } from "@/types/db";
+import type { ManutencaoNaSemana, SemanaEstado, SemanaMoto } from "@/types/db";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
+import { assinarAcerto } from "@/lib/reciboToken";
 import type { AcertoLinhaTipo } from "@/types/db";
 
 /**
@@ -31,6 +33,8 @@ export interface AcertoLinhaPreview {
   veiculo_id: string | null;
   cobranca_id: string | null;
   despesa_id: string | null;
+  /** Fatura da despesa, para a linha ser clicável (só nas despesas). */
+  documento_url: string | null;
   periodo_inicio: string | null; // só nas rendas — referência da semana
   valor: number; // receita + ; despesa/comissão −
 }
@@ -234,6 +238,7 @@ async function computar(
         veiculo_id: c.veiculo_id,
         cobranca_id: c.id,
         despesa_id: null,
+        documento_url: null,
         periodo_inicio: c.periodo_inicio,
         valor: pago,
       });
@@ -272,17 +277,21 @@ async function computar(
     // (não um intervalo), por isso o extrato diz "houve manutenção nesta semana"
     // — que é verdade — e não "esteve parada N dias", que os dados não suportam.
     const janela = semanasDoMes(competencia);
-    const manPorVeiculo = new Map<string, { data: string; tipo: string }[]>();
+    const manPorVeiculo = new Map<string, { data: string; tipo: string; url: string | null }[]>();
     if (janela.length) {
       const { data: mans } = await supabaseAdmin
         .from("manutencao")
-        .select("veiculo_id, data, tipo")
+        .select("veiculo_id, data, tipo, detalhe")
         .in("veiculo_id", veicIds)
         .gte("data", janela[0].inicio)
         .lte("data", janela[janela.length - 1].fim);
       for (const mn of mans ?? []) {
         const arr = manPorVeiculo.get(mn.veiculo_id as string) ?? [];
-        arr.push({ data: mn.data as string, tipo: mn.tipo as string });
+        arr.push({
+          data: mn.data as string,
+          tipo: mn.tipo as string,
+          url: (mn.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+        });
         manPorVeiculo.set(mn.veiculo_id as string, arr);
       }
     }
@@ -290,14 +299,14 @@ async function computar(
       revisao: "revisão", oleo: "óleo", pneu_frente: "pneu frente", pneu_tras: "pneu trás",
       pneus: "pneus", travoes: "travões", corrente: "corrente", inspecao: "inspeção", outro: "manutenção",
     };
-    /** Intervenções desta moto dentro desta semana, já em texto. */
-    const manutencaoNa = (veiculoId: string, de: string, ate: string): string | null => {
-      const lista = (manPorVeiculo.get(veiculoId) ?? []).filter((x) => x.data >= de && x.data <= ate);
-      if (!lista.length) return null;
-      return lista
-        .map((x) => `${MAN_ROTULO[x.tipo] ?? x.tipo} ${x.data.slice(8, 10)}/${x.data.slice(5, 7)}`)
-        .join(", ");
-    };
+    /** Intervenções desta moto nesta semana, cada uma com a sua fatura. */
+    const manutencaoNa = (veiculoId: string, de: string, ate: string): ManutencaoNaSemana[] =>
+      (manPorVeiculo.get(veiculoId) ?? [])
+        .filter((x) => x.data >= de && x.data <= ate)
+        .map((x) => ({
+          rotulo: `${MAN_ROTULO[x.tipo] ?? x.tipo} ${x.data.slice(8, 10)}/${x.data.slice(5, 7)}`,
+          documento_url: x.url,
+        }));
 
     // ── LINHA DO TEMPO SEMANAL ────────────────────────────────────────────
     // Todas as semanas do mês, para TODAS as motos do parceiro — incluindo as
@@ -402,6 +411,7 @@ async function computar(
       veiculo_id: null,
       cobranca_id: null,
       despesa_id: null,
+      documento_url: null,
       periodo_inicio: null,
       valor: -receitaParceiro,
     });
@@ -419,6 +429,7 @@ async function computar(
       veiculo_id: veiculoId,
       cobranca_id: null,
       despesa_id: null,
+      documento_url: null,
       periodo_inicio: null,
       valor: -valor,
     });
@@ -431,7 +442,7 @@ async function computar(
   let despesaTotal = 0;
   const { data: desps } = await supabaseAdmin
     .from("despesa")
-    .select("id, veiculo_id, valor_total, categoria, descricao")
+    .select("id, veiculo_id, valor_total, categoria, descricao, detalhe")
     .eq("proprietario_id", proprietarioId)
     .eq("imputar_a", "proprietario")
     .gte("data_despesa", mesDesp.inicio)
@@ -447,6 +458,7 @@ async function computar(
       veiculo_id: d.veiculo_id,
       cobranca_id: null,
       despesa_id: d.id,
+      documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
       periodo_inicio: null,
       valor: -v,
     });
@@ -474,6 +486,7 @@ async function computar(
       veiculo_id: null,
       cobranca_id: null,
       despesa_id: null,
+      documento_url: null,
       periodo_inicio: null,
       valor: v,
     });
@@ -604,6 +617,7 @@ export async function fecharAcerto(
         tipo: "perda" as const,
         cobranca_id: null,
         despesa_id: null,
+        documento_url: null,
         veiculo_id: null,
         matricula_snapshot: x.matricula,
         descricao: [x.semana, x.motorista, x.motivo].filter(Boolean).join(" · "),
@@ -722,4 +736,61 @@ export async function removerAjusteAcerto(id: string): Promise<{ success: boolea
   if (error) return { success: false, error: "Erro ao remover o ajuste." };
   revalidatePath("/admin/acertos");
   return { success: true };
+}
+
+/**
+ * Link público do extrato do acerto, para enviar ao parceiro — mesmo padrão do
+ * contrato e do comprovativo: página com token assinado, sem conta nem login.
+ *
+ * O portal continua a ser o sítio certo para quem tem acesso; isto serve o
+ * parceiro que quer só ver, ou guardar o PDF, sem entrar em lado nenhum.
+ */
+export async function criarLinkAcerto(
+  acertoId: string,
+): Promise<{ success: boolean; link?: string; whatsapp?: string | null; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const { data: a } = await supabaseAdmin
+    .from("acerto")
+    .select("id, competencia_mes, liquido, proprietario_id")
+    .eq("id", acertoId)
+    .maybeSingle();
+  if (!a) return { success: false, error: "Acerto não encontrado." };
+
+  const h = await headers();
+  const origin = h.get("origin") ?? `https://${h.get("host") ?? "goscooters.vercel.app"}`;
+  const link = `${origin}/acerto/${assinarAcerto(a.id)}`;
+
+  let whatsapp: string | null = null;
+  if (a.proprietario_id) {
+    const { data: dono } = await supabaseAdmin
+      .from("proprietario")
+      .select("nome, telefone_e164")
+      .eq("id", a.proprietario_id)
+      .maybeSingle();
+    // e164 (e não `telefone`): é o número já normalizado, o mesmo que os outros
+    // links de WhatsApp do projeto usam.
+    const tel = (dono?.telefone_e164 ?? "").replace(/\D/g, "");
+    if (tel) {
+      const mes = mesPorExtenso(a.competencia_mes as string);
+      const primeiro = (dono?.nome ?? "").split(" ")[0];
+      const texto = `Olá ${primeiro}, aqui está o extrato do acerto de ${mes} (GoScooters): ${link}`;
+      whatsapp = `https://wa.me/${tel}?text=${encodeURIComponent(texto)}`;
+    }
+  }
+
+  return { success: true, link, whatsapp };
+}
+
+const MESES_EXT = [
+  "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+// "2026-08-01" → "agosto de 2026". NÃO exportada: num ficheiro "use server"
+// só podem ser exportadas funções assíncronas.
+function mesPorExtenso(competenciaMes: string): string {
+  const [ano, mes] = competenciaMes.slice(0, 7).split("-");
+  return `${MESES_EXT[Number(mes)] ?? mes} de ${ano}`;
 }

@@ -115,8 +115,20 @@ export interface SemanaMoto {
   motorista: string | null;
   /** Motivo do desconto ou da perda. */
   nota: string | null;
-  /** Intervenções de manutenção nesta semana (ex.: "óleo 05/08"). */
-  manutencao: string | null;
+  /**
+   * Intervenções de manutenção nesta semana, cada uma com a sua fatura. É uma
+   * lista (e não texto) para cada intervenção poder ser clicada até ao
+   * documento — o parceiro não tem de acreditar, pode ver.
+   */
+  manutencao: ManutencaoNaSemana[];
+}
+
+/** Uma intervenção de manutenção, com ligação à fatura que a comprova. */
+export interface ManutencaoNaSemana {
+  /** "óleo 05/08" */
+  rotulo: string;
+  /** Documento da despesa que a pagou (null se não houver). */
+  documento_url: string | null;
 }
 
 export type AcertoLinhaTipo = "receita" | "despesa" | "comissao" | "ajuste" | "perda";

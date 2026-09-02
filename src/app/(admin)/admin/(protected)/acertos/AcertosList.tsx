@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import type { Acerto, AcertoEstado, AcertoLinha, Proprietario } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
-import { SemanasMoto } from "@/components/SemanasMoto";
+import { ExtratoAcerto } from "@/components/ExtratoAcerto";
 import { Botao, Badge, classesBotao, type BadgeTom } from "@/components/ui";
 import {
   calcularAcerto,
@@ -11,6 +11,7 @@ import {
   marcarAcertoPago,
   adicionarAjusteAcerto,
   removerAjusteAcerto,
+  criarLinkAcerto,
   type AcertoPreview,
 } from "@/actions/acertoActions";
 
@@ -91,6 +92,10 @@ export default function AcertosList({
   const [aFechar, setAFechar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [expandido, setExpandido] = useState<string | null>(null);
+  // Link público do extrato (o painel de envio, no padrão do comprovativo).
+  const [linkAcerto, setLinkAcerto] = useState<{ link: string; whatsapp: string | null; mes: string } | null>(null);
+  const [aCriarLink, setACriarLink] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
   const [ajDesc, setAjDesc] = useState("");
   const [ajValor, setAjValor] = useState("");
   const [ajSinal, setAjSinal] = useState<"+" | "-">("+");
@@ -149,8 +154,71 @@ export default function AcertosList({
     } else alert(r.error);
   };
 
+  /**
+   * Link público do extrato, para enviar ao parceiro. Mostra-se num painel em
+   * vez de abrir logo a janela: `window.open` depois de um `await` é bloqueado
+   * pelo Safari, e o gestor ficava a olhar para nada.
+   */
+  const handleLink = async (a: AcertoComLinhas) => {
+    setLinkAcerto(null);
+    setACriarLink(a.id);
+    const r = await criarLinkAcerto(a.id);
+    setACriarLink(null);
+    if (!r.success || !r.link) {
+      alert(r.error ?? "Erro ao gerar o link.");
+      return;
+    }
+    setCopiado(false);
+    setLinkAcerto({ link: r.link, whatsapp: r.whatsapp ?? null, mes: a.competencia_mes });
+  };
+
   return (
     <div className="space-y-8">
+      {linkAcerto && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+          <p className="text-sm font-semibold text-slate-950">
+            Extrato pronto a enviar — {nomeMes(linkAcerto.mes)}
+          </p>
+          <input
+            readOnly
+            value={linkAcerto.link}
+            onFocus={(e) => e.currentTarget.select()}
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700"
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {linkAcerto.whatsapp && (
+              <a href={linkAcerto.whatsapp} target="_blank" rel="noreferrer" className={classesBotao("volt", "sm")}>
+                Enviar por WhatsApp
+              </a>
+            )}
+            <a href={linkAcerto.link} target="_blank" rel="noreferrer" className={classesBotao("secondary", "sm")}>
+              Abrir
+            </a>
+            <Botao
+              variante="secondary"
+              tamanho="sm"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(linkAcerto.link);
+                  setCopiado(true);
+                } catch {
+                  alert("Não foi possível copiar — seleciona o link acima e copia à mão.");
+                }
+              }}
+            >
+              {copiado ? "Copiado ✓" : "Copiar link"}
+            </Botao>
+            <Botao variante="ghost" tamanho="sm" onClick={() => setLinkAcerto(null)}>
+              Fechar
+            </Botao>
+          </div>
+          {!linkAcerto.whatsapp && (
+            <p className="mt-2 text-xs text-slate-500">
+              Sem telemóvel na ficha do parceiro — copia o link e envia como preferires.
+            </p>
+          )}
+        </div>
+      )}
       {/* Novo acerto */}
       <div className="rounded-3xl bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-950">Novo acerto</h2>
@@ -243,14 +311,24 @@ export default function AcertosList({
               )}
             </div>
 
-            {preview.linhas.length > 0 && (
-              <details className="text-sm" open>
-                <summary className="cursor-pointer font-semibold text-slate-700">Detalhe</summary>
-                <div className="mt-3">
-                  <DetalheAgrupado linhas={preview.linhas} />
-                </div>
-              </details>
-            )}
+            {/* Extrato único — a mesma peça do portal e do link público. */}
+            <ExtratoAcerto
+              semanas={preview.semanas}
+              linhas={preview.linhas.map((l) => ({
+                tipo: l.tipo,
+                descricao: l.descricao,
+                matricula: l.matricula,
+                valor: l.valor,
+                documento_url: l.documento_url,
+              }))}
+              totais={{
+                receita_total: preview.receita_total,
+                receita_goscooters: preview.receita_goscooters,
+                comissao_total: preview.comissao_total,
+                despesa_total: preview.despesa_total,
+                liquido: preview.liquido,
+              }}
+            />
 
             {preview.pendentes.length > 0 && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
@@ -274,38 +352,6 @@ export default function AcertosList({
               </div>
             )}
 
-            {preview.semanas.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Semana a semana, por moto
-                </p>
-                <SemanasMoto semanas={preview.semanas} />
-              </div>
-            )}
-
-            {preview.perdas.length > 0 && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                <p className="text-sm font-semibold text-red-800">
-                  Perdas este mês · {formatarPreco(preview.perdas.reduce((s, p) => s + p.valor, 0))}
-                </p>
-                <p className="mt-0.5 text-xs text-red-700">
-                  Semanas usadas que não vão ser pagas (incobráveis). Não entram no acerto — nunca
-                  foram receita —, mas ficam à vista para se saber o que se perdeu.
-                </p>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {preview.perdas.map((p, i) => (
-                    <li key={i} className="flex items-baseline justify-between gap-3">
-                      <span className="text-slate-700">
-                        {p.matricula ? `${p.matricula} · ` : ""}{p.semana}
-                        {p.motorista ? ` · ${p.motorista}` : ""}
-                        {p.motivo ? <span className="text-slate-500"> — {p.motivo}</span> : null}
-                      </span>
-                      <span className="tabular-nums text-red-700">{formatarPreco(p.valor)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ajustes manuais</p>
@@ -405,6 +451,13 @@ export default function AcertosList({
                       {formatarPreco(Math.abs(Number(a.liquido)))}
                     </p>
                   </div>
+                  <span
+                    role="button"
+                    onClick={(e) => { e.stopPropagation(); handleLink(a); }}
+                    className={classesBotao("secondary", "sm")}
+                  >
+                    {aCriarLink === a.id ? "A gerar…" : "Enviar extrato"}
+                  </span>
                   {a.estado === "fechado" && (
                     <span
                       role="button"

@@ -75,3 +75,32 @@ export function validarComprovativo(token: string): string | null {
   if (!Number.isFinite(ts) || Date.now() - ts > VALIDADE_COMPROVATIVO_MS) return null;
   return id;
 }
+
+/**
+ * Token do EXTRATO DE ACERTO — mesmo mecanismo, terceiro namespace.
+ *
+ * O payload assinado começa por "acerto:", por isso nenhum dos outros tokens
+ * (contrato/entrega, comprovativo) abre um extrato, nem o contrário. Validade
+ * de 1 ano: é um documento de conta-corrente que o parceiro consulta meses
+ * depois, e expõe menos dados pessoais do que o contrato (matrículas, valores e
+ * o primeiro nome dos motoristas — sem morada, documento ou contactos).
+ */
+const VALIDADE_ACERTO_MS = 365 * 24 * 60 * 60 * 1000;
+
+export function assinarAcerto(acertoId: string): string {
+  const iat = Date.now().toString(36);
+  const sig = assinaturaDe(`acerto:${acertoId}:${iat}`);
+  return `${acertoId}.${iat}.${sig}`;
+}
+
+/** Devolve o acertoId se o token for válido e dentro da validade, senão null. */
+export function validarAcerto(token: string): string | null {
+  const partes = (token ?? "").split(".");
+  if (partes.length !== 3) return null;
+  const [id, iat, sig] = partes;
+  if (!id || !iat || !sig) return null;
+  if (!iguais(sig, assinaturaDe(`acerto:${id}:${iat}`))) return null;
+  const ts = parseInt(iat, 36);
+  if (!Number.isFinite(ts) || Date.now() - ts > VALIDADE_ACERTO_MS) return null;
+  return id;
+}

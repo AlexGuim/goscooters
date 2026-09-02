@@ -51,7 +51,7 @@ export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
       {[...porMoto.entries()].map(([matricula, linhas]) => {
         const recebido = linhas.reduce((t, l) => t + l.valor, 0);
         const paradas = linhas.filter((l) => l.estado === "parada").length;
-        const comManutencao = linhas.filter((l) => l.manutencao).length;
+        const comManutencao = linhas.filter((l) => l.manutencao.length > 0).length;
         return (
           <div key={matricula} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
@@ -94,8 +94,29 @@ export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
                     {l.estado === "parada" && (
                       <p className="text-xs text-slate-400">Sem aluguer nesta semana</p>
                     )}
-                    {l.manutencao && (
-                      <p className="text-xs text-azulejo">🔧 {l.manutencao}</p>
+                    {l.manutencao.length > 0 && (
+                      <p className="text-xs text-azulejo">
+                        🔧{" "}
+                        {l.manutencao.map((m, k) => (
+                          <span key={k}>
+                            {k > 0 && ", "}
+                            {m.documento_url ? (
+                              // Clicável até à fatura: o parceiro não tem de
+                              // acreditar na palavra, pode ver o documento.
+                              <a
+                                href={m.documento_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline decoration-dotted underline-offset-2 transition hover:text-slate-950"
+                              >
+                                {m.rotulo}
+                              </a>
+                            ) : (
+                              m.rotulo
+                            )}
+                          </span>
+                        ))}
+                      </p>
                     )}
                   </div>
                   <div className="text-right">
