@@ -32,7 +32,10 @@ export type EstadoLiquidacao =
   | "parcial"
   | "liquidada"
   | "isenta"
-  | "anulada";
+  /** Nunca foi devida (o contrato acabou antes de a semana começar). Sem perda. */
+  | "anulada"
+  /** Era devida e usada, mas não vai ser paga. É uma PERDA — ver fase12. */
+  | "incobravel";
 export type PagamentoMetodo =
   | "transferencia"
   | "mbway"
@@ -85,7 +88,36 @@ export type ProcedimentoModo = "manual" | "auto";
 
 // ── Acerto com parceiros (Fase 3) ───────────────────────────────────────────
 export type AcertoEstado = "rascunho" | "fechado" | "pago" | "parcial";
-export type AcertoLinhaTipo = "receita" | "despesa" | "comissao" | "ajuste";
+/** `perda` é só informativa no extrato — nunca entra no líquido. */
+
+/**
+ * O que aconteceu a UMA moto numa semana do mês. O extrato passa a mostrar as
+ * 4 ou 5 semanas TODAS, e não só as que geraram receita — sem isto, o parceiro
+ * via um mês com duas linhas e não sabia se as outras semanas foram paragem,
+ * calote ou esquecimento.
+ */
+export type SemanaEstado = "paga" | "parcial" | "por_cobrar" | "perda" | "isenta" | "parada";
+
+export interface SemanaMoto {
+  veiculo_id: string;
+  matricula: string | null;
+  /** "Semana 2 de agosto" */
+  rotulo: string;
+  /** Domingo e sábado da semana (ISO), para mostrar as datas reais. */
+  inicio: string;
+  fim: string;
+  estado: SemanaEstado;
+  /** Recebido nessa semana (0 quando não entrou nada). */
+  valor: number;
+  /** Preço da semana, para se ver o que se deixou de receber. */
+  devido: number;
+  desconto: number;
+  motorista: string | null;
+  /** Motivo do desconto ou da perda. */
+  nota: string | null;
+}
+
+export type AcertoLinhaTipo = "receita" | "despesa" | "comissao" | "ajuste" | "perda";
 
 // Declarados como `type` e não `interface` de propósito: interfaces não recebem
 // index signature implícita, por isso falham o `Record<string, unknown>` que o
@@ -263,7 +295,13 @@ export type Cobranca = {
   tipo: CobrancaTipo;
   valor_devido: string;
   valor_pago: string;
+  /** Abatimento por serviço não prestado (ex.: moto avariada). Não é perda. */
+  desconto: string;
+  desconto_motivo: string | null;
   estado_liquidacao: EstadoLiquidacao;
+  /** Quando foi dada como perda (só em estado 'incobravel'). */
+  incobravel_em: string | null;
+  incobravel_motivo: string | null;
   observacoes: string | null;
   created_at: string;
 };
@@ -412,6 +450,8 @@ export type Acerto = {
   fechado_por: string | null;
   observacoes: string | null;
   created_at: string;
+  /** Linha do tempo semanal congelada no fecho (informativa). */
+  semanas: unknown;
 };
 
 export type RegrasAluguer = {

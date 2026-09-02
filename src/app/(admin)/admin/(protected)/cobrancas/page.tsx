@@ -44,6 +44,8 @@ async function getDados(): Promise<{
         data_vencimento: c.data_vencimento as string,
         valor_devido: String(c.valor_devido),
         valor_pago: String(c.valor_pago),
+        desconto: String(c.desconto ?? 0),
+        desconto_motivo: (c.desconto_motivo as string) ?? null,
         em_falta: String(c.em_falta),
         // A caução é cobrada em mão na entrega — nunca "em atraso" (só por liquidar).
         em_atraso: Boolean(c.em_atraso) && c.tipo !== "caucao",

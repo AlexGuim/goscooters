@@ -17,7 +17,11 @@ import {
   anularComprovativo,
   type ComprovativoPronto,
 } from "@/actions/comprovativoActions";
-import { cobrancasDaSemana } from "@/actions/cobrancaActions";
+import {
+  cobrancasDaSemana,
+  marcarIncobravel,
+  aplicarDesconto,
+} from "@/actions/cobrancaActions";
 import { rotuloSemanaMes } from "@/lib/datas";
 import { Botao, Badge, Modal, AcoesMenu, classesBotao, campo, etiqueta } from "@/components/ui";
 import type { AcaoMenu } from "@/components/ui";
@@ -40,6 +44,9 @@ export interface CobrancaPainel {
   data_vencimento: string;
   valor_devido: string;
   valor_pago: string;
+  /** Abatido por serviço não prestado (moto avariada). Não é perda. */
+  desconto: string;
+  desconto_motivo: string | null;
   em_falta: string;
   em_atraso: boolean;
   estado_liquidacao: EstadoLiquidacao;
@@ -163,6 +170,10 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   }, [vista, carregarSemana]);
 
   // Remove da lista (ou atualiza) as cobranças que ficaram liquidadas após pagar.
+  // Perda (calote) e desconto (serviço não prestado) — coisas diferentes.
+  const [perda, setPerda] = useState<CobrancaPainel | null>(null);
+  const [descontar, setDescontar] = useState<CobrancaPainel | null>(null);
+
   const aposPagamento = (idsLiquidados: Set<string>, parciais: Map<string, number>) => {
     setCobrancas((atuais) =>
       atuais
@@ -313,6 +324,16 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                     <Botao variante="volt" tamanho="sm" onClick={() => setPagar(c)}>
                       Registar pagamento
                     </Botao>
+                    <AcoesMenu
+                      acoes={[
+                        { rotulo: "Aplicar desconto…", onClick: () => setDescontar(c) },
+                        {
+                          rotulo: "Dar como perda (incobrável)…",
+                          perigo: true,
+                          onClick: () => setPerda(c),
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
               );
@@ -339,6 +360,10 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
             <div className="text-center">
               <p className="text-base font-semibold text-slate-950">
                 {rotuloSemanaMes(janelaSemana.de)}
+              </p>
+              {/* As datas reais: "Semana 2 de agosto" sozinho não diz que dias cobre. */}
+              <p className="text-xs text-slate-500">
+                {dataCurta(janelaSemana.de)} a {dataCurta(janelaSemana.ate)}
               </p>
               <button
                 onClick={() => setSemanaOffset(0)}
@@ -455,6 +480,41 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
             .sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento))}
           onClose={() => setPagar(null)}
           onPago={aposPagamento}
+        />
+      )}
+
+      {perda && (
+        <FormPerda
+          cobranca={perda}
+          outrasDoMotorista={cobrancas.filter(
+            (c) =>
+              c.motorista_id === perda.motorista_id &&
+              c.id !== perda.id &&
+              (c.estado_liquidacao === "por_liquidar" || c.estado_liquidacao === "parcial"),
+          )}
+          onClose={() => setPerda(null)}
+          onFeito={(ids) => setCobrancas((atuais) => atuais.filter((c) => !ids.has(c.id)))}
+        />
+      )}
+
+      {descontar && (
+        <FormDesconto
+          cobranca={descontar}
+          onClose={() => setDescontar(null)}
+          onFeito={(id, valor, motivo) =>
+            setCobrancas((atuais) =>
+              atuais.flatMap((c) => {
+                if (c.id !== id) return [c];
+                const falta = Math.max(
+                  Number(c.valor_devido) - valor - Number(c.valor_pago),
+                  0,
+                );
+                // Se o desconto fecha a semana, ela deixa de ser dívida.
+                if (falta <= 0.001) return [];
+                return [{ ...c, desconto: String(valor), desconto_motivo: motivo, em_falta: String(falta) }];
+              }),
+            )
+          }
         />
       )}
     </div>
@@ -1062,6 +1122,222 @@ function FormPagamento({
             </Botao>
           </div>
         </div>
+    </Modal>
+  );
+}
+
+/**
+ * Dar semanas como PERDA (incobrável). Um calote raramente é de uma semana só,
+ * por isso o formulário traz já as outras semanas em dívida do mesmo motorista,
+ * pré-marcadas — resolve-se o caso todo de uma vez.
+ */
+function FormPerda({
+  cobranca,
+  outrasDoMotorista,
+  onClose,
+  onFeito,
+}: {
+  cobranca: CobrancaPainel;
+  outrasDoMotorista: CobrancaPainel[];
+  onClose: () => void;
+  onFeito: (ids: Set<string>) => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [extra, setExtra] = useState<Set<string>>(
+    () => new Set(outrasDoMotorista.map((c) => c.id)),
+  );
+  const [aGravar, setAGravar] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const escolhidas = [cobranca, ...outrasDoMotorista.filter((c) => extra.has(c.id))];
+  const total = escolhidas.reduce((t, c) => t + Number(c.em_falta), 0);
+
+  const gravar = async () => {
+    setErro(null);
+    setAGravar(true);
+    const r = await marcarIncobravel(escolhidas.map((c) => c.id), motivo);
+    setAGravar(false);
+    if (!r.success) {
+      setErro(r.error ?? "Erro.");
+      return;
+    }
+    onFeito(new Set(escolhidas.map((c) => c.id)));
+    onClose();
+  };
+
+  return (
+    <Modal onClose={onClose} titulo="Dar como perda (incobrável)">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          Estas semanas foram usadas e eram devidas, mas não vão ser pagas. Ficam registadas
+          como <strong>perda</strong> — não são apagadas. Saem de &quot;quem me deve&quot; e
+          passam a contar no total de incobráveis.
+        </p>
+
+        <div className="rounded-2xl border border-slate-200 divide-y divide-slate-100">
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+            <span className="text-sm text-slate-700">
+              {cobranca.veiculo_matricula} · {rotuloSemanaMes(cobranca.periodo_inicio)}
+            </span>
+            <span className="text-sm font-semibold tabular-nums">{formatarPreco(cobranca.em_falta)}</span>
+          </div>
+          {outrasDoMotorista.map((c) => (
+            <label key={c.id} className="flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5">
+              <span className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-emerald-500"
+                  checked={extra.has(c.id)}
+                  onChange={() =>
+                    setExtra((atual) => {
+                      const novo = new Set(atual);
+                      if (novo.has(c.id)) novo.delete(c.id);
+                      else novo.add(c.id);
+                      return novo;
+                    })
+                  }
+                />
+                {c.veiculo_matricula} · {rotuloSemanaMes(c.periodo_inicio)}
+              </span>
+              <span className="text-sm tabular-nums text-slate-600">{formatarPreco(c.em_falta)}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="rounded-2xl bg-red-50 px-4 py-3">
+          <p className="text-sm text-slate-700">
+            Perda a registar para <strong>{cobranca.motorista_nome}</strong>:{" "}
+            <strong className="tabular-nums text-red-700">{formatarPreco(total)}</strong>{" "}
+            <span className="text-slate-500">({escolhidas.length} semana(s))</span>
+          </p>
+        </div>
+
+        <label className={etiqueta}>
+          <span>Motivo (fica no registo)</span>
+          <input
+            className={campo}
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Ex.: devolveu a moto a 25/08 e não voltou a contactar"
+          />
+        </label>
+
+        {erro && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
+            <p className="text-sm text-red-700">{erro}</p>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Botao variante="secondary" onClick={onClose} disabled={aGravar}>
+            Cancelar
+          </Botao>
+          <Botao variante="danger" onClick={gravar} disabled={aGravar || !motivo.trim()}>
+            {aGravar ? "A gravar…" : `Dar ${formatarPreco(total)} como perda`}
+          </Botao>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * DESCONTO numa semana: o serviço não foi prestado (moto avariada, dias sem
+ * rodar), por isso aquele valor nunca chegou a ser devido. Não é perda — o
+ * preço contratado fica intacto e o abatimento vai à parte, para a diferença
+ * ser sempre explicável.
+ */
+function FormDesconto({
+  cobranca,
+  onClose,
+  onFeito,
+}: {
+  cobranca: CobrancaPainel;
+  onClose: () => void;
+  onFeito: (id: string, valor: number, motivo: string | null) => void;
+}) {
+  const [valor, setValor] = useState(cobranca.desconto ?? "0");
+  const [motivo, setMotivo] = useState(cobranca.desconto_motivo ?? "");
+  const [aGravar, setAGravar] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const desconto = Number(valor) || 0;
+  const fica = Math.max(Number(cobranca.valor_devido) - desconto - Number(cobranca.valor_pago), 0);
+
+  const gravar = async () => {
+    setErro(null);
+    setAGravar(true);
+    const r = await aplicarDesconto(cobranca.id, desconto, motivo);
+    setAGravar(false);
+    if (!r.success) {
+      setErro(r.error ?? "Erro.");
+      return;
+    }
+    onFeito(cobranca.id, desconto, motivo.trim() || null);
+    onClose();
+  };
+
+  return (
+    <Modal onClose={onClose} titulo="Aplicar desconto">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          Para quando o serviço não foi prestado — a moto esteve parada e o motorista não
+          rodou. <strong>Não é perda</strong>: aquele valor nunca chegou a ser devido.
+        </p>
+
+        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {cobranca.motorista_nome} · {cobranca.veiculo_matricula} ·{" "}
+          {rotuloSemanaMes(cobranca.periodo_inicio)}
+          <br />
+          Semana de <strong>{formatarPreco(cobranca.valor_devido)}</strong>
+          {Number(cobranca.valor_pago) > 0 && <> · já pago {formatarPreco(cobranca.valor_pago)}</>}
+        </div>
+
+        <label className={etiqueta}>
+          <span>Desconto (€) — 0 remove</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            className={campo}
+            value={valor}
+            onChange={(e) => setValor(e.target.value)}
+          />
+        </label>
+
+        <label className={etiqueta}>
+          <span>Motivo</span>
+          <input
+            className={campo}
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Ex.: 3 dias parada por avaria no travão"
+          />
+        </label>
+
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+          <p className="text-sm text-slate-700">
+            Passa a dever{" "}
+            <strong className="tabular-nums">{formatarPreco(fica)}</strong>
+            {fica <= 0.001 && <span className="text-emerald-700"> — semana fica liquidada</span>}
+          </p>
+        </div>
+
+        {erro && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
+            <p className="text-sm text-red-700">{erro}</p>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Botao variante="secondary" onClick={onClose} disabled={aGravar}>
+            Cancelar
+          </Botao>
+          <Botao variante="volt" onClick={gravar} disabled={aGravar || (desconto > 0 && !motivo.trim())}>
+            {aGravar ? "A gravar…" : "Aplicar desconto"}
+          </Botao>
+        </div>
+      </div>
     </Modal>
   );
 }

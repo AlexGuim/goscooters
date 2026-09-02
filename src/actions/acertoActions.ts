@@ -5,7 +5,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { formatarPreco } from "@/lib/precos";
 import { notificar } from "@/lib/notificacoes";
-import { rotuloSemanaMes, mesDaSemana } from "@/lib/datas";
+import { rotuloSemanaMes, mesDaSemana, semanasDoMes } from "@/lib/datas";
+import type { SemanaEstado, SemanaMoto } from "@/types/db";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import type { AcertoLinhaTipo } from "@/types/db";
 
@@ -49,6 +50,15 @@ export interface AjustePreview {
   valor: number;
 }
 
+/** Semana dada como PERDA (incobrável): era devida, não vai ser paga. */
+export interface PerdaPreview {
+  matricula: string | null;
+  semana: string;
+  motorista: string | null;
+  valor: number;
+  motivo: string | null;
+}
+
 export interface AcertoPreview {
   proprietario_id: string;
   proprietario_nome: string;
@@ -67,6 +77,9 @@ export interface AcertoPreview {
   linhas: AcertoLinhaPreview[];
   /** Rendas do mês por pagar (visibilidade; fora dos totais). */
   pendentes: PendentePreview[];
+  perdas: PerdaPreview[];
+  /** Linha do tempo semanal por moto (todas as semanas do mês). */
+  semanas: SemanaMoto[];
   /** Ajustes manuais deste mês (já incluídos no líquido e nas linhas). */
   ajustes: AjustePreview[];
 }
@@ -120,6 +133,8 @@ async function computar(
 
   const linhas: AcertoLinhaPreview[] = [];
   const pendentes: PendentePreview[] = [];
+  const perdas: PerdaPreview[] = [];
+  const semanas: SemanaMoto[] = [];
   let receita = 0;
   let receitaGs = 0; // parte cobrada pela GoScooters (o resto foi direto ao parceiro)
   const comissaoPorVeiculo = new Map<string, number>();
@@ -127,7 +142,7 @@ async function computar(
   if (veicIds.length > 0) {
     const { data: cobs } = await supabaseAdmin
       .from("cobranca")
-      .select("id, veiculo_id, motorista_id, valor_pago, valor_devido, estado_liquidacao, periodo_inicio, periodo_fim, data_vencimento")
+      .select("id, veiculo_id, motorista_id, valor_pago, valor_devido, desconto, desconto_motivo, estado_liquidacao, incobravel_motivo, periodo_inicio, periodo_fim, data_vencimento")
       .in("veiculo_id", veicIds)
       .eq("tipo", "renda") // só renda gera comissão; caução/extra são reembolso
       .gte("data_vencimento", inicio)
@@ -202,9 +217,19 @@ async function computar(
       );
       const canal = gs >= pago - 0.005 ? "GoScooters" : gs <= 0.005 ? "parceiro" : "misto";
       const nome = c.motorista_id ? nomeMot.get(c.motorista_id) : undefined;
+      // Uma semana descontada entra com menos dinheiro do que o preço da moto.
+      // Sem esta nota, o parceiro via 40 € onde esperava 55 € e não sabia porquê
+      // — e a pergunta acabava por lhe chegar a ele, não ao extrato.
+      const abatido = Number(c.desconto ?? 0);
+      const notaDesc =
+        abatido > 0
+          ? ` · desconto ${formatarPreco(abatido)} de ${formatarPreco(c.valor_devido)}${
+              c.desconto_motivo ? ` (${c.desconto_motivo})` : ""
+            }`
+          : "";
       linhas.push({
         tipo: "receita",
-        descricao: `${rotuloSemanaMes(c.data_vencimento)}${nome ? ` · ${nome}` : ""} · recebido: ${canal}`,
+        descricao: `${rotuloSemanaMes(c.data_vencimento)}${nome ? ` · ${nome}` : ""} · recebido: ${canal}${notaDesc}`,
         matricula: matDe.get(c.veiculo_id) ?? null,
         veiculo_id: c.veiculo_id,
         cobranca_id: c.id,
@@ -217,10 +242,14 @@ async function computar(
     // Rendas do mês que ficaram POR PAGAR (fora dos totais — só visibilidade, para
     // o parceiro ver o que não entrou por não ter sido pago). Exclui anuladas
     // (contrato acabou) e isentas; mostra o que falta (devido − pago).
+    // Já não são cobráveis: anuladas (contrato acabou), isentas (perdoadas) e
+    // incobráveis (perdidas — vão para a secção "Perdas", à parte). O desconto
+    // abate ao devido: não se pede ao parceiro o que não se pediu ao motorista.
     const porPagar = doMes
       .filter((c) => {
         const est = c.estado_liquidacao as string | null;
-        return est !== "anulada" && est !== "isenta" && Number(c.valor_pago) < Number(c.valor_devido);
+        if (est === "anulada" || est === "isenta" || est === "incobravel") return false;
+        return Number(c.valor_pago) < Number(c.valor_devido) - Number(c.desconto ?? 0);
       })
       .sort(
         (a, b) =>
@@ -232,7 +261,99 @@ async function computar(
         matricula: matDe.get(c.veiculo_id) ?? null,
         semana: rotuloSemanaMes(c.data_vencimento),
         motorista: c.motorista_id ? nomeMot.get(c.motorista_id) ?? null : null,
-        valor: Math.round((Number(c.valor_devido) - Number(c.valor_pago)) * 100) / 100,
+        valor:
+          Math.round(
+            (Number(c.valor_devido) - Number(c.desconto ?? 0) - Number(c.valor_pago)) * 100,
+          ) / 100,
+      });
+    }
+
+    // ── LINHA DO TEMPO SEMANAL ────────────────────────────────────────────
+    // Todas as semanas do mês, para TODAS as motos do parceiro — incluindo as
+    // que não geraram receita nenhuma. Uma moto parada e uma moto com calote
+    // pareciam iguais no extrato (ausência de linha); agora dizem-se pelo nome.
+    // Exclui as anuladas: são de contratos cancelados e duplicariam a semana.
+    const vivas = doMes.filter((c) => c.estado_liquidacao !== "anulada");
+    for (const v of veiculos ?? []) {
+      for (const sem of semanasDoMes(competencia)) {
+        const naSemana = vivas.filter(
+          (c) =>
+            c.veiculo_id === v.id &&
+            c.data_vencimento >= sem.inicio &&
+            c.data_vencimento <= sem.fim,
+        );
+        if (naSemana.length === 0) {
+          semanas.push({
+            veiculo_id: v.id,
+            matricula: v.matricula ?? null,
+            rotulo: sem.rotulo,
+            inicio: sem.inicio,
+            fim: sem.fim,
+            estado: "parada",
+            valor: 0,
+            devido: 0,
+            desconto: 0,
+            motorista: null,
+            nota: null,
+          });
+          continue;
+        }
+        for (const c of naSemana) {
+          const pago = Number(c.valor_pago);
+          const abatido = Number(c.desconto ?? 0);
+          const devido = Number(c.valor_devido);
+          const est = c.estado_liquidacao as string;
+          const estado: SemanaEstado =
+            est === "incobravel"
+              ? "perda"
+              : est === "isenta"
+                ? "isenta"
+                : pago >= devido - abatido
+                  ? "paga"
+                  : pago > 0
+                    ? "parcial"
+                    : "por_cobrar";
+          semanas.push({
+            veiculo_id: v.id,
+            matricula: v.matricula ?? null,
+            rotulo: rotuloSemanaMes(c.data_vencimento),
+            inicio: c.periodo_inicio,
+            fim: c.periodo_fim,
+            estado,
+            valor: pago,
+            devido,
+            desconto: abatido,
+            motorista: c.motorista_id ? nomeMot.get(c.motorista_id) ?? null : null,
+            nota:
+              est === "incobravel"
+                ? ((c.incobravel_motivo as string) ?? null)
+                : abatido > 0
+                  ? ((c.desconto_motivo as string) ?? null)
+                  : null,
+          });
+        }
+      }
+    }
+    semanas.sort(
+      (a, b) =>
+        (a.matricula ?? "").localeCompare(b.matricula ?? "") || a.inicio.localeCompare(b.inicio),
+    );
+
+    // Perdas do mês: semanas usadas e devidas que não vão ser pagas. Ficam FORA
+    // dos totais (o acerto é a regime de caixa — nunca foram receita), mas o
+    // parceiro tem de as ver, senão a receita desaparece sem explicação.
+    for (const c of doMes.filter((x) => x.estado_liquidacao === "incobravel")) {
+      const valor =
+        Math.round(
+          (Number(c.valor_devido) - Number(c.desconto ?? 0) - Number(c.valor_pago)) * 100,
+        ) / 100;
+      if (valor <= 0.005) continue;
+      perdas.push({
+        matricula: matDe.get(c.veiculo_id) ?? null,
+        semana: rotuloSemanaMes(c.data_vencimento),
+        motorista: c.motorista_id ? nomeMot.get(c.motorista_id) ?? null : null,
+        valor,
+        motivo: (c.incobravel_motivo as string) ?? null,
       });
     }
   }
@@ -354,6 +475,8 @@ async function computar(
       liquido,
       linhas,
       pendentes,
+      perdas,
+      semanas,
       ajustes,
     },
   };
@@ -415,6 +538,8 @@ export async function fecharAcerto(
       comissao_total: String(p.comissao_total),
       pago_direto: p.pago_direto,
       liquido: String(p.liquido),
+      // Contexto do mês, congelado: explica as semanas que não geraram receita.
+      semanas: p.semanas,
       estado: "fechado",
       fechado_por: auth.user.email ?? null,
     })
@@ -427,8 +552,8 @@ export async function fecharAcerto(
   }
 
   if (p.linhas.length > 0) {
-    const { error: e2 } = await supabaseAdmin.from("acerto_linha").insert(
-      p.linhas.map((l) => ({
+    const { error: e2 } = await supabaseAdmin.from("acerto_linha").insert([
+      ...p.linhas.map((l) => ({
         acerto_id: acerto.id,
         tipo: l.tipo,
         cobranca_id: l.cobranca_id,
@@ -438,7 +563,20 @@ export async function fecharAcerto(
         descricao: l.descricao,
         valor: String(l.valor),
       })),
-    );
+      // Perdas: congeladas SÓ para o extrato explicar a receita que não veio.
+      // Ficam fora de `p.linhas` de propósito — o líquido é calculado à parte e
+      // não as pode apanhar por engano.
+      ...p.perdas.map((x) => ({
+        acerto_id: acerto.id,
+        tipo: "perda" as const,
+        cobranca_id: null,
+        despesa_id: null,
+        veiculo_id: null,
+        matricula_snapshot: x.matricula,
+        descricao: [x.semana, x.motorista, x.motivo].filter(Boolean).join(" · "),
+        valor: String(x.valor),
+      })),
+    ]);
     if (e2) {
       console.error("fecharAcerto linhas error:", e2);
       return { success: false, error: "Acerto criado, mas falharam as linhas." };

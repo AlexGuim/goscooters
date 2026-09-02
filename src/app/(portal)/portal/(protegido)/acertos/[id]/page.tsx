@@ -3,6 +3,8 @@ import Link from "next/link";
 import { requirePartner } from "@/lib/dal";
 import { acertoDoParceiro } from "@/lib/portal/queries";
 import { formatarPreco } from "@/lib/precos";
+import { SemanasMoto } from "@/components/SemanasMoto";
+import type { SemanaMoto } from "@/types/db";
 import { dataBR } from "@/lib/datas";
 import { Badge } from "@/components/ui";
 import ImprimirBotao from "./ImprimirBotao";
@@ -27,6 +29,8 @@ export default async function PortalAcertoDetalhe({
   if (!res) notFound();
   const { acerto, linhas } = res;
 
+  // Linha do tempo congelada no fecho (acertos antigos não a têm: fica vazia).
+  const semanas = (Array.isArray(acerto.semanas) ? acerto.semanas : []) as SemanaMoto[];
   const liq = Number(acerto.liquido);
   const aReceber = liq >= 0;
 
@@ -35,8 +39,13 @@ export default async function PortalAcertoDetalhe({
   type Linha = (typeof linhas)[number];
   const receitaPorMoto = new Map<string, Linha[]>();
   const outras: Linha[] = [];
+  // Perdas à parte: são informativas e NÃO entram no líquido — misturá-las com
+  // as outras linhas faria parecer que foram descontadas.
+  const perdas: Linha[] = [];
   for (const l of linhas) {
-    if (l.tipo === "receita" && l.matricula_snapshot) {
+    if (l.tipo === "perda") {
+      perdas.push(l);
+    } else if (l.tipo === "receita" && l.matricula_snapshot) {
       const arr = receitaPorMoto.get(l.matricula_snapshot) ?? [];
       arr.push(l);
       receitaPorMoto.set(l.matricula_snapshot, arr);
@@ -149,6 +158,39 @@ export default async function PortalAcertoDetalhe({
                 </li>
               ))}
             </ul>
+          )}
+
+          {semanas.length > 0 && (
+            <div className="print-junto">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Semana a semana, por moto
+              </p>
+              <SemanasMoto semanas={semanas} />
+            </div>
+          )}
+
+          {perdas.length > 0 && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-800">
+                Perdas · {formatarPreco(perdas.reduce((t, l) => t + Number(l.valor), 0))}
+              </p>
+              <p className="mt-0.5 text-xs text-red-700">
+                Semanas usadas pelo motorista que não foram pagas e não vão ser cobradas.
+                Não entram nas contas deste acerto — nunca chegaram a ser receita —, ficam
+                aqui para explicar a renda em falta.
+              </p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {perdas.map((l) => (
+                  <li key={l.id} className="flex items-baseline justify-between gap-3">
+                    <span className="text-slate-700">
+                      {l.matricula_snapshot ? `${l.matricula_snapshot} · ` : ""}
+                      {l.descricao}
+                    </span>
+                    <span className="tabular-nums text-red-700">{formatarPreco(l.valor)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           <div className="mt-1 print:hidden">

@@ -85,3 +85,50 @@ export function mesDaSemana(iso: string | null | undefined): string | null {
   if (!d) return null;
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
+
+/** Uma semana do calendário (domingo→sábado), com o rótulo que o resto da app usa. */
+export interface SemanaDoMes {
+  /** Domingo, ISO. */
+  inicio: string;
+  /** Sábado, ISO. */
+  fim: string;
+  /** "Semana 2 de agosto" — o mesmo rótulo de `rotuloSemanaMes`. */
+  rotulo: string;
+}
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * As semanas (domingo→sábado) que PERTENCEM a um mês — 4 ou 5, conforme o
+ * calendário. Usa a mesma regra do resto do sistema: uma semana é do mês da sua
+ * QUARTA-FEIRA. Por isso a semana que atravessa a virada do mês aparece num só
+ * lado, nunca nos dois nem em nenhum.
+ *
+ * `competencia` é "YYYY-MM" (o mês do acerto).
+ */
+export function semanasDoMes(competencia: string): SemanaDoMes[] {
+  const [ano, mes] = competencia.slice(0, 7).split("-").map(Number);
+  if (!ano || !mes) return [];
+
+  // Começa no domingo da semana que contém o dia 1 e avança de 7 em 7, ficando
+  // com as semanas cuja quarta-feira cai neste mês.
+  const d = new Date(Date.UTC(ano, mes - 1, 1));
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay()); // recua ao domingo
+
+  const semanas: SemanaDoMes[] = [];
+  for (let i = 0; i < 6; i++) {
+    const domingo = new Date(d);
+    domingo.setUTCDate(d.getUTCDate() + i * 7);
+    const quarta = new Date(domingo);
+    quarta.setUTCDate(domingo.getUTCDate() + 3);
+    if (quarta.getUTCFullYear() !== ano || quarta.getUTCMonth() !== mes - 1) continue;
+    const sabado = new Date(domingo);
+    sabado.setUTCDate(domingo.getUTCDate() + 6);
+    semanas.push({
+      inicio: iso(domingo),
+      fim: iso(sabado),
+      rotulo: rotuloSemanaMes(iso(quarta)),
+    });
+  }
+  return semanas;
+}

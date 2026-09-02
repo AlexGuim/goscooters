@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import type { Acerto, AcertoEstado, AcertoLinha, Proprietario } from "@/types/db";
 import { formatarPreco } from "@/lib/precos";
+import { SemanasMoto } from "@/components/SemanasMoto";
 import { Botao, Badge, classesBotao, type BadgeTom } from "@/components/ui";
 import {
   calcularAcerto,
@@ -267,6 +268,39 @@ export default function AcertosList({
                         {p.motorista ? ` · ${p.motorista}` : ""}
                       </span>
                       <span className="tabular-nums text-amber-800">{formatarPreco(p.valor)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {preview.semanas.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Semana a semana, por moto
+                </p>
+                <SemanasMoto semanas={preview.semanas} />
+              </div>
+            )}
+
+            {preview.perdas.length > 0 && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                <p className="text-sm font-semibold text-red-800">
+                  Perdas este mês · {formatarPreco(preview.perdas.reduce((s, p) => s + p.valor, 0))}
+                </p>
+                <p className="mt-0.5 text-xs text-red-700">
+                  Semanas usadas que não vão ser pagas (incobráveis). Não entram no acerto — nunca
+                  foram receita —, mas ficam à vista para se saber o que se perdeu.
+                </p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {preview.perdas.map((p, i) => (
+                    <li key={i} className="flex items-baseline justify-between gap-3">
+                      <span className="text-slate-700">
+                        {p.matricula ? `${p.matricula} · ` : ""}{p.semana}
+                        {p.motorista ? ` · ${p.motorista}` : ""}
+                        {p.motivo ? <span className="text-slate-500"> — {p.motivo}</span> : null}
+                      </span>
+                      <span className="tabular-nums text-red-700">{formatarPreco(p.valor)}</span>
                     </li>
                   ))}
                 </ul>
