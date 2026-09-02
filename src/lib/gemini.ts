@@ -342,4 +342,54 @@ export async function classificarDocumentoGemini(
   return r && typeof r === "object" ? (r as DocClassificado) : null;
 }
 
+/**
+ * Comprovativo de PAGAMENTO enviado pelo motorista: print do MB WAY, do
+ * homebanking, de uma conversa de WhatsApp, ou foto de um talão.
+ *
+ * Prompt separado do PROMPT_CLASSIFICAR de propósito: aqui a pergunta é outra —
+ * não interessa que documento é, interessa quanto entrou, quando e de quem. E o
+ * caso mais comum (print de conversa) traz o valor no meio de texto conversado,
+ * onde um classificador de faturas se perde.
+ */
+const PROMPT_COMPROVATIVO = `És um assistente de uma empresa de aluguer de scooters em Lisboa. Lês COMPROVATIVOS DE PAGAMENTO enviados por motoristas: capturas de ecrã do MB WAY, de transferências bancárias, de conversas de WhatsApp, ou fotografias de talões.
+Extrai o que a imagem mostra. Devolve SÓ um objeto JSON com EXATAMENTE estas chaves (null quando não souberes — nunca inventes):
+{
+  "valor": string|null,        // quantia paga, número com PONTO decimal e sem simbolo, ex.: "55.00"
+  "moeda": string|null,        // "EUR", "BRL"... se visivel
+  "data": string|null,         // data do pagamento, AAAA-MM-DD. Se o print so disser "hoje"/"ontem" ou uma hora, devolve null
+  "metodo": "transferencia"|"mbway"|"numerario"|"multibanco"|"outro"|null,
+  "pagador": string|null,      // nome de QUEM ENVIOU o dinheiro, tal como aparece
+  "destinatario": string|null, // nome de quem RECEBEU, se aparecer
+  "referencia": string|null,   // referencia, ID da operacao, ou os ultimos digitos do IBAN
+  "confianca": "alta"|"media"|"baixa",
+  "notas": string|null         // qualquer coisa relevante que nao coube acima
+}
+REGRAS:
+- O valor e o do PAGAMENTO, nunca um saldo de conta nem um total acumulado.
+- Num print de conversa, o pagamento e o que a mensagem confirma ter sido enviado.
+- Se houver varios valores, escolhe o que foi efetivamente transferido.
+- Datas em formato português (DD/MM/AAAA) convertem-se para AAAA-MM-DD.
+- Se a imagem nao for um comprovativo de pagamento, devolve tudo a null e confianca "baixa".`;
+
+/** Campos lidos de um comprovativo de pagamento (ver PROMPT_COMPROVATIVO). */
+export interface CamposComprovativo {
+  valor: string | null;
+  moeda: string | null;
+  data: string | null;
+  metodo: "transferencia" | "mbway" | "numerario" | "multibanco" | "outro" | null;
+  pagador: string | null;
+  destinatario: string | null;
+  referencia: string | null;
+  confianca: "alta" | "media" | "baixa" | null;
+  notas: string | null;
+}
+
+/** Lê um comprovativo de pagamento (print/foto) e devolve os campos. */
+export async function lerComprovativoGemini(
+  imagens: { mime: string; base64: string }[],
+): Promise<CamposComprovativo | null> {
+  const r = await gerarJson(imagens, PROMPT_COMPROVATIVO);
+  return r && typeof r === "object" ? (r as CamposComprovativo) : null;
+}
+
 export { mimeDoCaminho };

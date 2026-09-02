@@ -616,6 +616,27 @@ export async function fecharAcerto(
     }
   }
 
+  // As despesas que entraram neste acerto ficam QUITADAS: foram descontadas ao
+  // parceiro, logo já foram recuperadas — deixá-las 'pendente' fazia a lista de
+  // despesas pedir para sempre um dinheiro que já tinha entrado pelo acerto.
+  // Só as que estão mesmo nas linhas deste acerto (imputadas ao proprietário,
+  // deste mês); as da GoScooters ou do motorista têm outro ciclo e não se tocam.
+  const despesasNoAcerto = p.linhas
+    .filter((l) => l.tipo === "despesa" && l.despesa_id)
+    .map((l) => l.despesa_id as string);
+  if (despesasNoAcerto.length > 0) {
+    const { error: eDesp } = await supabaseAdmin
+      .from("despesa")
+      .update({ estado_pagamento: "paga" })
+      .in("id", despesasNoAcerto)
+      .eq("estado_pagamento", "pendente"); // não mexe em parciais/isentas já decididas
+    if (eDesp) {
+      // Não desfaz o acerto por causa disto: o extrato está certo e a quitação
+      // pode ser corrigida à mão na lista de despesas.
+      console.error("fecharAcerto quitar despesas error:", eDesp);
+    }
+  }
+
   await notificar({
     tipo: "acerto_por_pagar",
     titulo: "Acerto fechado — por acertar com o parceiro",
@@ -626,6 +647,7 @@ export async function fecharAcerto(
   });
 
   revalidatePath("/admin/acertos");
+  revalidatePath("/admin/despesas");
   return { success: true, id: acerto.id };
 }
 

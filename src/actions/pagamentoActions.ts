@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { comprovativosAtivosDe } from "@/lib/comprovativos";
+import { geminiConfigurado, lerComprovativoGemini, mimeDoCaminho, ultimoErroDaIA } from "@/lib/gemini";
 import type { PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 
 export interface AlocacaoInput {
@@ -299,4 +300,127 @@ export async function estornarPagamento(
   revalidatePath("/admin/cobrancas");
   revalidatePath("/admin/acertos");
   return { success: true };
+}
+
+/**
+ * Leitura de COMPROVATIVOS de pagamento (print do MB WAY, de homebanking, de
+ * uma conversa de WhatsApp, foto de talão): a IA extrai valor, data e quem
+ * pagou, e o servidor tenta identificar o motorista pelo nome.
+ *
+ * O objetivo é o gestor só ter de CONFIRMAR. Por isso nada se grava aqui — a
+ * função devolve uma sugestão; quem decide é o formulário de pagamento.
+ */
+export interface ComprovativoLido {
+  valor: string | null;
+  data: string | null;
+  metodo: PagamentoMetodo | null;
+  pagador: string | null;
+  referencia: string | null;
+  confianca: "alta" | "media" | "baixa" | null;
+  notas: string | null;
+  /** Motorista identificado pelo nome do pagador (null se não deu para decidir). */
+  motorista: { id: string; nome: string } | null;
+  /** Quando o nome bate em vários (ou em nenhum) — o gestor escolhe. */
+  candidatos: { id: string; nome: string }[];
+  aviso: string | null;
+}
+
+/** Compara nomes ignorando acentos, maiúsculas e espaços a mais. */
+function normalizarNome(n: string): string {
+  return n
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function lerComprovativoPagamento(
+  path: string,
+): Promise<{ success: boolean; dados?: ComprovativoLido; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  if (!geminiConfigurado()) {
+    return { success: false, error: "A leitura por IA (Gemini) não está configurada neste ambiente." };
+  }
+
+  const mime = mimeDoCaminho(path);
+  if (!mime.startsWith("image/") && mime !== "application/pdf") {
+    return { success: false, error: "Formato não suportado. Usa uma imagem (JPG/PNG) ou PDF." };
+  }
+
+  const { data: blob, error: dlErr } = await supabaseAdmin.storage.from("motas").download(path);
+  if (dlErr || !blob) {
+    console.error("lerComprovativoPagamento download error:", dlErr);
+    return { success: false, error: "Não consegui abrir o ficheiro carregado." };
+  }
+  const buf = Buffer.from(await blob.arrayBuffer());
+  if (buf.byteLength > 18 * 1024 * 1024) {
+    return { success: false, error: "Ficheiro demasiado grande para a IA (máx. ~18 MB)." };
+  }
+
+  const lido = await lerComprovativoGemini([{ mime, base64: buf.toString("base64") }]);
+  if (!lido) {
+    const motivo = ultimoErroDaIA();
+    return { success: false, error: `Não consegui ler o comprovativo${motivo ? ` — ${motivo}` : ""}.` };
+  }
+
+  // Identificar o motorista pelo nome de quem pagou. Um print de conversa traz
+  // muitas vezes só o primeiro nome, por isso aceita-se correspondência parcial
+  // — mas quando dá em mais do que um, NÃO se escolhe: o gestor decide.
+  let motorista: ComprovativoLido["motorista"] = null;
+  let candidatos: { id: string; nome: string }[] = [];
+  let aviso: string | null = null;
+
+  if (lido.pagador) {
+    const alvo = normalizarNome(lido.pagador);
+    const { data: mots } = await supabaseAdmin.from("motorista").select("id, nome");
+    const lista = (mots ?? []).map((m) => ({ id: m.id as string, nome: m.nome as string }));
+
+    const exatos = lista.filter((m) => normalizarNome(m.nome) === alvo);
+    const parciais = lista.filter((m) => {
+      const n = normalizarNome(m.nome);
+      return n !== alvo && (n.includes(alvo) || alvo.includes(n));
+    });
+    // Último recurso: bater em qualquer palavra do nome (primeiro/último nome).
+    const porPalavra =
+      exatos.length || parciais.length
+        ? []
+        : lista.filter((m) => {
+            const partes = normalizarNome(m.nome).split(" ").filter((x) => x.length >= 3);
+            return partes.some((x) => alvo.split(" ").includes(x));
+          });
+
+    const achados = exatos.length ? exatos : parciais.length ? parciais : porPalavra;
+    if (achados.length === 1) {
+      motorista = achados[0];
+      if (!exatos.length) {
+        aviso = `Li "${lido.pagador}" e associei a ${achados[0].nome} — confirma que é o mesmo.`;
+      }
+    } else if (achados.length > 1) {
+      candidatos = achados.slice(0, 8);
+      aviso = `"${lido.pagador}" corresponde a ${achados.length} motoristas — escolhe qual.`;
+    } else {
+      aviso = `Não encontrei nenhum motorista com o nome "${lido.pagador}".`;
+    }
+  } else {
+    aviso = "Não consegui ler o nome de quem pagou — escolhe o motorista.";
+  }
+
+  const metodosValidos: PagamentoMetodo[] = ["transferencia", "mbway", "numerario", "multibanco", "outro"];
+  return {
+    success: true,
+    dados: {
+      valor: lido.valor,
+      data: lido.data,
+      metodo: lido.metodo && metodosValidos.includes(lido.metodo) ? lido.metodo : null,
+      pagador: lido.pagador,
+      referencia: lido.referencia,
+      confianca: lido.confianca,
+      notas: lido.notas,
+      motorista,
+      candidatos,
+      aviso,
+    },
+  };
 }

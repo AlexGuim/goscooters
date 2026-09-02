@@ -27,6 +27,8 @@ import { rotuloSemanaMes } from "@/lib/datas";
 import { Botao, Badge, Modal, AcoesMenu, classesBotao, campo, etiqueta } from "@/components/ui";
 import type { AcaoMenu } from "@/components/ui";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
+import LerComprovativo from "./LerComprovativo";
+import type { ComprovativoLido } from "@/actions/pagamentoActions";
 
 export interface CobrancaPainel {
   id: string;
@@ -181,6 +183,43 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   const [perda, setPerda] = useState<CobrancaPainel | null>(null);
   const [descontar, setDescontar] = useState<CobrancaPainel | null>(null);
 
+  // Leitura de comprovativos: a IA lê o print, o gestor confirma.
+  const [aLerComprovativo, setALerComprovativo] = useState(false);
+  const [prePagamento, setPrePagamento] = useState<{
+    valor?: string | null; data?: string | null; metodo?: PagamentoMetodo | null; referencia?: string | null;
+  } | null>(null);
+
+  /** Motoristas com dívida em aberto — os únicos a quem faz sentido alocar. */
+  const motoristasComDivida = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of cobrancas) m.set(c.motorista_id, c.motorista_nome);
+    return [...m.entries()]
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+  }, [cobrancas]);
+
+  /**
+   * Do comprovativo lido para o formulário: escolhe-se a cobrança mais antiga em
+   * dívida do motorista, que e a que o FIFO iria pagar primeiro de qualquer forma.
+   */
+  const doComprovativoParaPagamento = (motoristaId: string, lido: ComprovativoLido) => {
+    const dele = cobrancas
+      .filter((c) => c.motorista_id === motoristaId)
+      .sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento));
+    if (!dele.length) {
+      window.alert("Esse motorista não tem cobranças em aberto — nada a alocar.");
+      return;
+    }
+    setPrePagamento({
+      valor: lido.valor,
+      data: lido.data,
+      metodo: lido.metodo,
+      referencia: lido.referencia,
+    });
+    setALerComprovativo(false);
+    setPagar(dele[0]);
+  };
+
   /** Desfaz uma perda: a semana volta a ser dívida a cobrar. */
   const reverter = async (c: CobrancaPainel) => {
     if (
@@ -246,18 +285,24 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   return (
     <div className="space-y-6">
       {/* Abas */}
-      <div className="flex gap-2">
-        {([["dividas", "Dívidas em aberto"], ["semana", "Semana (conferência)"], ["pagamentos", "Pagamentos"]] as const).map(([v, r]) => (
-          <button
-            key={v}
-            onClick={() => setVista(v)}
-            className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
-              vista === v ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            {r}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {([["dividas", "Dívidas em aberto"], ["semana", "Semana (conferência)"], ["pagamentos", "Pagamentos"]] as const).map(([v, r]) => (
+            <button
+              key={v}
+              onClick={() => setVista(v)}
+              className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
+                vista === v ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        {/* Disponível em qualquer vista: o print chega quando chega. */}
+        <Botao variante="secondary" onClick={() => setALerComprovativo(true)}>
+          Ler comprovativo
+        </Botao>
       </div>
 
       {vista === "dividas" && (
@@ -533,8 +578,20 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
           cobrancasDoMotorista={cobrancas
             .filter((c) => c.motorista_id === pagar.motorista_id)
             .sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento))}
-          onClose={() => setPagar(null)}
+          inicial={prePagamento ?? undefined}
+          onClose={() => {
+            setPagar(null);
+            setPrePagamento(null);
+          }}
           onPago={aposPagamento}
+        />
+      )}
+
+      {aLerComprovativo && (
+        <LerComprovativo
+          motoristasComDivida={motoristasComDivida}
+          onConfirmar={doComprovativoParaPagamento}
+          onClose={() => setALerComprovativo(false)}
         />
       )}
 
@@ -995,21 +1052,24 @@ function LivroPagamentos() {
 function FormPagamento({
   cobrancaClicada,
   cobrancasDoMotorista,
+  inicial,
   onClose,
   onPago,
 }: {
   cobrancaClicada: CobrancaPainel;
   cobrancasDoMotorista: CobrancaPainel[];
+  /** Pré-preenchimento vindo da leitura de um comprovativo (só sugestão). */
+  inicial?: { valor?: string | null; data?: string | null; metodo?: PagamentoMetodo | null; referencia?: string | null };
   onClose: () => void;
   onPago: (liquidados: Set<string>, parciais: Map<string, number>) => void;
 }) {
-  const [valor, setValor] = useState<string>(cobrancaClicada.em_falta);
-  const [metodo, setMetodo] = useState<PagamentoMetodo>("transferencia");
+  const [valor, setValor] = useState<string>(inicial?.valor || cobrancaClicada.em_falta);
+  const [metodo, setMetodo] = useState<PagamentoMetodo>(inicial?.metodo || "transferencia");
   const [recebidoPor, setRecebidoPor] = useState<PagamentoRecebidoPor>(
     cobrancaClicada.proprietario_recebe_direto ? "proprietario" : "goscooters",
   );
-  const [data, setData] = useState(() => hoje());
-  const [referencia, setReferencia] = useState("");
+  const [data, setData] = useState(() => inicial?.data || hoje());
+  const [referencia, setReferencia] = useState(inicial?.referencia || "");
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
