@@ -51,6 +51,7 @@ export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
       {[...porMoto.entries()].map(([matricula, linhas]) => {
         const recebido = linhas.reduce((t, l) => t + l.valor, 0);
         const paradas = linhas.filter((l) => l.estado === "parada").length;
+        const comManutencao = linhas.filter((l) => l.manutencao).length;
         return (
           <div key={matricula} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
@@ -58,6 +59,7 @@ export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
               <p className="text-xs text-slate-500">
                 {formatarPreco(recebido)} recebido
                 {paradas > 0 && ` · ${paradas} semana(s) parada`}
+                {comManutencao > 0 && ` · ${comManutencao} com manutenção`}
               </p>
             </div>
             <ul className="divide-y divide-slate-100">
@@ -91,6 +93,9 @@ export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
                     )}
                     {l.estado === "parada" && (
                       <p className="text-xs text-slate-400">Sem aluguer nesta semana</p>
+                    )}
+                    {l.manutencao && (
+                      <p className="text-xs text-azulejo">🔧 {l.manutencao}</p>
                     )}
                   </div>
                   <div className="text-right">

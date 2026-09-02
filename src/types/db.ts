@@ -115,6 +115,8 @@ export interface SemanaMoto {
   motorista: string | null;
   /** Motivo do desconto ou da perda. */
   nota: string | null;
+  /** Intervenções de manutenção nesta semana (ex.: "óleo 05/08"). */
+  manutencao: string | null;
 }
 
 export type AcertoLinhaTipo = "receita" | "despesa" | "comissao" | "ajuste" | "perda";

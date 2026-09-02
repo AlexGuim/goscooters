@@ -268,6 +268,37 @@ async function computar(
       });
     }
 
+    // Manutenções do período, por moto. A tabela guarda a DATA da intervenção
+    // (não um intervalo), por isso o extrato diz "houve manutenção nesta semana"
+    // — que é verdade — e não "esteve parada N dias", que os dados não suportam.
+    const janela = semanasDoMes(competencia);
+    const manPorVeiculo = new Map<string, { data: string; tipo: string }[]>();
+    if (janela.length) {
+      const { data: mans } = await supabaseAdmin
+        .from("manutencao")
+        .select("veiculo_id, data, tipo")
+        .in("veiculo_id", veicIds)
+        .gte("data", janela[0].inicio)
+        .lte("data", janela[janela.length - 1].fim);
+      for (const mn of mans ?? []) {
+        const arr = manPorVeiculo.get(mn.veiculo_id as string) ?? [];
+        arr.push({ data: mn.data as string, tipo: mn.tipo as string });
+        manPorVeiculo.set(mn.veiculo_id as string, arr);
+      }
+    }
+    const MAN_ROTULO: Record<string, string> = {
+      revisao: "revisão", oleo: "óleo", pneu_frente: "pneu frente", pneu_tras: "pneu trás",
+      pneus: "pneus", travoes: "travões", corrente: "corrente", inspecao: "inspeção", outro: "manutenção",
+    };
+    /** Intervenções desta moto dentro desta semana, já em texto. */
+    const manutencaoNa = (veiculoId: string, de: string, ate: string): string | null => {
+      const lista = (manPorVeiculo.get(veiculoId) ?? []).filter((x) => x.data >= de && x.data <= ate);
+      if (!lista.length) return null;
+      return lista
+        .map((x) => `${MAN_ROTULO[x.tipo] ?? x.tipo} ${x.data.slice(8, 10)}/${x.data.slice(5, 7)}`)
+        .join(", ");
+    };
+
     // ── LINHA DO TEMPO SEMANAL ────────────────────────────────────────────
     // Todas as semanas do mês, para TODAS as motos do parceiro — incluindo as
     // que não geraram receita nenhuma. Uma moto parada e uma moto com calote
@@ -295,6 +326,7 @@ async function computar(
             desconto: 0,
             motorista: null,
             nota: null,
+            manutencao: manutencaoNa(v.id, sem.inicio, sem.fim),
           });
           continue;
         }
@@ -330,6 +362,7 @@ async function computar(
                 : abatido > 0
                   ? ((c.desconto_motivo as string) ?? null)
                   : null,
+            manutencao: manutencaoNa(v.id, sem.inicio, sem.fim),
           });
         }
       }

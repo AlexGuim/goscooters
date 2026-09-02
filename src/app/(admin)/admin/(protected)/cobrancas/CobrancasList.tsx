@@ -458,6 +458,18 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                           Registar pagamento
                         </Botao>
                       )}
+                      {!feito && (
+                        <AcoesMenu
+                          acoes={[
+                            { rotulo: "Aplicar desconto…", onClick: () => setDescontar(c) },
+                            {
+                              rotulo: "Dar como perda (incobrável)…",
+                              perigo: true,
+                              onClick: () => setPerda(c),
+                            },
+                          ]}
+                        />
+                      )}
                     </div>
                   </div>
                         );
@@ -493,7 +505,10 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
               (c.estado_liquidacao === "por_liquidar" || c.estado_liquidacao === "parcial"),
           )}
           onClose={() => setPerda(null)}
-          onFeito={(ids) => setCobrancas((atuais) => atuais.filter((c) => !ids.has(c.id)))}
+          onFeito={(ids) => {
+            setCobrancas((atuais) => atuais.filter((c) => !ids.has(c.id)));
+            if (vista === "semana") carregarSemana();
+          }}
         />
       )}
 
@@ -501,7 +516,8 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
         <FormDesconto
           cobranca={descontar}
           onClose={() => setDescontar(null)}
-          onFeito={(id, valor, motivo) =>
+          onFeito={(id, valor, motivo) => {
+            if (vista === "semana") carregarSemana();
             setCobrancas((atuais) =>
               atuais.flatMap((c) => {
                 if (c.id !== id) return [c];
@@ -513,8 +529,8 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                 if (falta <= 0.001) return [];
                 return [{ ...c, desconto: String(valor), desconto_motivo: motivo, em_falta: String(falta) }];
               }),
-            )
-          }
+            );
+          }}
         />
       )}
     </div>
