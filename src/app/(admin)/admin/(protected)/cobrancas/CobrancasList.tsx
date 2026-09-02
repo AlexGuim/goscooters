@@ -20,6 +20,7 @@ import {
 import {
   cobrancasDaSemana,
   marcarIncobravel,
+  reverterIncobravel,
   aplicarDesconto,
 } from "@/actions/cobrancaActions";
 import { rotuloSemanaMes } from "@/lib/datas";
@@ -62,8 +63,14 @@ const TIPO_ROTULO: Partial<Record<CobrancaTipo, string>> = {
 };
 
 // "Resolvida" = já não é dívida (paga ou isenta).
+/** Já não é dívida a perseguir — inclui a perda, que não se cobra nem se lembra. */
 const resolvida = (c: CobrancaPainel) =>
-  c.estado_liquidacao === "liquidada" || c.estado_liquidacao === "isenta";
+  c.estado_liquidacao === "liquidada" ||
+  c.estado_liquidacao === "isenta" ||
+  c.estado_liquidacao === "incobravel";
+
+/** Dada como perda: resolvida, mas o oposto de paga. Nunca se soma às pagas. */
+const ehPerda = (c: CobrancaPainel) => c.estado_liquidacao === "incobravel";
 
 // Semana de calendário domingo→sábado, deslocada por `offset` semanas.
 function limitesSemana(agoraMs: number, offset: number) {
@@ -174,6 +181,19 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   const [perda, setPerda] = useState<CobrancaPainel | null>(null);
   const [descontar, setDescontar] = useState<CobrancaPainel | null>(null);
 
+  /** Desfaz uma perda: a semana volta a ser dívida a cobrar. */
+  const reverter = async (c: CobrancaPainel) => {
+    if (
+      !window.confirm(
+        `Reverter a perda de ${formatarPreco(c.valor_devido)} (${c.motorista_nome}, ${rotuloSemanaMes(c.periodo_inicio)})?\n\nA semana volta a aparecer como dívida a cobrar.`,
+      )
+    )
+      return;
+    const r = await reverterIncobravel(c.id);
+    if (r.success) carregarSemana();
+    else window.alert(r.error ?? "Erro.");
+  };
+
   const aposPagamento = (idsLiquidados: Set<string>, parciais: Map<string, number>) => {
     setCobrancas((atuais) =>
       atuais
@@ -197,13 +217,19 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   }, [roster]);
   const rosterResumo = useMemo(() => {
     let total = 0, recebido = 0, pagas = 0, porPagarV = 0, porPagarN = 0;
+    let perdaV = 0, perdaN = 0;
     for (const c of roster) {
       total += Number(c.valor_devido);
       recebido += Number(c.valor_pago);
-      if (resolvida(c)) pagas++;
+      if (ehPerda(c)) {
+        // Nem paga nem por cobrar: perdida. Somá-la às pagas inflacionava o
+        // "9/10" e escondia exactamente o que interessa ver.
+        perdaN++;
+        perdaV += Number(c.valor_devido) - Number(c.desconto ?? 0) - Number(c.valor_pago);
+      } else if (resolvida(c)) pagas++;
       else { porPagarV += Number(c.em_falta); porPagarN++; }
     }
-    return { total, recebido, pagas, porPagarV, porPagarN, n: roster.length };
+    return { total, recebido, pagas, porPagarV, porPagarN, perdaV, perdaN, n: roster.length };
   }, [roster]);
 
   // Folha semanal agrupada por proprietário (mantém a ordem de rosterOrdenado).
@@ -382,7 +408,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
           </div>
 
           {/* Resumo da semana */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className={`grid gap-4 ${rosterResumo.perdaN > 0 ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
             <div className="rounded-3xl bg-white p-5 shadow-sm">
               <p className="text-sm text-slate-500">Recebido</p>
               <p className="mt-1 text-2xl font-bold text-emerald-600">{formatarPreco(rosterResumo.recebido)}</p>
@@ -398,6 +424,13 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
               <p className="mt-1 text-2xl font-bold text-red-600">{formatarPreco(rosterResumo.porPagarV)}</p>
               <p className="text-xs text-slate-500">{rosterResumo.porPagarN} cobrança(s)</p>
             </div>
+            {rosterResumo.perdaN > 0 && (
+              <div className="rounded-3xl border border-red-200 bg-red-50 p-5">
+                <p className="text-sm text-red-700">Perdas</p>
+                <p className="mt-1 text-2xl font-bold text-red-700">{formatarPreco(rosterResumo.perdaV)}</p>
+                <p className="text-xs text-red-600">{rosterResumo.perdaN} cobrança(s) incobrável(is)</p>
+              </div>
+            )}
           </div>
 
           {/* Lista da semana (pagas + por pagar) */}
@@ -431,6 +464,8 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                         <p className="font-semibold text-slate-950">{c.motorista_nome}</p>
                         {c.estado_liquidacao === "liquidada" ? (
                           <Badge tom="success">✓ pago</Badge>
+                        ) : c.estado_liquidacao === "incobravel" ? (
+                          <Badge tom="danger">perda</Badge>
                         ) : c.estado_liquidacao === "isenta" ? (
                           <Badge tom="neutral">isento</Badge>
                         ) : c.estado_liquidacao === "parcial" ? (
@@ -458,18 +493,26 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
                           Registar pagamento
                         </Botao>
                       )}
-                      {!feito && (
-                        <AcoesMenu
-                          acoes={[
-                            { rotulo: "Aplicar desconto…", onClick: () => setDescontar(c) },
-                            {
-                              rotulo: "Dar como perda (incobrável)…",
-                              perigo: true,
-                              onClick: () => setPerda(c),
-                            },
-                          ]}
-                        />
-                      )}
+                      <AcoesMenu
+                        acoes={[
+                          {
+                            rotulo: "Aplicar desconto…",
+                            onClick: () => setDescontar(c),
+                            oculta: feito,
+                          },
+                          {
+                            rotulo: "Dar como perda (incobrável)…",
+                            perigo: true,
+                            onClick: () => setPerda(c),
+                            oculta: feito,
+                          },
+                          {
+                            rotulo: "Reverter perda (volta a dívida)",
+                            onClick: () => reverter(c),
+                            oculta: !ehPerda(c),
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
                         );
