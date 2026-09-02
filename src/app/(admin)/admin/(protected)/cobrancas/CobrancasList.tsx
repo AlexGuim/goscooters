@@ -1159,13 +1159,19 @@ function FormPerda({
   onFeito: (ids: Set<string>) => void;
 }) {
   const [motivo, setMotivo] = useState("");
-  const [extra, setExtra] = useState<Set<string>>(
-    () => new Set(outrasDoMotorista.map((c) => c.id)),
+  // Todas as semanas em dívida do motorista, por ordem cronológica e tratadas da
+  // MESMA maneira: são o mesmo caso (o mesmo calote), com a mesma justificação.
+  // Destacar a que foi clicada fazia-a parecer outra coisa.
+  const candidatas = [cobranca, ...outrasDoMotorista].sort((a, b) =>
+    a.periodo_inicio.localeCompare(b.periodo_inicio),
+  );
+  const [marcadas, setMarcadas] = useState<Set<string>>(
+    () => new Set(candidatas.map((c) => c.id)),
   );
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const escolhidas = [cobranca, ...outrasDoMotorista.filter((c) => extra.has(c.id))];
+  const escolhidas = candidatas.filter((c) => marcadas.has(c.id));
   const total = escolhidas.reduce((t, c) => t + Number(c.em_falta), 0);
 
   const gravar = async () => {
@@ -1190,22 +1196,16 @@ function FormPerda({
           passam a contar no total de incobráveis.
         </p>
 
-        <div className="rounded-2xl border border-slate-200 divide-y divide-slate-100">
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-            <span className="text-sm text-slate-700">
-              {cobranca.veiculo_matricula} · {rotuloSemanaMes(cobranca.periodo_inicio)}
-            </span>
-            <span className="text-sm font-semibold tabular-nums">{formatarPreco(cobranca.em_falta)}</span>
-          </div>
-          {outrasDoMotorista.map((c) => (
+        <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200">
+          {candidatas.map((c) => (
             <label key={c.id} className="flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5">
               <span className="flex items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
                   className="h-4 w-4 accent-emerald-500"
-                  checked={extra.has(c.id)}
+                  checked={marcadas.has(c.id)}
                   onChange={() =>
-                    setExtra((atual) => {
+                    setMarcadas((atual) => {
                       const novo = new Set(atual);
                       if (novo.has(c.id)) novo.delete(c.id);
                       else novo.add(c.id);
@@ -1214,6 +1214,9 @@ function FormPerda({
                   }
                 />
                 {c.veiculo_matricula} · {rotuloSemanaMes(c.periodo_inicio)}
+                <span className="text-slate-400">
+                  ({dataCurta(c.periodo_inicio)}–{dataCurta(c.periodo_fim)})
+                </span>
               </span>
               <span className="text-sm tabular-nums text-slate-600">{formatarPreco(c.em_falta)}</span>
             </label>
@@ -1248,7 +1251,11 @@ function FormPerda({
           <Botao variante="secondary" onClick={onClose} disabled={aGravar}>
             Cancelar
           </Botao>
-          <Botao variante="danger" onClick={gravar} disabled={aGravar || !motivo.trim()}>
+          <Botao
+            variante="danger"
+            onClick={gravar}
+            disabled={aGravar || !motivo.trim() || escolhidas.length === 0}
+          >
             {aGravar ? "A gravar…" : `Dar ${formatarPreco(total)} como perda`}
           </Botao>
         </div>
