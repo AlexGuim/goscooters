@@ -87,6 +87,10 @@ export default function IntakeDocumento({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [aberto, setAberto] = useState(false);
+  // Fila do lote. Estado normal (e não ref): a fila só muda entre confirmações,
+  // e o handler é recriado a cada render — por isso lê sempre o valor certo.
+  const [fila, setFila] = useState<File[]>([]);
+  const [lote, setLote] = useState<{ total: number; feitos: number }>({ total: 0, feitos: 0 });
   const [fase, setFase] = useState<Fase>("inicio");
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -166,9 +170,7 @@ export default function IntakeDocumento({
     setFase("rever");
   };
 
-  const aoEscolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const ficheiro = e.target.files?.[0];
-    if (!ficheiro) return;
+  const processar = async (ficheiro: File) => {
     setErro(null);
     setOk(null);
     setFase("a-processar");
@@ -185,6 +187,42 @@ export default function IntakeDocumento({
       return;
     }
     preencher(r.resultado);
+  };
+
+  /**
+   * Vários documentos de uma vez: processa-se o primeiro e os outros ficam em
+   * fila. Cada um continua a ser REVISTO e confirmado — é uma fila, não uma
+   * importação cega. Um documento mal lido gravado em silêncio seria pior do
+   * que carregá-los um a um.
+   */
+  const aoEscolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const escolhidos = Array.from(e.target.files ?? []);
+    if (!escolhidos.length) return;
+    const [primeiro, ...resto] = escolhidos;
+    setFila(resto);
+    setLote({ total: escolhidos.length, feitos: 0 });
+    await processar(primeiro);
+  };
+
+  /**
+   * Retira o próximo da fila (ou null se acabou) e conta mais um como feito.
+   * NÃO toca em refs nem processa — quem chama é que decide o que fazer, para
+   * esta função continuar a poder ser usada de dentro de handlers.
+   */
+  const seguinteDaFila = (): File | null => {
+    setLote((l) => ({ ...l, feitos: l.feitos + 1 }));
+    const [proximo, ...resto] = fila;
+    if (!proximo) return null;
+    setFila(resto);
+    return proximo;
+  };
+
+  /** Depois de gravar: segue para o documento seguinte, ou fecha o lote. */
+  const continuarOuFechar = () => {
+    const proximo = seguinteDaFila();
+    reset();
+    if (proximo) void processar(proximo);
+    else window.location.reload();
   };
 
   const destino = destinoDe(tipo);
@@ -293,14 +331,12 @@ export default function IntakeDocumento({
           return;
         }
         setOk(enviadas ? `${msgOk} · ${enviadas} comunicação(ões) enviada(s) automaticamente.` : msgOk);
-        reset();
-        window.location.reload();
+        continuarOuFechar();
         return;
       }
 
       setOk(msgOk);
-      reset();
-      window.location.reload();
+      continuarOuFechar();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao gravar.");
       setFase("rever");
@@ -353,18 +389,43 @@ export default function IntakeDocumento({
 
       {aberto && (
         <div className="mt-4 space-y-4">
+          {lote.total > 1 && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-100 px-4 py-2.5">
+              <p className="text-sm text-slate-700">
+                Documento{" "}
+                <strong>{Math.min(lote.feitos + 1, lote.total)} de {lote.total}</strong>
+                {lote.feitos > 0 && ` · ${lote.feitos} já gravado(s)`}
+              </p>
+              {lote.total - lote.feitos - 1 > 0 && (
+                <button
+                  onClick={() => {
+                    // Abandonar o resto do lote sem perder o que já foi gravado.
+                    setFila([]);
+                    setLote({ total: 0, feitos: 0 });
+                    reset();
+                  }}
+                  className="text-xs font-medium text-slate-500 transition hover:text-slate-800"
+                >
+                  Descartar os restantes
+                </button>
+              )}
+            </div>
+          )}
           {(fase === "inicio" || fase === "a-processar") && (
             <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-center">
               <input
                 ref={inputRef}
                 type="file"
+                multiple
                 accept="application/pdf,image/jpeg,image/png,image/webp"
                 onChange={aoEscolher}
                 disabled={fase === "a-processar"}
                 className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-2xl file:border-0 file:bg-emerald-600 file:px-5 file:py-2.5 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-700 disabled:opacity-50"
               />
               <p className="mt-3 text-xs text-slate-500">
-                {fase === "a-processar" ? "A IA está a ler o documento…" : "PDF ou foto até ~18 MB."}
+                {fase === "a-processar"
+                  ? "A IA está a ler o documento…"
+                  : "PDF ou foto até ~18 MB. Podes escolher vários — revês um de cada vez."}
               </p>
             </div>
           )}
@@ -560,8 +621,7 @@ export default function IntakeDocumento({
                   )}
                   <button
                     onClick={() => {
-                      reset();
-                      window.location.reload();
+                      continuarOuFechar();
                     }}
                     className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white"
                   >
