@@ -273,38 +273,51 @@ async function computar(
       });
     }
 
-    // Manutenções do período, por moto. A tabela guarda a DATA da intervenção
-    // (não um intervalo), por isso o extrato diz "houve manutenção nesta semana"
-    // — que é verdade — e não "esteve parada N dias", que os dados não suportam.
+    // Manutenções do período, por moto — a partir das DESPESAS, não da tabela
+    // `manutencao`. As duas divergem: a despesa tem a data em que o serviço foi
+    // faturado (e é a que o parceiro paga e vê na lista de despesas); a tabela
+    // de manutenção guarda a data do registo de oficina, que pode ser outra.
+    // Um caso real: os mesmos 178 € apareciam a 19/08 na despesa e a 31/08 na
+    // manutenção — e o marcador saltava para o mês seguinte, sumindo do extrato.
+    // A despesa é também a única que garante fatura (27 de 27 têm documento).
     const janela = semanasDoMes(competencia);
-    const manPorVeiculo = new Map<string, { data: string; tipo: string; url: string | null }[]>();
+    const manPorVeiculo = new Map<string, { data: string; valor: number; url: string | null; tipo: string | null }[]>();
     if (janela.length) {
-      const { data: mans } = await supabaseAdmin
-        .from("manutencao")
-        .select("veiculo_id, data, tipo, detalhe")
-        .in("veiculo_id", veicIds)
-        .gte("data", janela[0].inicio)
-        .lte("data", janela[janela.length - 1].fim);
-      for (const mn of mans ?? []) {
-        const arr = manPorVeiculo.get(mn.veiculo_id as string) ?? [];
+      const [{ data: despMan }, { data: regMan }] = await Promise.all([
+        supabaseAdmin
+          .from("despesa")
+          .select("id, veiculo_id, data_despesa, valor_total, detalhe")
+          .in("veiculo_id", veicIds)
+          .eq("categoria", "manutencao")
+          .gte("data_despesa", janela[0].inicio)
+          .lte("data_despesa", janela[janela.length - 1].fim),
+        // Só para o rótulo ("óleo", "revisão"): o tipo vive no registo de oficina.
+        supabaseAdmin.from("manutencao").select("tipo, despesa_id").in("veiculo_id", veicIds),
+      ]);
+      const tipoDe = new Map(
+        (regMan ?? []).filter((r) => r.despesa_id).map((r) => [r.despesa_id as string, r.tipo as string]),
+      );
+      for (const d of despMan ?? []) {
+        const arr = manPorVeiculo.get(d.veiculo_id as string) ?? [];
         arr.push({
-          data: mn.data as string,
-          tipo: mn.tipo as string,
-          url: (mn.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+          data: d.data_despesa as string,
+          valor: Number(d.valor_total),
+          url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+          tipo: tipoDe.get(d.id) ?? null,
         });
-        manPorVeiculo.set(mn.veiculo_id as string, arr);
+        manPorVeiculo.set(d.veiculo_id as string, arr);
       }
     }
     const MAN_ROTULO: Record<string, string> = {
       revisao: "revisão", oleo: "óleo", pneu_frente: "pneu frente", pneu_tras: "pneu trás",
       pneus: "pneus", travoes: "travões", corrente: "corrente", inspecao: "inspeção", outro: "manutenção",
     };
-    /** Intervenções desta moto nesta semana, cada uma com a sua fatura. */
+    /** Intervenções desta moto nesta semana, com data, valor e fatura. */
     const manutencaoNa = (veiculoId: string, de: string, ate: string): ManutencaoNaSemana[] =>
       (manPorVeiculo.get(veiculoId) ?? [])
         .filter((x) => x.data >= de && x.data <= ate)
         .map((x) => ({
-          rotulo: `${MAN_ROTULO[x.tipo] ?? x.tipo} ${x.data.slice(8, 10)}/${x.data.slice(5, 7)}`,
+          rotulo: `${x.tipo ? MAN_ROTULO[x.tipo] ?? x.tipo : "manutenção"} ${x.data.slice(8, 10)}/${x.data.slice(5, 7)} · ${formatarPreco(x.valor)}`,
           documento_url: x.url,
         }));
 
