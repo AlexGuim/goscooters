@@ -150,7 +150,7 @@ export default async function ExtratoAcertoPublico({
                 que fica a acertar é a comissão e as despesas. */}
             <dl className="mt-4 grid gap-x-6 gap-y-1 border-t border-slate-200/70 pt-3 text-sm sm:grid-cols-2">
               <Par rotulo="Renda do mês" valor={formatarPreco(a.receita_total)} />
-              <Par rotulo="Cobrada pela GoScooters" valor={formatarPreco(a.receita_goscooters)} />
+              <Par rotulo="Recebida pela GoScooters" valor={formatarPreco(a.receita_goscooters)} />
               {recebidaPeloParceiro > 0.005 && (
                 <Par
                   rotulo={`Recebida por ${primeiroNome}`}
