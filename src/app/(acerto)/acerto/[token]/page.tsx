@@ -77,6 +77,10 @@ export default async function ExtratoAcertoPublico({
   const semanas = (Array.isArray(a.semanas) ? a.semanas : []) as SemanaMoto[];
   const liq = Number(a.liquido);
   const aReceber = liq >= 0;
+  // O extrato é um documento entre DUAS partes e é aberto pelas duas (o parceiro
+  // recebe o link, o gestor abre-o para conferir). Por isso nomeia o parceiro em
+  // vez de o tratar por "ti": assim lê-se igual dos dois lados.
+  const primeiroNome = (dono?.nome ?? "").trim().split(/\s+/)[0] || "parceiro";
   // O que entrou direto na conta do parceiro (o resto cobrou-o a GoScooters).
   const recebidaPeloParceiro =
     Math.round((Number(a.receita_total) - Number(a.receita_goscooters)) * 100) / 100;
@@ -148,15 +152,18 @@ export default async function ExtratoAcertoPublico({
               <Par rotulo="Renda do mês" valor={formatarPreco(a.receita_total)} />
               <Par rotulo="Cobrada pela GoScooters" valor={formatarPreco(a.receita_goscooters)} />
               {recebidaPeloParceiro > 0.005 && (
-                <Par rotulo="Recebida diretamente por ti" valor={formatarPreco(recebidaPeloParceiro)} />
+                <Par
+                  rotulo={`Recebida por ${primeiroNome}`}
+                  valor={formatarPreco(recebidaPeloParceiro)}
+                />
               )}
               <Par rotulo="Comissão" valor={`− ${formatarPreco(a.comissao_total)}`} />
               <Par rotulo="Despesas" valor={`− ${formatarPreco(a.despesa_total)}`} />
             </dl>
             {a.pago_direto && (
               <p className="mt-3 text-xs text-slate-600">
-                Parte da renda foi recebida diretamente na tua conta — por isso o extrato reflete
-                a comissão e as despesas que ficam a acertar.
+                Parte da renda foi recebida diretamente na conta de {primeiroNome} — por isso o
+                extrato reflete a comissão e as despesas que ficam a acertar.
               </p>
             )}
           </section>
@@ -183,9 +190,9 @@ export default async function ExtratoAcertoPublico({
           {/* O extrato mostra UM mês. Quem quer o histórico, as despesas e as
               motas tem-nos no portal — daí o convite, e não só o documento. */}
           <div className="print-junto rounded-2xl border border-slate-200 bg-slate-50 p-4 print:hidden">
-            <p className="text-sm font-semibold text-slate-900">Vê tudo no teu portal</p>
+            <p className="text-sm font-semibold text-slate-900">Ver tudo no portal do parceiro</p>
             <p className="mt-0.5 text-sm text-slate-600">
-              Este extrato é só de {mesPorExtenso(a.competencia_mes as string)}. No portal tens o
+              Este extrato é só de {mesPorExtenso(a.competencia_mes as string)}. No portal está o
               histórico de todos os meses, as despesas de cada mota e o estado da frota.
             </p>
             <Link
