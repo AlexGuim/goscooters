@@ -344,6 +344,7 @@ async function computar(
             fim: sem.fim,
             estado: "parada",
             valor: 0,
+            recebido: null,
             devido: 0,
             desconto: 0,
             motorista: null,
@@ -367,6 +368,17 @@ async function computar(
                   : pago > 0
                     ? "parcial"
                     : "por_cobrar";
+          // Quem recebeu — o mesmo critério da linha de receita, para o extrato
+          // não dizer uma coisa em cima e outra em baixo.
+          const gsPago = semRecebidoPor ? pago : Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
+          const recebido: SemanaMoto["recebido"] =
+            pago <= 0.005
+              ? null
+              : gsPago >= pago - 0.005
+                ? "goscooters"
+                : gsPago <= 0.005
+                  ? "parceiro"
+                  : "misto";
           semanas.push({
             veiculo_id: v.id,
             matricula: v.matricula ?? null,
@@ -375,6 +387,7 @@ async function computar(
             fim: c.periodo_fim,
             estado,
             valor: pago,
+            recebido,
             devido,
             desconto: abatido,
             motorista: c.motorista_id ? nomeMot.get(c.motorista_id) ?? null : null,

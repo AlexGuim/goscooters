@@ -109,6 +109,11 @@ export interface SemanaMoto {
   estado: SemanaEstado;
   /** Recebido nessa semana (0 quando não entrou nada). */
   valor: number;
+  /**
+   * Quem recebeu o dinheiro desta semana. Null quando não entrou nada. "misto"
+   * quando a semana foi paga em parte à GoScooters e em parte ao parceiro.
+   */
+  recebido: "goscooters" | "parceiro" | "misto" | null;
   /** Preço da semana, para se ver o que se deixou de receber. */
   devido: number;
   desconto: number;

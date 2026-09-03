@@ -35,6 +35,13 @@ const TOM: Record<SemanaEstado, string> = {
 
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
+/** Quem recebeu o dinheiro da semana — a mesma informação que a linha de receita dava. */
+const RECEBIDO: Record<"goscooters" | "parceiro" | "misto", string> = {
+  goscooters: "recebido: GoScooters",
+  parceiro: "recebido: parceiro",
+  misto: "recebido: GoScooters e parceiro",
+};
+
 export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
   if (!semanas.length) return null;
 
@@ -80,10 +87,11 @@ export function SemanasMoto({ semanas }: { semanas: SemanaMoto[] }) {
                         {ROTULO[l.estado]}
                       </span>
                     </p>
-                    {(l.motorista || l.nota || l.desconto > 0) && (
+                    {(l.motorista || l.recebido || l.nota || l.desconto > 0) && (
                       <p className="text-xs text-slate-500">
                         {[
                           l.motorista,
+                          l.recebido ? RECEBIDO[l.recebido] : null,
                           l.desconto > 0 ? `desconto ${formatarPreco(l.desconto)}` : null,
                           l.nota,
                         ]
