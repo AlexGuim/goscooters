@@ -301,6 +301,20 @@ export default function AcertosList({
                 rotulo={preview.pago_direto ? "Renda total (da frota)" : "Receita"}
                 valor={preview.receita_total}
                 cor="text-slate-950"
+                // Quem recebeu o quê. Sem isto, um líquido negativo parecia
+                // arbitrário: a renda entrou quase toda na conta do parceiro.
+                parcelas={
+                  preview.receita_total - preview.receita_goscooters > 0.005
+                    ? [
+                        { rotulo: "pela GoScooters", valor: preview.receita_goscooters },
+                        {
+                          rotulo: "direto ao parceiro",
+                          valor:
+                            Math.round((preview.receita_total - preview.receita_goscooters) * 100) / 100,
+                        },
+                      ]
+                    : undefined
+                }
               />
               <Tile rotulo="Comissão" valor={-preview.comissao_total} cor="text-amber-700" />
               <Tile rotulo="Despesas" valor={-preview.despesa_total} cor="text-red-600" />
@@ -491,11 +505,34 @@ export default function AcertosList({
   );
 }
 
-function Tile({ rotulo, valor, cor, forte }: { rotulo: string; valor: number; cor: string; forte?: boolean }) {
+function Tile({
+  rotulo,
+  valor,
+  cor,
+  forte,
+  parcelas,
+}: {
+  rotulo: string;
+  valor: number;
+  cor: string;
+  forte?: boolean;
+  /** Desdobramento do valor — para o total não esconder de onde veio. */
+  parcelas?: { rotulo: string; valor: number }[];
+}) {
   return (
     <div className={`rounded-2xl bg-white p-4 shadow-sm ${forte ? "ring-1 ring-emerald-200" : ""}`}>
       <p className="text-xs text-slate-500">{rotulo}</p>
       <p className={`mt-1 ${forte ? "text-2xl" : "text-xl"} font-bold ${cor}`}>{formatarPreco(valor)}</p>
+      {parcelas && parcelas.length > 0 && (
+        <ul className="mt-2 space-y-0.5 border-t border-slate-100 pt-2">
+          {parcelas.map((p) => (
+            <li key={p.rotulo} className="flex items-baseline justify-between gap-2 text-xs">
+              <span className="text-slate-500">{p.rotulo}</span>
+              <span className="tabular-nums font-medium text-slate-700">{formatarPreco(p.valor)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

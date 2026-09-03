@@ -32,6 +32,9 @@ export default async function PortalAcertoDetalhe({
   // Linha do tempo congelada no fecho (acertos antigos não a têm: fica vazia).
   const semanas = (Array.isArray(acerto.semanas) ? acerto.semanas : []) as SemanaMoto[];
   const liq = Number(acerto.liquido);
+  // O que entrou na conta do parceiro (o resto da renda foi cobrado pela GoScooters).
+  const recebidaPorTi =
+    Math.round((Number(acerto.receita_total) - Number(acerto.receita_goscooters)) * 100) / 100;
   const aReceber = liq >= 0;
 
 
@@ -63,7 +66,22 @@ export default async function PortalAcertoDetalhe({
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-4">
-          <Tile rotulo="Receita" valor={Number(acerto.receita_total)} cor="text-slate-950" />
+          <Tile
+            rotulo="Receita"
+            valor={Number(acerto.receita_total)}
+            cor="text-slate-950"
+            // Sem este desdobramento, um líquido a pagar não se explicava: a
+            // renda entrou quase toda na conta do parceiro, e o que fica a
+            // acertar é a comissão e as despesas.
+            parcelas={
+              recebidaPorTi > 0.005
+                ? [
+                    { rotulo: "pela GoScooters", valor: Number(acerto.receita_goscooters) },
+                    { rotulo: "direto para ti", valor: recebidaPorTi },
+                  ]
+                : undefined
+            }
+          />
           <Tile rotulo="Comissão" valor={-Number(acerto.comissao_total)} cor="text-amber-700" />
           <Tile rotulo="Despesas" valor={-Number(acerto.despesa_total)} cor="text-red-600" />
           <Tile
@@ -124,11 +142,14 @@ function Tile({
   valor,
   cor,
   forte,
+  parcelas,
 }: {
   rotulo: string;
   valor: number;
   cor: string;
   forte?: boolean;
+  /** Desdobramento do valor — para o total não esconder de onde veio. */
+  parcelas?: { rotulo: string; valor: number }[];
 }) {
   return (
     <div className={`rounded-2xl bg-slate-50 p-4 ${forte ? "ring-1 ring-emerald-200" : ""}`}>
@@ -136,6 +157,18 @@ function Tile({
       <p className={`mt-1 ${forte ? "text-2xl" : "text-xl"} font-bold ${cor}`}>
         {formatarPreco(valor)}
       </p>
+      {parcelas && parcelas.length > 0 && (
+        <ul className="mt-2 space-y-0.5 border-t border-slate-200 pt-2">
+          {parcelas.map((p) => (
+            <li key={p.rotulo} className="flex items-baseline justify-between gap-2 text-xs">
+              <span className="text-slate-500">{p.rotulo}</span>
+              <span className="tabular-nums font-medium text-slate-700">
+                {formatarPreco(p.valor)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

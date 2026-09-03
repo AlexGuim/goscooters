@@ -30,6 +30,16 @@ const mesPorExtenso = (iso: string) => {
   return `${MESES[Number(mes)] ?? mes} de ${ano}`;
 };
 
+/** Linha "rótulo … valor" do desdobramento do topo. */
+function Par({ rotulo, valor }: { rotulo: string; valor: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-slate-200/50 py-1">
+      <dt className="text-slate-500">{rotulo}</dt>
+      <dd className="tabular-nums font-medium text-slate-800">{valor}</dd>
+    </div>
+  );
+}
+
 export default async function ExtratoAcertoPublico({
   params,
 }: {
@@ -67,6 +77,9 @@ export default async function ExtratoAcertoPublico({
   const semanas = (Array.isArray(a.semanas) ? a.semanas : []) as SemanaMoto[];
   const liq = Number(a.liquido);
   const aReceber = liq >= 0;
+  // O que entrou direto na conta do parceiro (o resto cobrou-o a GoScooters).
+  const recebidaPeloParceiro =
+    Math.round((Number(a.receita_total) - Number(a.receita_goscooters)) * 100) / 100;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 print:py-0">
@@ -128,8 +141,20 @@ export default async function ExtratoAcertoPublico({
             >
               {formatarPreco(Math.abs(liq))}
             </p>
+            {/* De onde veio a renda. Sem isto, um valor a PAGAR parece
+                arbitrário: entrou quase tudo direto na conta do parceiro, e o
+                que fica a acertar é a comissão e as despesas. */}
+            <dl className="mt-4 grid gap-x-6 gap-y-1 border-t border-slate-200/70 pt-3 text-sm sm:grid-cols-2">
+              <Par rotulo="Renda do mês" valor={formatarPreco(a.receita_total)} />
+              <Par rotulo="Cobrada pela GoScooters" valor={formatarPreco(a.receita_goscooters)} />
+              {recebidaPeloParceiro > 0.005 && (
+                <Par rotulo="Recebida diretamente por ti" valor={formatarPreco(recebidaPeloParceiro)} />
+              )}
+              <Par rotulo="Comissão" valor={`− ${formatarPreco(a.comissao_total)}`} />
+              <Par rotulo="Despesas" valor={`− ${formatarPreco(a.despesa_total)}`} />
+            </dl>
             {a.pago_direto && (
-              <p className="mt-2 text-xs text-slate-600">
+              <p className="mt-3 text-xs text-slate-600">
                 Parte da renda foi recebida diretamente na tua conta — por isso o extrato reflete
                 a comissão e as despesas que ficam a acertar.
               </p>
