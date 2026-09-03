@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { validarAcerto } from "@/lib/reciboToken";
@@ -153,6 +154,22 @@ export default async function ExtratoAcertoPublico({
               liquido: liq,
             }}
           />
+
+          {/* O extrato mostra UM mês. Quem quer o histórico, as despesas e as
+              motas tem-nos no portal — daí o convite, e não só o documento. */}
+          <div className="print-junto rounded-2xl border border-slate-200 bg-slate-50 p-4 print:hidden">
+            <p className="text-sm font-semibold text-slate-900">Vê tudo no teu portal</p>
+            <p className="mt-0.5 text-sm text-slate-600">
+              Este extrato é só de {mesPorExtenso(a.competencia_mes as string)}. No portal tens o
+              histórico de todos os meses, as despesas de cada mota e o estado da frota.
+            </p>
+            <Link
+              href="/portal/entrar"
+              className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-slate-50 transition hover:bg-slate-900"
+            >
+              Entrar no portal do parceiro
+            </Link>
+          </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
             <p className="text-xs text-slate-400">

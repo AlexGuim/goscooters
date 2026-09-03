@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabaseServerClient";
@@ -90,7 +91,15 @@ export interface ParceiroSessao {
   user: User;
   proprietarioId: string;
   nome: string;
+  /**
+   * Pré-visualização de administrador: o admin está a VER o portal como este
+   * parceiro. Só leitura — nenhuma acção do portal corre neste modo.
+   */
+  preview?: boolean;
 }
+
+/** Cookie que escolhe o parceiro a pré-visualizar. Só vale para admins. */
+export const COOKIE_PREVIEW = "gs_preview_parceiro";
 
 /**
  * Devolve o parceiro autenticado, ou null. O âmbito (que proprietário) vem
@@ -105,7 +114,22 @@ export const getAuthenticatedPartner = cache(async (): Promise<ParceiroSessao | 
   if (error || !data.user) return null;
 
   const email = data.user.email?.toLowerCase();
-  if (email && getAdminEmails().includes(email)) return null; // admin não é parceiro
+  if (email && getAdminEmails().includes(email)) {
+    // Um admin NÃO é parceiro — continua a não ter portal seu. Mas pode PRÉ-
+    // VISUALIZAR o de um parceiro, para ver o que ele vê. Quem autoriza é a
+    // allowlist de admin (verificada acima, no servidor); o cookie só escolhe
+    // QUAL o parceiro. Sem cookie, nada muda: o admin não entra no portal.
+    // A sessão volta marcada como `preview` e todas as acções a recusam.
+    const alvo = (await cookies()).get(COOKIE_PREVIEW)?.value;
+    if (!alvo) return null;
+    const { data: alvoDono } = await supabaseAdmin
+      .from("proprietario")
+      .select("id, nome, eh_goscooters")
+      .eq("id", alvo)
+      .maybeSingle();
+    if (!alvoDono || alvoDono.eh_goscooters) return null;
+    return { user: data.user, proprietarioId: alvoDono.id, nome: alvoDono.nome, preview: true };
+  }
 
   const { data: dono } = await supabaseAdmin
     .from("proprietario")
@@ -131,5 +155,10 @@ export async function requirePartnerForAction(): Promise<
 > {
   const parceiro = await getAuthenticatedPartner();
   if (!parceiro) return { ok: false, error: "Sessão expirada ou sem acesso ao portal." };
+  // A pré-visualização é SÓ DE LEITURA. Um admin a ver o portal de um parceiro
+  // não pode agir em nome dele — mudar-lhe a palavra-passe, por exemplo.
+  if (parceiro.preview) {
+    return { ok: false, error: "Estás em pré-visualização de administrador — só leitura." };
+  }
   return { ok: true, parceiro };
 }

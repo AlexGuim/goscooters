@@ -9,6 +9,7 @@ import {
   eliminarProprietario,
   convidarParceiro,
   revogarPortal,
+  verPortalComo,
 } from "@/actions/proprietarioActions";
 
 export interface ProprietarioComContagem extends Proprietario {
@@ -65,6 +66,13 @@ export default function ProprietariosList({
     } else {
       alert(r.error);
     }
+  };
+
+  /** Entra na pré-visualização do portal deste parceiro (só leitura). */
+  const verComo = async (d: ProprietarioComContagem) => {
+    const r = await verPortalComo(d.id);
+    if (!r.success) { alert(r.error ?? "Erro."); return; }
+    window.location.assign("/portal");
   };
 
   const revogar = async (d: ProprietarioComContagem) => {
@@ -153,6 +161,13 @@ export default function ProprietariosList({
                         onClick: () => convidar(d),
                         oculta: d.eh_goscooters,
                       },
+                  {
+                    // Ver o portal com os olhos dele — sem precisar da conta
+                    // dele, e sem poder agir em nome dele (é só leitura).
+                    rotulo: "Ver o portal como este parceiro",
+                    onClick: () => verComo(d),
+                    oculta: d.eh_goscooters,
+                  },
                   {
                     rotulo: copiado === d.id ? "Copiado ✓" : "Copiar instruções",
                     onClick: () => copiarPagamento(d),

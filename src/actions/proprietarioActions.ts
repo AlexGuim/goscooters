@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { requireAdminForAction } from "@/lib/dal";
+import { requireAdminForAction, COOKIE_PREVIEW } from "@/lib/dal";
 import type { Database } from "@/types/db";
 
 type ProprietarioUpdate = Database["public"]["Tables"]["proprietario"]["Update"];
@@ -212,5 +212,46 @@ export async function eliminarProprietario(
   }
 
   revalidatePath("/admin/proprietarios");
+  return { success: true };
+}
+
+/**
+ * Pré-visualização do portal: o admin passa a VER o portal como um parceiro.
+ *
+ * Quem autoriza é a allowlist de admin, verificada no servidor — o cookie só
+ * escolhe QUAL o parceiro, e não vale nada para quem não é admin. É por isso
+ * que o âmbito continua a não vir de um id no URL: vem da sessão (admin) mais
+ * uma escolha explícita.
+ *
+ * Só leitura: `requirePartnerForAction` recusa qualquer acção neste modo.
+ */
+export async function verPortalComo(
+  proprietarioId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const { data: dono } = await supabaseAdmin
+    .from("proprietario")
+    .select("id, eh_goscooters")
+    .eq("id", proprietarioId)
+    .maybeSingle();
+  if (!dono) return { success: false, error: "Parceiro não encontrado." };
+  if (dono.eh_goscooters) {
+    return { success: false, error: "A frota própria não tem portal de parceiro." };
+  }
+
+  (await cookies()).set(COOKIE_PREVIEW, dono.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60, // uma hora: é para espreitar, não para trabalhar
+  });
+  return { success: true };
+}
+
+/** Sai da pré-visualização (o admin volta a não ter portal). */
+export async function sairDaPrevisualizacao(): Promise<{ success: boolean }> {
+  (await cookies()).delete(COOKIE_PREVIEW);
   return { success: true };
 }
