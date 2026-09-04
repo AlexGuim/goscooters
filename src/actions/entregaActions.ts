@@ -48,6 +48,31 @@ async function sessaoValida(token: string): Promise<EntregaSessao | null> {
 // ── Admin ───────────────────────────────────────────────────────────────────
 
 /** Cria uma sessão de entrega para um contrato e devolve o LINK (uma só vez). */
+
+/** Estados de uma sessão que ainda está viva (o link continua a funcionar). */
+const ABERTAS = ["enviado", "aberto", "docs_carregados"] as const;
+
+/**
+ * Fecha as sessões que ainda estão vivas para o mesmo destino.
+ *
+ * Gerar o link duas vezes deixava duas sessões abertas para sempre — só a que
+ * foi usada ficava 'concluido'. Pior do que o lixo: o link antigo continuava
+ * válido, e um link de entrega dá acesso a carregar documentos e assinar.
+ * Um destino, um link vivo.
+ */
+async function cancelarSessoesAbertas(
+  campo: "contrato_id" | "motorista_id",
+  valor: string,
+  motivo: string,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("entrega_sessao")
+    .update({ estado: "cancelado" })
+    .eq(campo, valor)
+    .in("estado", ABERTAS);
+  if (error) console.error(`cancelarSessoesAbertas (${motivo}) error:`, error);
+}
+
 export async function criarSessaoEntrega(
   contratoId: string,
 ): Promise<{ success: boolean; link?: string; whatsapp?: string | null; error?: string }> {
@@ -63,6 +88,9 @@ export async function criarSessaoEntrega(
 
   const token = randomBytes(24).toString("base64url");
   const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+
+  // Um contrato, um link vivo: o anterior deixa de funcionar.
+  await cancelarSessoesAbertas("contrato_id", contratoId, "nova sessão de entrega");
 
   const { error } = await supabaseAdmin.from("entrega_sessao").insert({
     token_hash: hashToken(token),
@@ -209,6 +237,8 @@ export async function criarSessaoRegisto(input: {
 
   const token = randomBytes(24).toString("base64url");
   const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+  // Um motorista, um link vivo.
+  await cancelarSessoesAbertas("motorista_id", motoristaId, "nova sessão de registo");
   const { error } = await supabaseAdmin.from("entrega_sessao").insert({
     token_hash: hashToken(token),
     contrato_id: preContratoId,
@@ -281,6 +311,8 @@ export async function criarLinkCompletarDados(
 
   const token = randomBytes(24).toString("base64url");
   const expira = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+  // Um motorista, um link vivo.
+  await cancelarSessoesAbertas("motorista_id", motoristaId, "novo link de completar dados");
   const { error } = await supabaseAdmin.from("entrega_sessao").insert({
     token_hash: hashToken(token),
     contrato_id: contratoId,
@@ -580,6 +612,17 @@ export async function concluirPorToken(
     .from("entrega_sessao")
     .update({ estado: "concluido", concluido_em: agora, dados })
     .eq("id", s.id);
+
+  // Feita a entrega, qualquer outro link do mesmo contrato deixa de fazer
+  // sentido — e não deve continuar a permitir carregar documentos e assinar.
+  if (s.contrato_id) {
+    await supabaseAdmin
+      .from("entrega_sessao")
+      .update({ estado: "cancelado" })
+      .eq("contrato_id", s.contrato_id)
+      .neq("id", s.id)
+      .in("estado", ABERTAS);
+  }
 
   // Avisa o gestor que há documentos/KYC por validar.
   if (s.motorista_id) {
