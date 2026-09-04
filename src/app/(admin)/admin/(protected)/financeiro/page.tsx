@@ -24,7 +24,8 @@ export default async function FinanceiroPage({
         <div>
           <h1 className="text-3xl font-semibold text-slate-950">Resultado</h1>
           <p className="mt-1 text-slate-600">
-            A receita real da GoScooters (comissão + frota própria) − despesas próprias. Regime de caixa.
+              A receita real da GoScooters (comissão + frota própria) − despesas próprias. Regime de
+            caixa. <strong>Clica num mês</strong> para ver de onde veio cada euro.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -77,8 +78,16 @@ export default async function FinanceiroPage({
               </tr>
             ) : (
               temMovimento.map((m) => (
-                <tr key={m.mes} className="tabular-nums">
-                  <td className="px-5 py-3 font-medium text-slate-900">{MESES[m.mes]}</td>
+                <tr key={m.mes} className="tabular-nums transition hover:bg-slate-50">
+                  <td className="px-5 py-3 font-medium text-slate-900">
+                    {/* Clicar abre o mês por dentro: que motos, que parceiros, que despesas. */}
+                    <Link
+                      href={`/admin/financeiro/${ano}-${String(m.mes).padStart(2, "0")}`}
+                      className="underline decoration-dotted underline-offset-4 hover:text-emerald-700"
+                    >
+                      {MESES[m.mes]}
+                    </Link>
+                  </td>
                   <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(m.receita_gs)}</td>
                   <td className="px-5 py-3 text-right text-red-600">
                     {m.despesas_gs > 0 ? `−${formatarPreco(m.despesas_gs)}` : "—"}
