@@ -14,6 +14,17 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export interface MesFinanceiro {
   mes: number; // 1..12
   receita_gs: number;
+  /**
+   * Parte da receita que entrou MESMO na conta da GoScooters (frota própria, ou
+   * renda de parceiro que a GoScooters cobrou).
+   */
+  receita_em_caixa: number;
+  /**
+   * Comissão sobre renda que o PARCEIRO recebeu diretamente. É receita ganha,
+   * mas o dinheiro nunca passou pela GoScooters — chega pelo acerto do mês.
+   * Separada porque juntá-las diz "regime de caixa" e não é verdade.
+   */
+  receita_via_acerto: number;
   despesas_gs: number;
   resultado: number;
   turnover: number; // renda bruta cobrada (memorando)
@@ -50,15 +61,21 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   // Pagamentos do ano (regime de caixa) → data por mês.
   const { data: pagamentos } = await supabaseAdmin
     .from("pagamento")
-    .select("id, data_recebimento")
+    .select("id, data_recebimento, recebido_por")
     .gte("data_recebimento", de)
     .lte("data_recebimento", ate);
   const mesDoPagamento = new Map<string, number>();
+  // Quem ficou com o dinheiro: decide se a receita entrou em caixa ou se vem
+  // pelo acerto (comissão sobre renda que o parceiro cobrou).
+  const gsRecebeu = new Map<string, boolean>();
   for (const p of pagamentos ?? []) {
     mesDoPagamento.set(p.id, Number(p.data_recebimento.slice(5, 7)));
+    gsRecebeu.set(p.id, (p.recebido_por ?? "goscooters") === "goscooters");
   }
 
   const receita = new Array(13).fill(0);
+  const emCaixa = new Array(13).fill(0);
+  const viaAcerto = new Array(13).fill(0);
   const turnover = new Array(13).fill(0);
   const despesas = new Array(13).fill(0);
 
@@ -66,7 +83,7 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   if (pagIds.length > 0) {
     const { data: alocs } = await supabaseAdmin
       .from("pagamento_cobranca")
-      .select("pagamento_id, valor_alocado, cobranca:cobranca_id(veiculo_id, tipo)")
+      .select("pagamento_id, valor_alocado, cobranca:cobranca_id(veiculo_id, tipo, proprietario_id)")
       .in("pagamento_id", pagIds);
 
     for (const a of alocs ?? []) {
@@ -78,7 +95,12 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
       const valor = Number(a.valor_alocado);
       const taxa = c.veiculo_id ? taxaDe.get(c.veiculo_id) ?? 0 : 0;
       turnover[mes] += valor;
-      receita[mes] += valor * taxa;
+      const r = valor * taxa;
+      receita[mes] += r;
+      // Frota própria (taxa 1) é sempre caixa. Numa moto de parceiro, só entrou
+      // em caixa se foi a GoScooters a cobrar a renda.
+      if (taxa === 1 || gsRecebeu.get(a.pagamento_id as string)) emCaixa[mes] += r;
+      else viaAcerto[mes] += r;
     }
   }
 
@@ -94,16 +116,28 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   }
 
   const meses: MesFinanceiro[] = [];
-  const tot = { receita_gs: 0, despesas_gs: 0, resultado: 0, turnover: 0 };
+  const tot = { receita_gs: 0, receita_em_caixa: 0, receita_via_acerto: 0, despesas_gs: 0, resultado: 0, turnover: 0 };
   for (let m = 1; m <= 12; m++) {
     const rg = r2(receita[m]);
     const dg = r2(despesas[m]);
-    meses.push({ mes: m, receita_gs: rg, despesas_gs: dg, resultado: r2(rg - dg), turnover: r2(turnover[m]) });
+    meses.push({
+      mes: m,
+      receita_gs: rg,
+      receita_em_caixa: r2(emCaixa[m]),
+      receita_via_acerto: r2(viaAcerto[m]),
+      despesas_gs: dg,
+      resultado: r2(rg - dg),
+      turnover: r2(turnover[m]),
+    });
+    tot.receita_em_caixa += emCaixa[m];
+    tot.receita_via_acerto += viaAcerto[m];
     tot.receita_gs += rg;
     tot.despesas_gs += dg;
     tot.turnover += turnover[m];
   }
   tot.receita_gs = r2(tot.receita_gs);
+  tot.receita_em_caixa = r2(tot.receita_em_caixa);
+  tot.receita_via_acerto = r2(tot.receita_via_acerto);
   tot.despesas_gs = r2(tot.despesas_gs);
   tot.turnover = r2(tot.turnover);
   tot.resultado = r2(tot.receita_gs - tot.despesas_gs);
@@ -190,21 +224,26 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   // Regime de caixa: o que interessa é a data em que o dinheiro entrou.
   const { data: pags } = await supabaseAdmin
     .from("pagamento")
-    .select("id")
+    .select("id, recebido_por")
     .gte("data_recebimento", de)
     .lte("data_recebimento", ate);
   const pagIds = (pags ?? []).map((p) => p.id);
+  const gsRecebeu = new Map(
+    (pags ?? []).map((p) => [p.id as string, (p.recebido_por ?? "goscooters") === "goscooters"]),
+  );
 
   const frota = new Map<string, number>();
   const porParceiro = new Map<string, { base: number; comissao: number }>();
   let turnover = 0;
   let receitaFrota = 0;
   let receitaComissao = 0;
+  let emCaixa = 0;
+  let viaAcerto = 0;
 
   if (pagIds.length) {
     const { data: alocs } = await supabaseAdmin
       .from("pagamento_cobranca")
-      .select("valor_alocado, cobranca_id")
+      .select("valor_alocado, cobranca_id, pagamento_id")
       .in("pagamento_id", pagIds);
     const cobIds = [...new Set((alocs ?? []).map((a) => a.cobranca_id).filter(Boolean) as string[])];
     const { data: cobs } = cobIds.length
@@ -225,12 +264,16 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
       if (dono?.eh_goscooters) {
         frota.set(c.veiculo_id, (frota.get(c.veiculo_id) ?? 0) + valor);
         receitaFrota += valor;
+        emCaixa += valor; // a renda da frota própria entra sempre na conta da casa
       } else if (dono) {
         const at = porParceiro.get(dono.id) ?? { base: 0, comissao: 0 };
         at.base += valor;
         at.comissao += valor * taxa;
         porParceiro.set(dono.id, at);
         receitaComissao += valor * taxa;
+        // Se foi o parceiro a cobrar, a comissão só chega pelo acerto.
+        if (gsRecebeu.get(a.pagamento_id as string)) emCaixa += valor * taxa;
+        else viaAcerto += valor * taxa;
       }
     }
   }
@@ -259,6 +302,8 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     ano,
     mes,
     receita_gs: r2(receita),
+    receita_em_caixa: r2(emCaixa),
+    receita_via_acerto: r2(viaAcerto),
     despesas_gs: r2(despesasTotal),
     resultado: r2(receita - despesasTotal),
     turnover: r2(turnover),

@@ -40,6 +40,14 @@ export async function registarPagamento(
     return { success: false, error: "Indica um valor válido." };
   }
 
+  // Um pagamento é dinheiro que JÁ entrou — não pode ter data no futuro. Sem
+  // esta guarda, um "09" escrito em vez de "08" atirava 220 € para o mês
+  // seguinte e o resultado de dois meses ficava errado sem ninguém dar por isso.
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (input.data_recebimento > hoje) {
+    return { success: false, error: `A data do pagamento (${input.data_recebimento}) está no futuro. Um pagamento regista-se depois de o dinheiro entrar.` };
+  }
+
   const alocacoes = (input.alocacoes ?? []).filter((a) => a.valor_alocado > 0);
   const soma = alocacoes.reduce((s, a) => s + a.valor_alocado, 0);
   // Pequena folga para arredondamentos.

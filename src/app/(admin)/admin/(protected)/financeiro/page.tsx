@@ -47,8 +47,9 @@ export default async function FinanceiroPage({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-5">
         <Kpi rotulo="Receita GoScooters" valor={total.receita_gs} cor="text-emerald-700" forte />
+        <Kpi rotulo="Entrou em caixa" valor={total.receita_em_caixa} cor="text-slate-900" />
         <Kpi rotulo="Despesas próprias" valor={-total.despesas_gs} cor="text-red-600" />
         <Kpi rotulo="Resultado" valor={total.resultado} cor={total.resultado >= 0 ? "text-emerald-700" : "text-red-600"} forte />
         <Kpi rotulo="Turnover (renda cobrada)" valor={total.turnover} cor="text-slate-500" />
@@ -64,6 +65,7 @@ export default async function FinanceiroPage({
             <tr>
               <th className="px-5 py-3 font-semibold">Mês</th>
               <th className="px-5 py-3 text-right font-semibold">Receita GS</th>
+              <th className="px-5 py-3 text-right font-semibold text-slate-400">Em caixa</th>
               <th className="px-5 py-3 text-right font-semibold">Despesas</th>
               <th className="px-5 py-3 text-right font-semibold">Resultado</th>
               <th className="px-5 py-3 text-right font-semibold text-slate-400">Turnover</th>
@@ -72,7 +74,7 @@ export default async function FinanceiroPage({
           <tbody className="divide-y divide-slate-100">
             {temMovimento.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
+                <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
                   Sem movimento em {ano}.
                 </td>
               </tr>
@@ -89,6 +91,9 @@ export default async function FinanceiroPage({
                     </Link>
                   </td>
                   <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(m.receita_gs)}</td>
+                  <td className="px-5 py-3 text-right text-slate-400" title="O resto é comissão sobre renda que o parceiro cobrou — chega pelo acerto.">
+                    {formatarPreco(m.receita_em_caixa)}
+                  </td>
                   <td className="px-5 py-3 text-right text-red-600">
                     {m.despesas_gs > 0 ? `−${formatarPreco(m.despesas_gs)}` : "—"}
                   </td>
@@ -105,6 +110,7 @@ export default async function FinanceiroPage({
               <tr>
                 <td className="px-5 py-3 text-slate-900">Total {ano}</td>
                 <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(total.receita_gs)}</td>
+                <td className="px-5 py-3 text-right text-slate-400">{formatarPreco(total.receita_em_caixa)}</td>
                 <td className="px-5 py-3 text-right text-red-600">−{formatarPreco(total.despesas_gs)}</td>
                 <td className="px-5 py-3 text-right text-slate-900">{formatarPreco(total.resultado)}</td>
                 <td className="px-5 py-3 text-right text-slate-400">{formatarPreco(total.turnover)}</td>

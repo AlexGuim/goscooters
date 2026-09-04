@@ -90,7 +90,14 @@ export default function PagamentoDeDocumento({
         </label>
         <label className={etiqueta}>
           <span>Data do pagamento</span>
-          <input className={campo} type="date" value={data} onChange={(e) => setData(e.target.value)} />
+          <input
+            className={campo}
+            type="date"
+            // Um pagamento regista-se depois de o dinheiro entrar.
+            max={new Date().toISOString().slice(0, 10)}
+            value={data}
+            onChange={(e) => setData(e.target.value)}
+          />
         </label>
         <label className={etiqueta}>
           <span>Referência</span>

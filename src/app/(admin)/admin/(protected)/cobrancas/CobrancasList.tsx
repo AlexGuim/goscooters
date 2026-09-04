@@ -1165,7 +1165,14 @@ function FormPagamento({
             </label>
             <label className={etiqueta}>
               <span>Data</span>
-              <input className={campo} type="date" value={data} onChange={(e) => setData(e.target.value)} />
+              <input
+                className={campo}
+                type="date"
+                // O seletor não deixa sequer escolher um dia futuro.
+                max={hoje()}
+                value={data}
+                onChange={(e) => setData(e.target.value)}
+              />
             </label>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">

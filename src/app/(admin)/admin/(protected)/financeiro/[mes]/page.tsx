@@ -65,12 +65,22 @@ export default async function MesFinanceiroPage({
       </div>
 
       {/* O resultado, e as duas metades da receita */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-5">
         <Kpi rotulo="Receita GoScooters" valor={d.receita_gs} cor="text-emerald-700" forte
           parcelas={[
             { rotulo: "frota própria", valor: d.receita_frota },
             { rotulo: "comissões", valor: d.receita_comissao },
           ]}
+        />
+        <Kpi
+          rotulo="Entrou em caixa"
+          valor={d.receita_em_caixa}
+          cor="text-slate-950"
+          parcelas={
+            d.receita_via_acerto > 0.005
+              ? [{ rotulo: "falta, vem pelo acerto", valor: d.receita_via_acerto }]
+              : undefined
+          }
         />
         <Kpi rotulo="Despesas próprias" valor={-d.despesas_gs} cor="text-red-600" />
         <Kpi rotulo="Resultado" valor={d.resultado} cor={d.resultado >= 0 ? "text-emerald-700" : "text-red-600"} forte />
@@ -78,7 +88,14 @@ export default async function MesFinanceiroPage({
       </div>
       <p className="text-xs text-slate-500">
         <strong>Turnover</strong> é a renda bruta que passou pela operação — dinheiro de passagem,
-        não receita da casa. Só a comissão e a renda da frota própria são receita.
+        não receita da casa. Só a comissão e a renda da frota própria são receita.{" "}
+        {d.receita_via_acerto > 0.005 && (
+          <>
+            Dessa receita, <strong>{formatarPreco(d.receita_via_acerto)}</strong> é comissão sobre
+            renda que o parceiro cobrou diretamente: está ganha, mas o dinheiro só chega pelo acerto
+            do mês.
+          </>
+        )}
       </p>
 
       {/* Frota própria: renda inteira é receita */}
