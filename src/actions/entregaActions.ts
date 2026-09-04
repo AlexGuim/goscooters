@@ -593,3 +593,34 @@ export async function concluirPorToken(
 
   return { ok: true };
 }
+
+/**
+ * O próprio motorista escolhe a língua do formulário de entrega.
+ *
+ * Existe porque o campo `idioma_preferido` nasce a 'pt' por omissão e ninguém se
+ * lembra de o corrigir — 44 dos 45 motoristas estavam a português, quase todos
+ * estrangeiros. Quem sabe a língua é ele; basta deixá-lo dizê-lo.
+ *
+ * Grava na ficha, e não só na sessão: a escolha passa a valer para tudo o que
+ * vem depois — regras, contrato, comprovativos e lembretes de pagamento.
+ * Autorizado pelo TOKEN da sessão (é ele que prova de quem é o formulário).
+ */
+export async function definirIdiomaPorToken(
+  token: string,
+  idioma: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const s = await sessaoValida(token);
+  if (!s) return { ok: false, error: "Link inválido ou expirado." };
+  if (!s.motorista_id) return { ok: false, error: "Sessão sem motorista." };
+
+  const lang = (idioma || "pt").slice(0, 2).toLowerCase() === "en" ? "en" : "pt";
+  const { error } = await supabaseAdmin
+    .from("motorista")
+    .update({ idioma_preferido: lang })
+    .eq("id", s.motorista_id);
+  if (error) {
+    console.error("definirIdiomaPorToken error:", error);
+    return { ok: false, error: "Não foi possível mudar a língua." };
+  }
+  return { ok: true };
+}

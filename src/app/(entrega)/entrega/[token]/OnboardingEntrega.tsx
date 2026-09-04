@@ -7,6 +7,7 @@ import {
   concluirPorToken,
   lerDocumentoIAporToken,
   type SessaoPublica,
+  definirIdiomaPorToken,
 } from "@/actions/entregaActions";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento } from "@/lib/documentos";
@@ -147,7 +148,20 @@ export default function OnboardingEntrega({
   sessao: SessaoPublica;
 }) {
   const registo = sessao.registo;
+  const [aMudarLingua, setAMudarLingua] = useState(false);
   const lang = sessao.idioma;
+
+  /** Grava a língua na ficha e recarrega — o ecrã inteiro vem já traduzido. */
+  const mudarLingua = async (l: "pt" | "en") => {
+    if (l === lang) return;
+    setAMudarLingua(true);
+    const r = await definirIdiomaPorToken(token, l);
+    if (r.ok) window.location.reload();
+    else {
+      setAMudarLingua(false);
+      window.alert(r.error ?? "Erro.");
+    }
+  };
   const t = STR[lang];
   const rotulo = (o: { pt: string; en: string }) => (lang === "en" ? o.en : o.pt);
 
@@ -341,6 +355,24 @@ export default function OnboardingEntrega({
   return (
     <main className="mx-auto max-w-lg space-y-5 px-4 py-8 pb-28">
       <div>
+        {/* Escolha da língua PRIMEIRO: quem sabe a língua é o motorista, e o
+            campo da ficha nasce a "pt" por omissão. Fica gravado na ficha, por
+            isso vale também para o contrato, as regras e os lembretes. */}
+        <div className="mb-4 flex items-center justify-end gap-1 rounded-2xl bg-white p-1 shadow-sm">
+          {(["pt", "en"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              disabled={aMudarLingua}
+              onClick={() => mudarLingua(l)}
+              className={`rounded-xl px-4 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
+                lang === l ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {l === "pt" ? "Português" : "English"}
+            </button>
+          ))}
+        </div>
         <h1 className="text-2xl font-semibold text-slate-950">{registo ? t.titulo_registo : t.titulo_entrega}</h1>
         {!registo && <p className="text-sm text-slate-600">{sessao.veiculo}</p>}
         <p className="mt-1 text-xs text-slate-400">{t.aviso}</p>
