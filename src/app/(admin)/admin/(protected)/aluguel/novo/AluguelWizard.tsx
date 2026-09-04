@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { criarMotorista, procurarMotoristaPorTelefone } from "@/actions/motoristaActions";
+import { criarMotorista, procurarMotoristaPorTelefone, atualizarMotorista } from "@/actions/motoristaActions";
+import { enviarFotoPrivada } from "@/lib/uploads";
+import { lerDocumentoIA } from "@/actions/fotoActions";
+import type { CamposDocumento } from "@/lib/gemini";
 import { criarContrato } from "@/actions/contratoActions";
 import { criarSessaoRegisto } from "@/actions/entregaActions";
 import { Botao, classesBotao, campo, etiqueta } from "@/components/ui";
@@ -100,6 +103,12 @@ function PassoMotorista({
   const [telefone, setTelefone] = useState("");
   const [email, setEmail] = useState("");
   const [idioma, setIdioma] = useState("pt");
+  // KYC lido dos documentos, para ser gravado LOGO A SEGUIR à criação da ficha.
+  // Guarda-se em vez de se gravar já porque o motorista ainda não existe: só o
+  // `criarMotorista` lhe dá um id.
+  const [kyc, setKyc] = useState<CamposDocumento | null>(null);
+  const [aLerDocs, setALerDocs] = useState(false);
+  const [statusDocs, setStatusDocs] = useState<string | null>(null);
   // link result
   const [link, setLink] = useState<string | null>(null);
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
@@ -110,13 +119,62 @@ function PassoMotorista({
     onPronto(m.id, m.nome);
   };
 
+  /**
+   * Lê os documentos que o gestor tem em mãos e preenche o que puder.
+   *
+   * Antes, quem já tinha os documentos era mandado para o passo 3 ou para o
+   * ecrã de Motoristas — dois sítios diferentes para a mesma folha de papel.
+   */
+  const lerDocs = async (files: FileList | null) => {
+    const lista = Array.from(files ?? []).slice(0, 4);
+    if (!lista.length) return;
+    setErro(null);
+    setALerDocs(true);
+    setStatusDocs("A carregar…");
+    try {
+      const paths: string[] = [];
+      for (const f of lista) {
+        const env = await enviarFotoPrivada(f);
+        if (!env.success || !env.path) throw new Error(env.error ?? "Falha ao carregar.");
+        paths.push(env.path);
+      }
+      setStatusDocs("A ler com a IA…");
+      const r = await lerDocumentoIA(paths);
+      if (!r.ok || !r.dados) {
+        setStatusDocs(null);
+        setErro(r.semIA ? "A leitura por IA não está configurada." : r.error ?? "Não consegui ler.");
+        return;
+      }
+      setKyc(r.dados);
+      // Só preenche o que estiver vazio: nunca apaga o que já foi escrito à mão.
+      if (r.dados.nome && !nome.trim()) setNome(r.dados.nome);
+      const lidos = Object.values(r.dados).filter(Boolean).length;
+      setStatusDocs(`✓ ${lidos} campo(s) lidos — o resto entra na ficha ao criar.`);
+    } catch (e) {
+      setStatusDocs(null);
+      setErro(e instanceof Error ? e.message : "Falha ao ler os documentos.");
+    } finally {
+      setALerDocs(false);
+    }
+  };
+
   const preencher = async () => {
     setErro(null);
     if (!nome.trim() || !telefone.trim()) return setErro("Nome e telefone são obrigatórios.");
     setAGravar(true);
     const r = await criarMotorista({ nome, telefone, email: email || undefined });
+    if (r.success && r.id) {
+      // A ficha nasce; agora leva o KYC que a IA leu dos documentos.
+      if (kyc) {
+        const updates: Record<string, string> = {};
+        for (const [k, v] of Object.entries(kyc)) if (v) updates[k] = String(v);
+        delete updates.nome; // o nome já foi na criação (e pode ter sido corrigido)
+        if (Object.keys(updates).length) await atualizarMotorista(r.id, updates);
+      }
+      setAGravar(false);
+      return onPronto(r.id, nome.trim());
+    }
     setAGravar(false);
-    if (r.success && r.id) return onPronto(r.id, nome.trim());
     if (r.jaExistiaId) {
       // Já existe pelo telefone — reutiliza-o e avança.
       const p = await procurarMotoristaPorTelefone(telefone);
@@ -186,7 +244,38 @@ function PassoMotorista({
             <label className={etiqueta}><span>Telefone</span><input className={campo} value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="+351…" /></label>
             <label className={etiqueta}><span>Email (opcional)</span><input className={campo} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
           </div>
-          <p className="text-xs text-slate-500">O KYC completo (documentos, NIF, morada) recolhe-se no passo 3 (entrega).</p>
+          {/* Quem já tem os documentos não devia ser mandado para outro ecrã. */}
+          <div className="rounded-2xl border border-dashed border-slate-300 p-4">
+            <p className="text-sm font-medium text-slate-700">
+              Já tens os documentos? Carrega-os e a IA preenche a ficha.
+            </p>
+            <input
+              type="file"
+              multiple
+              accept="image/*,application/pdf"
+              disabled={aLerDocs}
+              onChange={(e) => lerDocs(e.target.files)}
+              className="mt-2 block w-full text-sm text-slate-600 file:mr-3 file:rounded-2xl file:border-0 file:bg-emerald-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-700 disabled:opacity-50"
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              {statusDocs ??
+                "Identificação (frente e verso) e carta de condução. Podes escolher vários de uma vez."}
+            </p>
+            {kyc && (
+              <ul className="mt-2 grid gap-x-4 gap-y-0.5 text-xs text-slate-600 sm:grid-cols-2">
+                {kyc.nif && <li>NIF {kyc.nif}</li>}
+                {kyc.doc_id_numero && <li>Documento {kyc.doc_id_numero}</li>}
+                {kyc.carta_numero && <li>Carta {kyc.carta_numero}</li>}
+                {kyc.data_nascimento && <li>Nascimento {kyc.data_nascimento}</li>}
+                {kyc.nacionalidade_iso2 && <li>Nacionalidade {kyc.nacionalidade_iso2}</li>}
+                {kyc.morada_linha1 && <li>{kyc.morada_linha1}</li>}
+              </ul>
+            )}
+          </div>
+          <p className="text-xs text-slate-500">
+            Sem documentos agora, o KYC recolhe-se no passo 3 (entrega) — o motorista preenche-o
+            no telemóvel.
+          </p>
           <Botao tamanho="lg" onClick={preencher} disabled={aGravar}>
             {aGravar ? "A criar…" : "Criar e avançar →"}
           </Botao>

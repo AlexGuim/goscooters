@@ -11,6 +11,9 @@ import type {
 import type { DocTipo } from "@/lib/gemini";
 import { lerComprovativoPagamento, type ComprovativoLido } from "@/actions/pagamentoActions";
 import PagamentoDeDocumento from "@/app/(admin)/admin/(protected)/documentos/PagamentoDeDocumento";
+import KycDeDocumento from "@/app/(admin)/admin/(protected)/documentos/KycDeDocumento";
+import { lerDocumentoIA } from "@/actions/fotoActions";
+import type { CamposDocumento } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
@@ -109,6 +112,8 @@ export default function IntakeDocumento({
   // Ramo "isto é dinheiro que entrou" — só existe quando a página fornece a
   // lista de motoristas (o ecrã de Documentos); em Despesas fica inativo.
   const [pagamentoLido, setPagamentoLido] = useState<ComprovativoLido | null>(null);
+  // Ramo "isto é um documento de identidade" — também só com a lista de motoristas.
+  const [kycLido, setKycLido] = useState<CamposDocumento | null>(null);
   const [comunicacao, setComunicacao] = useState<ComunicacaoPreparada | null>(null);
   const [textoMsg, setTextoMsg] = useState("");
   const [idiomaMsg, setIdiomaMsg] = useState("en");
@@ -196,6 +201,19 @@ export default function IntakeDocumento({
     if (!r.success || !r.resultado) {
       setErro(r.error ?? "Não consegui ler o documento.");
       setFase("inicio");
+      return;
+    }
+    if ((r.resultado.doc.tipo === "documento_id" || r.resultado.doc.tipo === "comprovativo_morada") && motoristas) {
+      // Segunda leitura com o prompt de KYC: o classificador diz QUE documento
+      // é, este extrai nome, NIF, nº, validades, carta e morada.
+      const kyc = await lerDocumentoIA([env.path]);
+      if (!kyc.ok || !kyc.dados) {
+        setErro(kyc.error ?? (kyc.semIA ? "A leitura por IA não está configurada." : "Não consegui ler o documento."));
+        setFase("inicio");
+        return;
+      }
+      setKycLido(kyc.dados);
+      setFase("rever");
       return;
     }
     if (r.resultado.doc.tipo === "comprovativo_pagamento" && motoristas) {
@@ -430,7 +448,18 @@ export default function IntakeDocumento({
         </div>
       )}
 
-      {aberto && !pagamentoLido && (
+      {aberto && kycLido && motoristas && (
+        <div className="mt-4">
+          <KycDeDocumento
+            lido={kycLido}
+            motoristas={motoristas}
+            onFeito={(msg) => { setKycLido(null); setOk(msg); reset(); }}
+            onCancelar={() => { setKycLido(null); reset(); }}
+          />
+        </div>
+      )}
+
+      {aberto && !pagamentoLido && !kycLido && (
         <div className="mt-4 space-y-4">
           {lote.total > 1 && (
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-100 px-4 py-2.5">
@@ -520,8 +549,9 @@ export default function IntakeDocumento({
 
               {destino === "kyc" ? (
                 <p className="rounded-xl bg-slate-100 px-3 py-3 text-sm text-slate-600">
-                  Isto parece um documento de identidade / comprovativo do motorista. O KYC regista-se no
-                  fluxo de entrega do contrato (não aqui). Podes ver o ficheiro acima.
+                  Isto parece um documento de identidade / comprovativo do motorista. Para o aplicar
+                  a uma ficha, carrega-o em <strong>Financeiro → Documentos</strong>. Podes ver o
+                  ficheiro acima.
                 </p>
               ) : (
                 <>

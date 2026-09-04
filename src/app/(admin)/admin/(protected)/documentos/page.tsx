@@ -11,20 +11,18 @@ import IntakeDocumento from "@/app/(admin)/admin/(protected)/despesas/IntakeDocu
 export default async function DocumentosPage() {
   await requireAdmin();
 
-  // Só motoristas com dívida em aberto: são os únicos a quem faz sentido alocar
-  // um pagamento. Evita uma lista de 45 nomes onde 9 interessam.
-  const { data: abertas } = await supabaseAdmin
-    .from("vw_cobranca_estado")
-    .select("motorista_id")
-    .in("estado_liquidacao", ["por_liquidar", "parcial"]);
-  const ids = [...new Set((abertas ?? []).map((c) => c.motorista_id).filter(Boolean) as string[])];
+  // Todos os motoristas ativos: um comprovativo de pagamento é de quem tem
+  // dívida, mas um documento de identidade pode ser de qualquer um — incluindo
+  // de quem ainda nem tem contrato.
   const { data: motos } = await supabaseAdmin
     .from("moto")
     .select("id, matricula, modelo, proprietario_id")
     .order("matricula");
-  const { data: mots } = ids.length
-    ? await supabaseAdmin.from("motorista").select("id, nome").in("id", ids).order("nome")
-    : { data: [] as { id: string; nome: string }[] };
+  const { data: mots } = await supabaseAdmin
+    .from("motorista")
+    .select("id, nome")
+    .neq("estado", "bloqueado")
+    .order("nome");
 
   return (
     <div className="space-y-6">
