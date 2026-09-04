@@ -1,11 +1,23 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { mesDaSemana } from "@/lib/datas";
 
 /**
- * Consolidação financeira da GoScooters, em regime de CAIXA (data em que o
- * dinheiro foi recebido). Evita a dupla contagem tratando a renda bruta como
- * dinheiro de passagem e reconhecendo como RECEITA da casa apenas:
+ * Consolidação financeira da GoScooters.
+ *
+ * A que MÊS pertence cada euro: à semana a que a renda diz respeito, pela regra
+ * da quarta-feira — exatamente como o acerto do parceiro. Só conta o que foi
+ * PAGO (uma semana por cobrar não é receita), mas o mês é o da semana e não o
+ * do dia em que o dinheiro entrou.
+ *
+ * Foi assim de propósito: com a data do pagamento a mandar, uma semana de
+ * setembro paga a 28/08 caía em agosto, e a comissão daqui divergia da do
+ * acerto do mesmo mês (39 € de diferença em agosto/2026). Dois números com o
+ * mesmo nome e valores diferentes não se defendem.
+ *
+ * Evita a dupla contagem tratando a renda bruta como dinheiro de passagem e
+ * reconhecendo como RECEITA da casa apenas:
  *   - a comissão sobre as motos de parceiro, e
  *   - a renda integral da frota própria (taxa efetiva 100%).
  * Fórmula: Receita_GS = Σ (renda paga × taxa efetiva). Só conta tipo='renda'.
@@ -39,39 +51,27 @@ export interface FinanceiroAno {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
-  const de = `${ano}-01-01`;
-  const ate = `${ano}-12-31`;
+  // Janela generosa: uma semana de janeiro pode vencer em dezembro do ano
+  // anterior, e uma de dezembro em janeiro do seguinte. Filtra-se depois pela
+  // regra da quarta-feira, que é quem manda.
+  const de = `${ano - 1}-12-01`;
+  const ate = `${ano + 1}-01-31`;
 
-  // Mapas de taxa efetiva por veículo.
-  const [{ data: motos }, { data: donos }] = await Promise.all([
-    supabaseAdmin.from("moto").select("id, proprietario_id, comissao_valor_override"),
-    supabaseAdmin.from("proprietario").select("id, comissao_valor, eh_goscooters"),
-  ]);
-  const donoDe = new Map((donos ?? []).map((d) => [d.id, d]));
-  const taxaDe = new Map<string, number>(); // fração 0..1
-  for (const m of motos ?? []) {
-    const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
-    let taxa: number;
-    if (dono?.eh_goscooters) taxa = 1; // frota própria: 100%
-    else if (m.comissao_valor_override != null) taxa = Number(m.comissao_valor_override) / 100;
-    else taxa = Number(dono?.comissao_valor ?? 0) / 100;
-    taxaDe.set(m.id, taxa);
-  }
+  const { taxaDe, ehPropria } = await mapasDeTaxa();
 
-  // Pagamentos do ano (regime de caixa) → data por mês.
-  const { data: pagamentos } = await supabaseAdmin
-    .from("pagamento")
-    .select("id, data_recebimento, recebido_por")
-    .gte("data_recebimento", de)
-    .lte("data_recebimento", ate);
-  const mesDoPagamento = new Map<string, number>();
-  // Quem ficou com o dinheiro: decide se a receita entrou em caixa ou se vem
-  // pelo acerto (comissão sobre renda que o parceiro cobrou).
-  const gsRecebeu = new Map<string, boolean>();
-  for (const p of pagamentos ?? []) {
-    mesDoPagamento.set(p.id, Number(p.data_recebimento.slice(5, 7)));
-    gsRecebeu.set(p.id, (p.recebido_por ?? "goscooters") === "goscooters");
-  }
+  // MESMA regra do acerto do parceiro: a semana pertence ao mês da sua
+  // quarta-feira, e conta-se o que foi PAGO dessa semana — não o dinheiro que
+  // entrou no mês. Assim "agosto" quer dizer o mesmo em todo o sistema.
+  const { data: cobs } = await supabaseAdmin
+    .from("cobranca")
+    .select("id, veiculo_id, valor_pago, data_vencimento")
+    .eq("tipo", "renda")
+    .gt("valor_pago", 0)
+    .gte("data_vencimento", de)
+    .lte("data_vencimento", ate);
+
+  const doAno = (cobs ?? []).filter((c) => (mesDaSemana(c.data_vencimento) ?? "").startsWith(`${ano}-`));
+  const gsPorCobranca = await parteRecebidaPelaGoScooters(doAno.map((c) => c.id));
 
   const receita = new Array(13).fill(0);
   const emCaixa = new Array(13).fill(0);
@@ -79,38 +79,33 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   const turnover = new Array(13).fill(0);
   const despesas = new Array(13).fill(0);
 
-  const pagIds = [...mesDoPagamento.keys()];
-  if (pagIds.length > 0) {
-    const { data: alocs } = await supabaseAdmin
-      .from("pagamento_cobranca")
-      .select("pagamento_id, valor_alocado, cobranca:cobranca_id(veiculo_id, tipo, proprietario_id)")
-      .in("pagamento_id", pagIds);
-
-    for (const a of alocs ?? []) {
-      const cob = Array.isArray(a.cobranca) ? a.cobranca[0] : a.cobranca;
-      const c = cob as { veiculo_id?: string; tipo?: string } | null;
-      if (!c || c.tipo !== "renda") continue; // só renda gera comissão/receita
-      const mes = mesDoPagamento.get(a.pagamento_id as string);
-      if (!mes) continue;
-      const valor = Number(a.valor_alocado);
-      const taxa = c.veiculo_id ? taxaDe.get(c.veiculo_id) ?? 0 : 0;
-      turnover[mes] += valor;
-      const r = valor * taxa;
-      receita[mes] += r;
-      // Frota própria (taxa 1) é sempre caixa. Numa moto de parceiro, só entrou
-      // em caixa se foi a GoScooters a cobrar a renda.
-      if (taxa === 1 || gsRecebeu.get(a.pagamento_id as string)) emCaixa[mes] += r;
-      else viaAcerto[mes] += r;
+  for (const c of doAno) {
+    const mes = Number((mesDaSemana(c.data_vencimento) ?? "").slice(5, 7));
+    if (!mes) continue;
+    const pago = Number(c.valor_pago);
+    const taxa = c.veiculo_id ? taxaDe.get(c.veiculo_id) ?? 0 : 0;
+    const r = pago * taxa;
+    turnover[mes] += pago;
+    receita[mes] += r;
+    if (ehPropria.get(c.veiculo_id)) {
+      emCaixa[mes] += r; // frota própria: a renda entra sempre na conta da casa
+    } else {
+      // Numa moto de parceiro, a comissão só está em caixa na proporção do que
+      // foi a GoScooters a cobrar; o resto vem pelo acerto.
+      const gs = Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
+      const fracao = pago > 0 ? gs / pago : 0;
+      emCaixa[mes] += r * fracao;
+      viaAcerto[mes] += r * (1 - fracao);
     }
   }
 
-  // Despesas próprias da GoScooters (imputar_a='goscooters'), por mês.
+  // As despesas são eventos pontuais: pertencem ao seu mês de calendário.
   const { data: desps } = await supabaseAdmin
     .from("despesa")
     .select("valor_total, data_despesa")
     .eq("imputar_a", "goscooters")
-    .gte("data_despesa", de)
-    .lte("data_despesa", ate);
+    .gte("data_despesa", `${ano}-01-01`)
+    .lte("data_despesa", `${ano}-12-31`);
   for (const d of desps ?? []) {
     despesas[Number(d.data_despesa.slice(5, 7))] += Number(d.valor_total);
   }
@@ -129,9 +124,9 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
       resultado: r2(rg - dg),
       turnover: r2(turnover[m]),
     });
+    tot.receita_gs += rg;
     tot.receita_em_caixa += emCaixa[m];
     tot.receita_via_acerto += viaAcerto[m];
-    tot.receita_gs += rg;
     tot.despesas_gs += dg;
     tot.turnover += turnover[m];
   }
@@ -143,6 +138,48 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   tot.resultado = r2(tot.receita_gs - tot.despesas_gs);
 
   return { ano, meses, total: tot };
+}
+
+/** Taxa efetiva por veículo (frota própria = 1) e se é frota própria. */
+async function mapasDeTaxa() {
+  const [{ data: motos }, { data: donos }] = await Promise.all([
+    supabaseAdmin.from("moto").select("id, proprietario_id, comissao_valor_override"),
+    supabaseAdmin.from("proprietario").select("id, comissao_valor, eh_goscooters"),
+  ]);
+  const donoDe = new Map((donos ?? []).map((d) => [d.id, d]));
+  const taxaDe = new Map<string, number>();
+  const ehPropria = new Map<string, boolean>();
+  for (const m of motos ?? []) {
+    const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
+    ehPropria.set(m.id, !!dono?.eh_goscooters);
+    taxaDe.set(
+      m.id,
+      dono?.eh_goscooters
+        ? 1
+        : (m.comissao_valor_override != null
+            ? Number(m.comissao_valor_override)
+            : Number(dono?.comissao_valor ?? 0)) / 100,
+    );
+  }
+  return { taxaDe, ehPropria };
+}
+
+/** Quanto de cada cobrança foi cobrado PELA GoScooters (o resto foi ao parceiro). */
+async function parteRecebidaPelaGoScooters(cobIds: string[]): Promise<Map<string, number>> {
+  const mapa = new Map<string, number>();
+  if (!cobIds.length) return mapa;
+  const { data: alocs } = await supabaseAdmin
+    .from("pagamento_cobranca")
+    .select("cobranca_id, valor_alocado, pagamento:pagamento_id(recebido_por)")
+    .in("cobranca_id", cobIds);
+  for (const a of alocs ?? []) {
+    const pj = Array.isArray(a.pagamento) ? a.pagamento[0] : a.pagamento;
+    const rp = (pj as { recebido_por?: string } | null)?.recebido_por ?? "goscooters";
+    if (rp !== "goscooters") continue;
+    const k = a.cobranca_id as string;
+    mapa.set(k, (mapa.get(k) ?? 0) + Number(a.valor_alocado));
+  }
+  return mapa;
 }
 
 // ── Detalhe de um mês ───────────────────────────────────────────────────────
@@ -198,9 +235,16 @@ export interface MesDetalhado extends MesFinanceiro {
  * pagamento de agosto, agosto acompanha.
  */
 export async function financeiroMes(ano: number, mes: number): Promise<MesDetalhado> {
+  const competencia = `${ano}-${String(mes).padStart(2, "0")}`;
   const mm = String(mes).padStart(2, "0");
+  // Janela larga: a semana da virada do mês vence fora dele. Filtra-se depois
+  // pela quarta-feira.
   const de = `${ano}-${mm}-01`;
-  const ate = `${ano}-${mm}-${String(new Date(ano, mes, 0).getDate()).padStart(2, "0")}`;
+  const janelaDe = new Date(Date.UTC(ano, mes - 1, 1));
+  janelaDe.setUTCDate(janelaDe.getUTCDate() - 8);
+  const janelaAte = new Date(Date.UTC(ano, mes, 0));
+  janelaAte.setUTCDate(janelaAte.getUTCDate() + 8);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
 
   const [{ data: motos }, { data: donos }] = await Promise.all([
     supabaseAdmin.from("moto").select("id, matricula, proprietario_id, comissao_valor_override"),
@@ -221,16 +265,16 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     );
   }
 
-  // Regime de caixa: o que interessa é a data em que o dinheiro entrou.
-  const { data: pags } = await supabaseAdmin
-    .from("pagamento")
-    .select("id, recebido_por")
-    .gte("data_recebimento", de)
-    .lte("data_recebimento", ate);
-  const pagIds = (pags ?? []).map((p) => p.id);
-  const gsRecebeu = new Map(
-    (pags ?? []).map((p) => [p.id as string, (p.recebido_por ?? "goscooters") === "goscooters"]),
-  );
+  // Semanas QUE PERTENCEM a este mês (regra da quarta-feira), e pagas.
+  const { data: cobs } = await supabaseAdmin
+    .from("cobranca")
+    .select("id, veiculo_id, valor_pago, data_vencimento")
+    .eq("tipo", "renda")
+    .gt("valor_pago", 0)
+    .gte("data_vencimento", iso(janelaDe))
+    .lte("data_vencimento", iso(janelaAte));
+  const doMes = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competencia);
+  const gsPorCobranca = await parteRecebidaPelaGoScooters(doMes.map((c) => c.id));
 
   const frota = new Map<string, number>();
   const porParceiro = new Map<string, { base: number; comissao: number }>();
@@ -240,50 +284,39 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   let emCaixa = 0;
   let viaAcerto = 0;
 
-  if (pagIds.length) {
-    const { data: alocs } = await supabaseAdmin
-      .from("pagamento_cobranca")
-      .select("valor_alocado, cobranca_id, pagamento_id")
-      .in("pagamento_id", pagIds);
-    const cobIds = [...new Set((alocs ?? []).map((a) => a.cobranca_id).filter(Boolean) as string[])];
-    const { data: cobs } = cobIds.length
-      ? await supabaseAdmin.from("cobranca").select("id, veiculo_id, tipo").in("id", cobIds)
-      : { data: [] as { id: string; veiculo_id: string; tipo: string }[] };
-    const cobDe = new Map((cobs ?? []).map((c) => [c.id, c]));
+  for (const c of doMes) {
+    if (!c.veiculo_id) continue;
+    const pago = Number(c.valor_pago);
+    const taxa = taxaDe.get(c.veiculo_id) ?? 0;
+    turnover += pago;
+    const moto = motoDe.get(c.veiculo_id);
+    const dono = moto?.proprietario_id ? donoDe.get(moto.proprietario_id) : undefined;
 
-    for (const a of alocs ?? []) {
-      const c = cobDe.get(a.cobranca_id as string);
-      // Só renda: uma caução devolve-se e um refaturado é reembolso — nenhum é receita.
-      if (!c || c.tipo !== "renda" || !c.veiculo_id) continue;
-      const valor = Number(a.valor_alocado);
-      const taxa = taxaDe.get(c.veiculo_id) ?? 0;
-      turnover += valor;
-
-      const moto = motoDe.get(c.veiculo_id);
-      const dono = moto?.proprietario_id ? donoDe.get(moto.proprietario_id) : undefined;
-      if (dono?.eh_goscooters) {
-        frota.set(c.veiculo_id, (frota.get(c.veiculo_id) ?? 0) + valor);
-        receitaFrota += valor;
-        emCaixa += valor; // a renda da frota própria entra sempre na conta da casa
-      } else if (dono) {
-        const at = porParceiro.get(dono.id) ?? { base: 0, comissao: 0 };
-        at.base += valor;
-        at.comissao += valor * taxa;
-        porParceiro.set(dono.id, at);
-        receitaComissao += valor * taxa;
-        // Se foi o parceiro a cobrar, a comissão só chega pelo acerto.
-        if (gsRecebeu.get(a.pagamento_id as string)) emCaixa += valor * taxa;
-        else viaAcerto += valor * taxa;
-      }
+    if (dono?.eh_goscooters) {
+      frota.set(c.veiculo_id, (frota.get(c.veiculo_id) ?? 0) + pago);
+      receitaFrota += pago;
+      emCaixa += pago;
+    } else if (dono) {
+      const com = pago * taxa;
+      const at = porParceiro.get(dono.id) ?? { base: 0, comissao: 0 };
+      at.base += pago;
+      at.comissao += com;
+      porParceiro.set(dono.id, at);
+      receitaComissao += com;
+      const gs = Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
+      const fracao = pago > 0 ? gs / pago : 0;
+      emCaixa += com * fracao;
+      viaAcerto += com * (1 - fracao);
     }
   }
 
+  const ultimo = String(new Date(ano, mes, 0).getDate()).padStart(2, "0");
   const { data: desps } = await supabaseAdmin
     .from("despesa")
     .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe")
     .eq("imputar_a", "goscooters")
     .gte("data_despesa", de)
-    .lte("data_despesa", ate)
+    .lte("data_despesa", `${ano}-${mm}-${ultimo}`)
     .order("data_despesa");
 
   const despesas: LinhaDespesaPropria[] = (desps ?? []).map((d) => ({
@@ -296,8 +329,8 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
   }));
   const despesasTotal = despesas.reduce((s, d) => s + d.valor, 0);
-
   const receita = receitaFrota + receitaComissao;
+
   return {
     ano,
     mes,
