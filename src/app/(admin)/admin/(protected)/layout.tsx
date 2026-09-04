@@ -50,6 +50,20 @@ export default async function ProtectedAdminLayout({
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+
+      {/*
+        Que versão está no ar.
+
+        Existe por uma pergunta concreta e recorrente: "isto não mudou — será
+        cache?". Sem um marcador, essa dúvida gasta-se a comparar ecrãs de
+        memória. Com ele, basta comparar sete caracteres com o último commit.
+        O SHA vem da Vercel; em local não existe e aparece "local".
+      */}
+      <footer className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
+        <p className="text-right font-mono text-[10px] text-slate-400">
+          {(process.env.VERCEL_GIT_COMMIT_SHA ?? "local").slice(0, 7)}
+        </p>
+      </footer>
     </div>
   );
 }
