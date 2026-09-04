@@ -83,6 +83,21 @@ export default async function ContratoRecibo({
       : Promise.resolve({ data: null }),
   ]);
 
+  // Seguro em vigor à data da entrega. O motorista tem direito a saber com que
+  // cobertura anda na estrada — e a ter o comprovativo à mão numa fiscalização.
+  const { data: seguro } = c?.veiculo_id
+    ? await supabaseAdmin
+        .from("seguro")
+        .select("seguradora, apolice, tipo, data_fim, detalhe")
+        .eq("veiculo_id", c.veiculo_id)
+        .eq("estado", "ativa")
+        .order("data_fim", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+  const seguroDoc =
+    (seguro?.detalhe as { documento_url?: string } | null)?.documento_url ?? null;
+
   const checklist = (v.checklist ?? {}) as { danos?: Dano[]; materiais?: Material[]; regras?: RegrasAceite };
   const danos = checklist.danos ?? [];
   const materiais = (checklist.materiais ?? []).filter((m) => m.entregue !== false);
@@ -155,6 +170,40 @@ export default async function ContratoRecibo({
               <Linha rotulo="Km na entrega" valor={km != null ? `${km.toLocaleString("pt-PT")} km` : "—"} />
             </div>
           </section>
+
+          {/* Seguro */}
+          {seguro && (
+            <section className="print-junto rounded-2xl border border-slate-200 p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Seguro da mota
+              </p>
+              <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                <Linha rotulo="Seguradora" valor={seguro.seguradora ?? "—"} />
+                <Linha rotulo="Apólice" valor={seguro.apolice ?? "—"} />
+                <Linha
+                  rotulo="Cobertura"
+                  valor={
+                    seguro.tipo === "danos_proprios"
+                      ? "Danos próprios"
+                      : seguro.tipo === "responsabilidade_civil"
+                        ? "Responsabilidade civil"
+                        : "Outra"
+                  }
+                />
+                <Linha rotulo="Válido até" valor={seguro.data_fim ? dataBR(seguro.data_fim) : "—"} />
+              </div>
+              {seguroDoc && (
+                <a
+                  href={seguroDoc}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-50 transition hover:bg-slate-900 print:hidden"
+                >
+                  Ver / guardar a apólice
+                </a>
+              )}
+            </section>
+          )}
 
           {/* Regras aceites */}
           {regras && (
