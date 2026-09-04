@@ -323,6 +323,15 @@ export interface ComprovativoLido {
   data: string | null;
   metodo: PagamentoMetodo | null;
   pagador: string | null;
+  /** Nome de quem RECEBEU, tal como aparece no comprovativo. */
+  destinatario: string | null;
+  /**
+   * Quem ficou com o dinheiro, deduzido do beneficiário: se o nome bate com um
+   * parceiro, foi ele que recebeu — e isso muda o acerto dele. Só sugestão.
+   */
+  recebido_por: PagamentoRecebidoPor;
+  /** Parceiro reconhecido no beneficiário (null se foi para a GoScooters). */
+  beneficiario_parceiro: { id: string; nome: string } | null;
   referencia: string | null;
   confianca: "alta" | "media" | "baixa" | null;
   notas: string | null;
@@ -415,6 +424,56 @@ export async function lerComprovativoPagamento(
     aviso = "Não consegui ler o nome de quem pagou — escolhe o motorista.";
   }
 
+  // Quem RECEBEU. Um comprovativo que diz "Beneficiário: Felipe Zumba Amorim"
+  // não é dinheiro que entrou na GoScooters — é renda que foi direto ao
+  // parceiro, e tratá-la como nossa estraga o acerto dele.
+  let beneficiarioParceiro: { id: string; nome: string } | null = null;
+  if (lido.destinatario) {
+    const alvo = normalizarNome(lido.destinatario);
+    const { data: props } = await supabaseAdmin
+      .from("proprietario")
+      .select("id, nome, eh_goscooters");
+    for (const p of props ?? []) {
+      if (p.eh_goscooters) continue;
+      const n = normalizarNome(p.nome as string);
+      if (n === alvo || n.includes(alvo) || alvo.includes(n)) {
+        beneficiarioParceiro = { id: p.id as string, nome: p.nome as string };
+        break;
+      }
+    }
+  }
+
+  // Se o beneficiário não identificou ninguém, vale a regra do parceiro: há
+  // donos que cobram sempre direto (proprietario.recebe_pagamento_direto), e
+  // nesses a renda quase nunca passa pela GoScooters. É o mesmo default que o
+  // formulário de Cobranças já usa — faltava aqui.
+  let recebePorOmissao: PagamentoRecebidoPor = "goscooters";
+  if (!beneficiarioParceiro && motorista) {
+    const { data: ct } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("veiculo_id")
+      .eq("motorista_id", motorista.id)
+      .in("estado", ["ativo", "pendente_fecho"])
+      .order("data_inicio", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (ct?.veiculo_id) {
+      const { data: mo } = await supabaseAdmin
+        .from("moto")
+        .select("proprietario_id")
+        .eq("id", ct.veiculo_id)
+        .maybeSingle();
+      if (mo?.proprietario_id) {
+        const { data: dono } = await supabaseAdmin
+          .from("proprietario")
+          .select("recebe_pagamento_direto")
+          .eq("id", mo.proprietario_id)
+          .maybeSingle();
+        if (dono?.recebe_pagamento_direto) recebePorOmissao = "proprietario";
+      }
+    }
+  }
+
   const metodosValidos: PagamentoMetodo[] = ["transferencia", "mbway", "numerario", "multibanco", "outro"];
   return {
     success: true,
@@ -423,6 +482,9 @@ export async function lerComprovativoPagamento(
       data: lido.data,
       metodo: lido.metodo && metodosValidos.includes(lido.metodo) ? lido.metodo : null,
       pagador: lido.pagador,
+      destinatario: lido.destinatario,
+      recebido_por: beneficiarioParceiro ? "proprietario" : recebePorOmissao,
+      beneficiario_parceiro: beneficiarioParceiro,
       referencia: lido.referencia,
       confianca: lido.confianca,
       notas: lido.notas,
@@ -447,6 +509,9 @@ export async function registarPagamentoAuto(input: {
   data_recebimento: string;
   metodo?: PagamentoMetodo | null;
   referencia?: string | null;
+  /** Quem ficou com o dinheiro. Sem isto, um pagamento direto ao parceiro era
+   *  registado como recebido pela GoScooters e o acerto dele saía errado. */
+  recebido_por?: PagamentoRecebidoPor;
 }): Promise<{ success: boolean; id?: string; alocadas?: number; sobra?: number; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
@@ -484,6 +549,7 @@ export async function registarPagamentoAuto(input: {
     data_recebimento: input.data_recebimento,
     metodo: input.metodo ?? null,
     referencia: input.referencia ?? null,
+    recebido_por: input.recebido_por,
     alocacoes,
   });
   if (!r.success) return r;

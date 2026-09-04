@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { registarPagamentoAuto } from "@/actions/pagamentoActions";
 import type { ComprovativoLido } from "@/actions/pagamentoActions";
+import type { PagamentoRecebidoPor } from "@/types/db";
 import { Botao, campo, etiqueta } from "@/components/ui";
 import { formatarPreco } from "@/lib/precos";
 
@@ -28,6 +29,9 @@ export default function PagamentoDeDocumento({
   const [valor, setValor] = useState(lido.valor ?? "");
   const [data, setData] = useState(lido.data ?? new Date().toISOString().slice(0, 10));
   const [referencia, setReferencia] = useState(lido.referencia ?? "");
+  // Pré-selecionado pelo beneficiário do comprovativo — mas sempre à vista e
+  // editável: é o campo que decide de quem é o dinheiro.
+  const [recebidoPor, setRecebidoPor] = useState<PagamentoRecebidoPor>(lido.recebido_por);
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -40,6 +44,7 @@ export default function PagamentoDeDocumento({
       data_recebimento: data,
       metodo: lido.metodo,
       referencia: referencia.trim() || null,
+      recebido_por: recebidoPor,
     });
     setAGravar(false);
     if (!r.success) {
@@ -61,6 +66,7 @@ export default function PagamentoDeDocumento({
         </p>
         <p className="mt-1 text-sm text-slate-700">
           {lido.pagador ? `Enviado por ${lido.pagador}. ` : ""}
+          {lido.destinatario ? `Recebido por ${lido.destinatario}. ` : ""}
           {lido.metodo ? `Método: ${lido.metodo}. ` : ""}
           O valor será aplicado às semanas mais antigas em dívida.
         </p>
@@ -102,6 +108,22 @@ export default function PagamentoDeDocumento({
         <label className={etiqueta}>
           <span>Referência</span>
           <input className={campo} value={referencia} onChange={(e) => setReferencia(e.target.value)} />
+        </label>
+        <label className={etiqueta}>
+          <span>Quem recebeu o dinheiro</span>
+          <select
+            className={campo}
+            value={recebidoPor}
+            onChange={(e) => setRecebidoPor(e.target.value as PagamentoRecebidoPor)}
+          >
+            <option value="goscooters">GoScooters</option>
+            <option value="proprietario">O parceiro (conta dele)</option>
+          </select>
+          <span className="text-xs text-slate-500">
+            {lido.beneficiario_parceiro
+              ? `O comprovativo diz que o beneficiário foi ${lido.beneficiario_parceiro.nome} — um parceiro.`
+              : "Decide o acerto do parceiro: se foi ele a receber, a renda não passou pela GoScooters."}
+          </span>
         </label>
       </div>
 
