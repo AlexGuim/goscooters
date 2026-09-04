@@ -123,26 +123,66 @@ async function listarCandidatos(key: string): Promise<string[]> {
   }
 }
 
-const PROMPT = `És um assistente que lê documentos de identidade e cartas de condução a partir de fotografias (podem estar em várias línguas; a zona MRZ do cartão de cidadão está no verso).
-Extrai APENAS o que conseguires ler com confiança e devolve um objeto JSON com EXATAMENTE estas chaves (usa null quando não souberes):
+const PROMPT = `És um assistente que lê documentos de identificação a partir de fotografias.
+
+AS IMAGENS SÃO DA MESMA PESSOA. Podem ser faces/páginas do mesmo documento OU documentos
+diferentes (ex.: título de residência + frente e verso da carta de condução). Lê TODAS e
+devolve UM único objeto com o melhor valor de cada campo, venha ele de que imagem vier.
+Se o mesmo campo aparecer em duas imagens, fica com o mais legível e específico.
+
+Devolve um objeto JSON com EXATAMENTE estas chaves (null quando não conseguires ler):
 {
-  "nome": string|null,                 // nome completo da pessoa
-  "nif": string|null,                  // NIF / nº de contribuinte (9 dígitos). No Cartão de Cidadão está no VERSO ("Nº de Identificação Fiscal"). Só se estiver visível.
+  "nome": string|null,                 // nome completo, na ordem natural (nomes próprios + apelidos)
+  "nif": string|null,                  // NIF português: EXATAMENTE 9 dígitos
   "doc_id_tipo": "cc"|"passaporte"|"titulo_residencia"|"aima"|null,
-  "doc_id_numero": string|null,        // nº do documento de identidade
-  "doc_id_validade": string|null,      // validade do documento, formato AAAA-MM-DD
+  "doc_id_numero": string|null,
+  "doc_id_validade": string|null,      // AAAA-MM-DD
   "data_nascimento": string|null,      // AAAA-MM-DD
-  "nacionalidade_iso2": string|null,   // código do país em ISO-2, ex.: PT, BR, IN
-  "carta_numero": string|null,         // nº da carta de condução
-  "carta_categoria": string|null,      // categorias, ex.: A1, A, B
-  "carta_pais": string|null,           // país emissor da carta em ISO-2
+  "nacionalidade_iso2": string|null,   // ISO-2 (2 letras)
+  "carta_numero": string|null,
+  "carta_categoria": string|null,
+  "carta_pais": string|null,           // ISO-2
   "carta_validade": string|null,       // AAAA-MM-DD
-  "morada_linha1": string|null,        // morada (rua e número), SE estiver visível no documento
-  "codigo_postal": string|null,        // código postal, ex.: 1000-001
-  "localidade": string|null            // localidade/cidade
+  "morada_linha1": string|null,        // rua e número
+  "codigo_postal": string|null,
+  "localidade": string|null
 }
-Extrai a MORADA quando aparecer (título de residência, comprovativo de morada, cartas/IDs estrangeiros); o Cartão de Cidadão português NÃO mostra a morada — deixa null nesse caso.
-Datas SEMPRE em AAAA-MM-DD. Países SEMPRE em ISO-2. Responde só com o JSON, sem texto à volta.`;
+
+CARTA DE CONDUÇÃO (modelo da União Europeia — os campos são NUMERADOS; usa os números,
+não a posição na imagem):
+  1 = apelidos · 2 = nomes próprios → junta os dois em "nome", nomes próprios primeiro
+  3 = data e local de nascimento → só a data vai para "data_nascimento"
+  4a = data de EMISSÃO — NUNCA é a validade
+  4b = data de validade do documento. Muitas cartas trazem "-" aqui: nesse caso a validade
+       é a MAIOR data da coluna 11 no verso.
+  4c = entidade emissora · 4d = nº de identificação do condutor (NÃO é o nº da carta)
+  5  = NÚMERO DA CARTA → é este que vai para "carta_numero"
+  9  = lista de categorias (AM, A1, A2, A, B1, B, C…), impressa SEMPRE INTEIRA no verso
+  10 = data de obtenção de cada categoria · 11 = validade de cada categoria
+  REGRA CRÍTICA: em "carta_categoria" põe APENAS as categorias que têm datas preenchidas
+  nas colunas 10/11. As que têm tracinhos ("------") NÃO foram obtidas — não as incluas.
+  Ex.: se só B1 e B têm datas, a resposta é "B1, B" — nunca "AM, A1, A2, A, B1, B".
+  "carta_validade" = a maior data da coluna 11 entre as categorias obtidas.
+
+TÍTULO DE RESIDÊNCIA / AIMA: o número está em grande no topo e repetido à esquerda.
+  "VALIDADE DO CARTÃO / CARD EXPIRY" → doc_id_validade. "DATA NASC." → data_nascimento.
+  Apelidos e nomes vêm em duas linhas ("SURNAMES Forenames") — junta na ordem natural.
+
+NIF: só o preenches se vires mesmo 9 dígitos identificados como NIF, nº de contribuinte,
+  nº fiscal ou VAT. NÃO existe NIF na carta de condução nem no título de residência.
+  NUNCA uses o nº do documento, o nº de segurança social, nem inventes. Sem NIF visível → null.
+
+MORADA: extrai quando aparecer (comprovativo de morada, IDs estrangeiros). O Cartão de
+  Cidadão português e o título de residência NÃO mostram morada → null.
+
+FORMATOS:
+  Datas SEMPRE AAAA-MM-DD. Datas escritas dd.mm.aa (dois dígitos no ano) são do século XXI:
+  27.03.39 → 2039-03-27; 17.02.16 → 2016-02-17.
+  Países SEMPRE ISO-2, convertendo de ISO-3 quando o documento usa 3 letras
+  (EGY→EG, BRA→BR, IND→IN, PRT→PT, NPL→NP, BGD→BD, PAK→PK).
+
+Responde só com o JSON, sem texto à volta.`;
+
 
 const PROMPT_CLASSIFICAR = `És um assistente de uma empresa de aluguer de scooters. Lês documentos (faturas, apólices de seguro, faturas de oficina/manutenção, portagens/Via Verde, coimas, documentos de identidade) a partir de fotografias ou PDFs.
 Usa "comprovativo_pagamento" quando for um print de MB WAY, de transferência bancária, de uma conversa de WhatsApp ou foto de talão a mostrar dinheiro que UM MOTORISTA PAGOU — e não uma fatura que a empresa tem a pagar. Aí o "valor" é a quantia transferida e o "pagador" é quem a enviou.

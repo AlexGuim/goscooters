@@ -131,7 +131,9 @@ export async function lerDocumentoIA(
   if (!geminiConfigurado()) return { ok: false, semIA: true };
 
   const imagens: { mime: string; base64: string }[] = [];
-  for (const p of (paths ?? []).slice(0, 4)) {
+  // Até 6: frente e verso da carta, o título de residência e um comprovativo de
+  // morada já são 4 — o limite existe só para travar um lote absurdo.
+  for (const p of (paths ?? []).slice(0, 6)) {
     if (!p) continue;
     const { data, error } = await supabaseAdmin.storage.from(bucket === "motas" ? BUCKET : BUCKET_PRIVADO).download(p);
     if (error || !data) continue;

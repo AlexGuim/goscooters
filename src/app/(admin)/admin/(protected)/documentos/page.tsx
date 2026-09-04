@@ -18,9 +18,13 @@ export default async function DocumentosPage() {
     .from("moto")
     .select("id, matricula, modelo, proprietario_id")
     .order("matricula");
+  // Traz também o perfil KYC: o painel de documentos completa a ficha em vez de
+  // a substituir, e para isso tem de saber o que ela já tem.
   const { data: mots } = await supabaseAdmin
     .from("motorista")
-    .select("id, nome")
+    .select(
+      "id, nome, nif, pais_iso, data_nascimento, doc_id_tipo, doc_id_numero, doc_id_validade, carta_numero, carta_categoria, carta_pais, carta_validade, morada_linha1, codigo_postal, localidade",
+    )
     .neq("estado", "bloqueado")
     .order("nome");
 
@@ -36,7 +40,7 @@ export default async function DocumentosPage() {
       <div className="rounded-3xl bg-white p-6 shadow-sm">
         <IntakeDocumento
           motos={motos ?? []}
-          motoristas={(mots ?? []).map((m) => ({ id: m.id, nome: m.nome }))}
+          motoristas={(mots ?? []).map(({ id, nome, ...ficha }) => ({ id, nome, ficha }))}
           sempreAberto
         />
       </div>

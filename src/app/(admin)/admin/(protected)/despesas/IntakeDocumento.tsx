@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   DespesaCategoria,
   ImputarA,
@@ -11,7 +12,9 @@ import type {
 import type { DocTipo } from "@/lib/gemini";
 import { lerComprovativoPagamento, type ComprovativoLido } from "@/actions/pagamentoActions";
 import PagamentoDeDocumento from "@/app/(admin)/admin/(protected)/documentos/PagamentoDeDocumento";
-import KycDeDocumento from "@/app/(admin)/admin/(protected)/documentos/KycDeDocumento";
+import KycDeDocumento, {
+  type MotoristaParaKyc,
+} from "@/app/(admin)/admin/(protected)/documentos/KycDeDocumento";
 import { lerDocumentoIA, apagarDocumentoPublico } from "@/actions/fotoActions";
 import type { CamposDocumento } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
@@ -86,26 +89,36 @@ const CATEGORIA_DE: Partial<Record<DocTipo, DespesaCategoria>> = {
 
 type Fase = "inicio" | "a-processar" | "rever" | "a-gravar" | "comunicar";
 
+/** Um ficheiro já carregado e classificado — o que circula na fila do lote. */
+type Analisado = { nome: string; path: string; url: string; res: IntakeResultado };
+
 export default function IntakeDocumento({
   motos,
   motoristas,
   sempreAberto = false,
 }: {
   motos: Pick<Moto, "id" | "matricula" | "modelo" | "proprietario_id">[];
-  /** Presente só no ecrã de Documentos: liga o ramo dos comprovativos de pagamento. */
-  motoristas?: { id: string; nome: string }[];
+  /**
+   * Presente só no ecrã de Documentos: liga os ramos de KYC e de comprovativos
+   * de pagamento. Traz a ficha de cada um para o painel de KYC poder mostrar o
+   * que já é conhecido e o que ainda falta.
+   */
+  motoristas?: MotoristaParaKyc[];
   /** No ecrã de Documentos o painel é a página inteira — não se colapsa. */
   sempreAberto?: boolean;
 }) {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [aberto, setAberto] = useState(sempreAberto);
   // Fila do lote. Estado normal (e não ref): a fila só muda entre confirmações,
   // e o handler é recriado a cada render — por isso lê sempre o valor certo.
-  const [fila, setFila] = useState<File[]>([]);
+  const [fila, setFila] = useState<Analisado[]>([]);
   const [lote, setLote] = useState<{ total: number; feitos: number }>({ total: 0, feitos: 0 });
   const [fase, setFase] = useState<Fase>("inicio");
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  /** "A ler documento 2 de 4…" — um lote demora, e o silêncio parece bloqueio. */
+  const [progresso, setProgresso] = useState<string | null>(null);
 
   const [res, setRes] = useState<IntakeResultado | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
@@ -114,6 +127,8 @@ export default function IntakeDocumento({
   const [pagamentoLido, setPagamentoLido] = useState<ComprovativoLido | null>(null);
   // Ramo "isto é um documento de identidade" — também só com a lista de motoristas.
   const [kycLido, setKycLido] = useState<CamposDocumento | null>(null);
+  /** Que documentos deram origem à leitura — decide que campos são de esperar. */
+  const [kycTipos, setKycTipos] = useState<DocTipo[]>([]);
   const [comunicacao, setComunicacao] = useState<ComunicacaoPreparada | null>(null);
   const [textoMsg, setTextoMsg] = useState("");
   const [idiomaMsg, setIdiomaMsg] = useState("en");
@@ -187,43 +202,35 @@ export default function IntakeDocumento({
     setFase("rever");
   };
 
-  const processar = async (ficheiro: File) => {
-    setErro(null);
-    setOk(null);
-    setFase("a-processar");
+  /**
+   * Carrega e classifica UM ficheiro. Não decide nada — quem chama é que junta
+   * o lote e escolhe o que fazer com ele.
+   */
+  const carregarEClassificar = async (
+    ficheiro: File,
+  ): Promise<{ ok: true; doc: Analisado } | { ok: false; erro: string }> => {
     const env = await enviarDocumento(ficheiro);
     if (!env.success || !env.path || !env.url) {
-      setErro(env.error ?? "Erro ao carregar o ficheiro.");
-      setFase("inicio");
-      return;
+      return { ok: false, erro: env.error ?? "Erro ao carregar o ficheiro." };
     }
     const r = await analisarDocumento(env.path, env.url);
     if (!r.success || !r.resultado) {
-      setErro(r.error ?? "Não consegui ler o documento.");
-      setFase("inicio");
-      return;
+      return { ok: false, erro: r.error ?? "Não consegui ler o documento." };
     }
-    if ((r.resultado.doc.tipo === "documento_id" || r.resultado.doc.tipo === "comprovativo_morada") && motoristas) {
-      // Segunda leitura com o prompt de KYC: o classificador diz QUE documento
-      // é, este extrai nome, NIF, nº, validades, carta e morada.
-      const kyc = await lerDocumentoIA([env.path], "motas");
-      // O ficheiro entrou pelo bucket público (é onde as faturas têm de ficar,
-      // para o extrato as poder abrir). Um documento de identidade não pode lá
-      // ficar: lidos os campos, o que interessa está na ficha e o ficheiro sai.
-      await apagarDocumentoPublico(env.path);
-      if (!kyc.ok || !kyc.dados) {
-        setErro(kyc.error ?? (kyc.semIA ? "A leitura por IA não está configurada." : "Não consegui ler o documento."));
-        setFase("inicio");
-        return;
-      }
-      setKycLido(kyc.dados);
-      setFase("rever");
-      return;
-    }
-    if (r.resultado.doc.tipo === "comprovativo_pagamento" && motoristas) {
-      // Segunda leitura, com o prompt próprio: o classificador diz QUE papel é,
-      // este diz quanto, quando e de quem.
-      const pg = await lerComprovativoPagamento(env.path);
+    return { ok: true, doc: { nome: ficheiro.name, path: env.path, url: env.url, res: r.resultado } };
+  };
+
+  /**
+   * Encaminha UM documento já classificado para o painel certo.
+   *
+   * Nunca volta a carregar nem a classificar: o lote faz esse trabalho uma só
+   * vez, no início. Repeti-lo era pagar duas vezes a mesma leitura e deixar
+   * cópias órfãs no bucket.
+   */
+  const encaminhar = async (a: Analisado) => {
+    if (a.res.doc.tipo === "comprovativo_pagamento" && motoristas) {
+      setFase("a-processar");
+      const pg = await lerComprovativoPagamento(a.path);
       if (!pg.success || !pg.dados) {
         setErro(pg.error ?? "Não consegui ler o comprovativo.");
         setFase("inicio");
@@ -233,22 +240,96 @@ export default function IntakeDocumento({
       setFase("rever");
       return;
     }
-    preencher(r.resultado);
+    preencher(a.res);
   };
 
   /**
-   * Vários documentos de uma vez: processa-se o primeiro e os outros ficam em
-   * fila. Cada um continua a ser REVISTO e confirmado — é uma fila, não uma
+   * Lê os documentos de identidade do lote NUMA SÓ leitura.
+   *
+   * É a diferença que interessa: o título de residência dá o nº e a validade, a
+   * carta dá a categoria e o nº da carta, o comprovativo dá a morada. Lidos um a
+   * um, cada leitura só vê um terço da pessoa e os campos dos outros ficam a
+   * null. Lidos juntos, saem de uma vez — que é como o gestor os tem na mão.
+   */
+  const lerKycEmConjunto = async (docs: Analisado[]) => {
+    const kyc = await lerDocumentoIA(docs.map((d) => d.path), "motas");
+    // Entraram pelo bucket público (é onde as faturas TÊM de ficar, para o
+    // extrato as abrir). Um documento de identidade não pode lá ficar: lidos os
+    // campos, o que interessa está na ficha e os ficheiros saem.
+    await Promise.all(docs.map((d) => apagarDocumentoPublico(d.path)));
+    if (!kyc.ok || !kyc.dados) {
+      setErro(
+        kyc.error ??
+          (kyc.semIA ? "A leitura por IA não está configurada." : "Não consegui ler os documentos."),
+      );
+      setFase("inicio");
+      return;
+    }
+    setKycTipos(docs.map((d) => d.res.doc.tipo));
+    setKycLido(kyc.dados);
+    setFase("rever");
+  };
+
+  /**
+   * Vários documentos de uma vez.
+   *
+   * Carrega e classifica TODOS antes de decidir o que fazer com eles, porque a
+   * decisão depende do conjunto: um lote de documentos de identidade é UMA
+   * pessoa em vários papéis (uma leitura só), enquanto um lote de faturas são N
+   * despesas distintas (uma fila, revista uma a uma). Sem classificar primeiro
+   * não há como distinguir os dois casos.
+   *
+   * Cada despesa continua a ser REVISTA e confirmada — é uma fila, não uma
    * importação cega. Um documento mal lido gravado em silêncio seria pior do
    * que carregá-los um a um.
    */
   const aoEscolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const escolhidos = Array.from(e.target.files ?? []);
     if (!escolhidos.length) return;
-    const [primeiro, ...resto] = escolhidos;
-    setFila(resto);
-    setLote({ total: escolhidos.length, feitos: 0 });
-    await processar(primeiro);
+    setErro(null);
+    setOk(null);
+    setFase("a-processar");
+    setProgresso(escolhidos.length > 1 ? `A ler ${escolhidos.length} documentos…` : null);
+
+    const lidos: Analisado[] = [];
+    for (const [i, f] of escolhidos.entries()) {
+      if (escolhidos.length > 1) setProgresso(`A ler documento ${i + 1} de ${escolhidos.length}…`);
+      const r = await carregarEClassificar(f);
+      if (!r.ok) {
+        // Um ficheiro ilegível não deita fora o lote: se já houver leituras
+        // boas, seguimos com elas e dizemos qual falhou.
+        if (!lidos.length) {
+          setErro(r.erro);
+          setProgresso(null);
+          setFase("inicio");
+          return;
+        }
+        setErro(`${f.name}: ${r.erro} — segui com os restantes.`);
+        continue;
+      }
+      lidos.push(r.doc);
+    }
+    setProgresso(null);
+
+    const kycs = lidos.filter((d) => destinoDe(d.res.doc.tipo) === "kyc");
+    const resto = lidos.filter((d) => destinoDe(d.res.doc.tipo) !== "kyc");
+
+    if (kycs.length && motoristas) {
+      // Os KYC contam como UM caso no contador do lote; o resto fica em fila.
+      setFila(resto);
+      setLote({ total: resto.length + 1, feitos: 0 });
+      await lerKycEmConjunto(kycs);
+      return;
+    }
+
+    const [primeiro, ...seguintes] = lidos;
+    if (!primeiro) {
+      setFase("inicio");
+      return;
+    }
+    setFila(seguintes);
+    setLote({ total: lidos.length, feitos: 0 });
+    await encaminhar(primeiro);
   };
 
   /**
@@ -256,7 +337,7 @@ export default function IntakeDocumento({
    * NÃO toca em refs nem processa — quem chama é que decide o que fazer, para
    * esta função continuar a poder ser usada de dentro de handlers.
    */
-  const seguinteDaFila = (): File | null => {
+  const seguinteDaFila = (): Analisado | null => {
     setLote((l) => ({ ...l, feitos: l.feitos + 1 }));
     const [proximo, ...resto] = fila;
     if (!proximo) return null;
@@ -268,8 +349,14 @@ export default function IntakeDocumento({
   const continuarOuFechar = () => {
     const proximo = seguinteDaFila();
     reset();
-    if (proximo) void processar(proximo);
-    else window.location.reload();
+    if (proximo) {
+      void encaminhar(proximo);
+      return;
+    }
+    // `refresh` em vez de recarregar a página: renova os dados do servidor (as
+    // fichas acabadas de atualizar, a lista de despesas) SEM deitar fora a
+    // mensagem que diz o que ficou gravado e o que ainda falta.
+    router.refresh();
   };
 
   const destino = destinoDe(tipo);
@@ -442,10 +529,14 @@ export default function IntakeDocumento({
             onFeito={(msg) => {
               setPagamentoLido(null);
               setOk(msg);
-              reset();
+              // Segue o lote: um comprovativo gravado não pode fazer cair os
+              // documentos que vinham atrás dele.
+              continuarOuFechar();
             }}
             onCancelar={() => {
               setPagamentoLido(null);
+              setFila([]);
+              setLote({ total: 0, feitos: 0 });
               reset();
             }}
           />
@@ -457,8 +548,20 @@ export default function IntakeDocumento({
           <KycDeDocumento
             lido={kycLido}
             motoristas={motoristas}
-            onFeito={(msg) => { setKycLido(null); setOk(msg); reset(); }}
-            onCancelar={() => { setKycLido(null); reset(); }}
+            tipos={kycTipos}
+            onFeito={(msg) => {
+              setKycLido(null);
+              setKycTipos([]);
+              setOk(msg);
+              continuarOuFechar();
+            }}
+            onCancelar={() => {
+              setKycLido(null);
+              setKycTipos([]);
+              setFila([]);
+              setLote({ total: 0, feitos: 0 });
+              reset();
+            }}
           />
         </div>
       )}
@@ -500,8 +603,8 @@ export default function IntakeDocumento({
               />
               <p className="mt-3 text-xs text-slate-500">
                 {fase === "a-processar"
-                  ? "A IA está a ler o documento…"
-                  : "PDF ou foto até ~18 MB. Podes escolher vários — revês um de cada vez."}
+                  ? progresso ?? "A IA está a ler o documento…"
+                  : "PDF ou foto até ~18 MB. Podes escolher vários de uma vez — os documentos de identidade da mesma pessoa são lidos em conjunto."}
               </p>
             </div>
           )}
