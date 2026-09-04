@@ -29,6 +29,7 @@ const GRUPOS: { cat: string; itens: { href: string; rotulo: string }[] }[] = [
   {
     cat: "Financeiro",
     itens: [
+      { href: "/admin/documentos", rotulo: "Documentos" },
       { href: "/admin/cobrancas", rotulo: "Cobrança" },
       { href: "/admin/despesas", rotulo: "Despesas" },
       { href: "/admin/acertos", rotulo: "Acertos" },

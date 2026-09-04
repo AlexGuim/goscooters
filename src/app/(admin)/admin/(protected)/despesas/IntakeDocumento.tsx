@@ -9,6 +9,8 @@ import type {
   ManutencaoTipo,
 } from "@/types/db";
 import type { DocTipo } from "@/lib/gemini";
+import { lerComprovativoPagamento, type ComprovativoLido } from "@/actions/pagamentoActions";
+import PagamentoDeDocumento from "@/app/(admin)/admin/(protected)/documentos/PagamentoDeDocumento";
 import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
@@ -31,6 +33,7 @@ const TIPO_ROTULO: Record<DocTipo, string> = {
   coima: "Coima",
   documento_id: "Documento de identidade (KYC)",
   comprovativo_morada: "Comprovativo de morada (KYC)",
+  comprovativo_pagamento: "Comprovativo de pagamento",
   outro: "Outro",
 };
 const CATEGORIAS: { v: DespesaCategoria; r: string }[] = [
@@ -82,11 +85,17 @@ type Fase = "inicio" | "a-processar" | "rever" | "a-gravar" | "comunicar";
 
 export default function IntakeDocumento({
   motos,
+  motoristas,
+  sempreAberto = false,
 }: {
   motos: Pick<Moto, "id" | "matricula" | "modelo" | "proprietario_id">[];
+  /** Presente só no ecrã de Documentos: liga o ramo dos comprovativos de pagamento. */
+  motoristas?: { id: string; nome: string }[];
+  /** No ecrã de Documentos o painel é a página inteira — não se colapsa. */
+  sempreAberto?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [aberto, setAberto] = useState(false);
+  const [aberto, setAberto] = useState(sempreAberto);
   // Fila do lote. Estado normal (e não ref): a fila só muda entre confirmações,
   // e o handler é recriado a cada render — por isso lê sempre o valor certo.
   const [fila, setFila] = useState<File[]>([]);
@@ -97,6 +106,9 @@ export default function IntakeDocumento({
 
   const [res, setRes] = useState<IntakeResultado | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+  // Ramo "isto é dinheiro que entrou" — só existe quando a página fornece a
+  // lista de motoristas (o ecrã de Documentos); em Despesas fica inativo.
+  const [pagamentoLido, setPagamentoLido] = useState<ComprovativoLido | null>(null);
   const [comunicacao, setComunicacao] = useState<ComunicacaoPreparada | null>(null);
   const [textoMsg, setTextoMsg] = useState("");
   const [idiomaMsg, setIdiomaMsg] = useState("en");
@@ -184,6 +196,19 @@ export default function IntakeDocumento({
     if (!r.success || !r.resultado) {
       setErro(r.error ?? "Não consegui ler o documento.");
       setFase("inicio");
+      return;
+    }
+    if (r.resultado.doc.tipo === "comprovativo_pagamento" && motoristas) {
+      // Segunda leitura, com o prompt próprio: o classificador diz QUE papel é,
+      // este diz quanto, quando e de quem.
+      const pg = await lerComprovativoPagamento(env.path);
+      if (!pg.success || !pg.dados) {
+        setErro(pg.error ?? "Não consegui ler o comprovativo.");
+        setFase("inicio");
+        return;
+      }
+      setPagamentoLido(pg.dados);
+      setFase("rever");
       return;
     }
     preencher(r.resultado);
@@ -387,7 +412,25 @@ export default function IntakeDocumento({
 
       {ok && <p className="mt-3 text-sm text-emerald-700">{ok}</p>}
 
-      {aberto && (
+      {aberto && pagamentoLido && motoristas && (
+        <div className="mt-4">
+          <PagamentoDeDocumento
+            lido={pagamentoLido}
+            motoristas={motoristas}
+            onFeito={(msg) => {
+              setPagamentoLido(null);
+              setOk(msg);
+              reset();
+            }}
+            onCancelar={() => {
+              setPagamentoLido(null);
+              reset();
+            }}
+          />
+        </div>
+      )}
+
+      {aberto && !pagamentoLido && (
         <div className="mt-4 space-y-4">
           {lote.total > 1 && (
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-100 px-4 py-2.5">

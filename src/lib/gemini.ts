@@ -41,6 +41,8 @@ export type DocTipo =
   | "coima"
   | "documento_id"
   | "comprovativo_morada"
+  /** Print do MB WAY / transferência / conversa: dinheiro que o motorista pagou. */
+  | "comprovativo_pagamento"
   | "outro";
 
 export interface DocClassificado {
@@ -55,6 +57,8 @@ export interface DocClassificado {
   referencia: string | null; // nº fatura/apólice/auto
   descricao: string | null;
   km: number | null;
+  /** Só comprovativo de pagamento: nome de quem enviou o dinheiro. */
+  pagador: string | null;
   seguro_apolice: string | null; // só seguro
   manutencao_tipo:
     | "revisao" | "oleo" | "pneu_frente" | "pneu_tras" | "pneus"
@@ -141,9 +145,10 @@ Extrai a MORADA quando aparecer (título de residência, comprovativo de morada,
 Datas SEMPRE em AAAA-MM-DD. Países SEMPRE em ISO-2. Responde só com o JSON, sem texto à volta.`;
 
 const PROMPT_CLASSIFICAR = `És um assistente de uma empresa de aluguer de scooters. Lês documentos (faturas, apólices de seguro, faturas de oficina/manutenção, portagens/Via Verde, coimas, documentos de identidade) a partir de fotografias ou PDFs.
+Usa "comprovativo_pagamento" quando for um print de MB WAY, de transferência bancária, de uma conversa de WhatsApp ou foto de talão a mostrar dinheiro que UM MOTORISTA PAGOU — e não uma fatura que a empresa tem a pagar. Aí o "valor" é a quantia transferida e o "pagador" é quem a enviou.
 Primeiro CLASSIFICA o tipo do documento, depois EXTRAI os campos. Devolve um objeto JSON com EXATAMENTE estas chaves (usa null quando não souberes ou não se aplicar ao tipo):
 {
-  "tipo": "fatura"|"apolice_seguro"|"manutencao"|"portagem"|"coima"|"documento_id"|"comprovativo_morada"|"outro",
+  "tipo": "fatura"|"apolice_seguro"|"manutencao"|"portagem"|"coima"|"documento_id"|"comprovativo_morada"|"comprovativo_pagamento"|"outro",
   "confianca": "alta"|"media"|"baixa",
   "matricula": string|null,          // matrícula do veículo como está escrita, ex.: "63-XV-18"
   "data": string|null,               // data do documento/serviço/infração, AAAA-MM-DD
@@ -154,6 +159,7 @@ Primeiro CLASSIFICA o tipo do documento, depois EXTRAI os campos. Devolve um obj
   "referencia": string|null,         // nº do documento/fatura/apólice/auto de contraordenação
   "descricao": string|null,          // resumo curto (serviços, cobertura...)
   "km": number|null,                 // quilómetros do veículo, se aparecer
+  "pagador": string|null,            // SÓ comprovativo_pagamento: nome de QUEM ENVIOU o dinheiro
   "seguro_apolice": string|null,     // SÓ seguro: nº da apólice
   "manutencao_tipo": "revisao"|"oleo"|"pneu_frente"|"pneu_tras"|"pneus"|"travoes"|"corrente"|"inspecao"|"outro"|null,
   "proxima_km": number|null,         // SÓ manutenção: km da próxima intervenção prevista

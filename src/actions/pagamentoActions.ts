@@ -424,3 +424,60 @@ export async function lerComprovativoPagamento(
     },
   };
 }
+
+/**
+ * Regista um pagamento alocando-o AUTOMATICAMENTE às semanas mais antigas em
+ * dívida (FIFO) — a mesma regra do formulário de Cobranças, mas no servidor.
+ *
+ * Existe para o ecrã de Documentos poder fechar o ciclo sozinho: lê-se o
+ * comprovativo, escolhe-se o motorista, e o dinheiro cai nas semanas certas sem
+ * o gestor ter de reabrir outro ecrã e repetir os dados.
+ */
+export async function registarPagamentoAuto(input: {
+  motorista_id: string;
+  valor: number;
+  data_recebimento: string;
+  metodo?: PagamentoMetodo | null;
+  referencia?: string | null;
+}): Promise<{ success: boolean; id?: string; alocadas?: number; sobra?: number; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const total = Number(input.valor);
+  if (!input.motorista_id) return { success: false, error: "Motorista em falta." };
+  if (!Number.isFinite(total) || total <= 0) return { success: false, error: "Indica um valor válido." };
+
+  // Semanas em dívida deste motorista, da mais antiga para a mais recente.
+  const { data: abertas, error: eLer } = await supabaseAdmin
+    .from("vw_cobranca_estado")
+    .select("id, em_falta, data_vencimento")
+    .eq("motorista_id", input.motorista_id)
+    .in("estado_liquidacao", ["por_liquidar", "parcial"])
+    .order("data_vencimento", { ascending: true });
+  if (eLer) {
+    console.error("registarPagamentoAuto ler error:", eLer);
+    return { success: false, error: "Erro ao ler as semanas em dívida." };
+  }
+
+  let resto = total;
+  const alocacoes: AlocacaoInput[] = [];
+  for (const c of abertas ?? []) {
+    if (resto <= 0.001) break;
+    const falta = Number(c.em_falta);
+    if (falta <= 0) continue;
+    const aloc = Math.round(Math.min(resto, falta) * 100) / 100;
+    alocacoes.push({ cobranca_id: c.id as string, valor_alocado: aloc });
+    resto = Math.round((resto - aloc) * 100) / 100;
+  }
+
+  const r = await registarPagamento({
+    motorista_id: input.motorista_id,
+    valor: total,
+    data_recebimento: input.data_recebimento,
+    metodo: input.metodo ?? null,
+    referencia: input.referencia ?? null,
+    alocacoes,
+  });
+  if (!r.success) return r;
+  return { success: true, id: r.id, alocadas: alocacoes.length, sobra: resto };
+}
