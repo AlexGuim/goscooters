@@ -38,6 +38,8 @@ export interface CobrancaPainel {
   motorista_nome: string;
   motorista_telefone: string | null;
   motorista_e164: string | null;
+  /** Idioma da ficha ('pt' | 'en') — decide a língua do lembrete. */
+  motorista_idioma: string | null;
   veiculo_matricula: string;
   proprietario_id: string | null;
   proprietario_nome: string;
@@ -86,15 +88,29 @@ function limitesSemana(agoraMs: number, offset: number) {
   return { de: fmt(dom), ate: fmt(sab) };
 }
 
+/**
+ * Lembrete de pagamento por WhatsApp, na língua do motorista.
+ *
+ * A maioria da frota é estrangeira; um lembrete em português que não se percebe
+ * não é um lembrete, é ruído — e depois a conversa acaba em inglês na mesma, à
+ * mão. A língua vem do campo `idioma_preferido` da ficha (editável em
+ * Motoristas): tudo o que não for 'en' sai em português.
+ */
 function linkWhatsapp(c: CobrancaPainel): string | null {
   const num = (c.motorista_e164 || c.motorista_telefone || "").replace(/\D/g, "");
   if (!num) return null;
-  const oQue = c.tipo === "renda" ? "a renda" : `um valor (${TIPO_ROTULO[c.tipo] ?? c.tipo})`;
-  const texto = encodeURIComponent(
-    `Olá ${c.motorista_nome}, lembrete de pagamento: ${oQue} da mota ${c.veiculo_matricula} ` +
-      `vence a ${dataCurta(c.data_vencimento)} — valor ${formatarPreco(c.em_falta)}. Obrigado!`,
-  );
-  return `https://wa.me/${num}?text=${texto}`;
+  const primeiro = (c.motorista_nome || "").trim().split(/\s+/)[0];
+  const emIngles = (c.motorista_idioma ?? "pt") === "en";
+
+  const texto = emIngles
+    ? `Hi ${primeiro}, payment reminder: ${
+        c.tipo === "renda" ? "the rental" : `a charge (${TIPO_ROTULO[c.tipo] ?? c.tipo})`
+      } for scooter ${c.veiculo_matricula} is due on ${dataCurta(c.data_vencimento)} — amount ${formatarPreco(c.em_falta)}. Thank you!`
+    : `Olá ${primeiro}, lembrete de pagamento: ${
+        c.tipo === "renda" ? "a renda" : `um valor (${TIPO_ROTULO[c.tipo] ?? c.tipo})`
+      } da mota ${c.veiculo_matricula} vence a ${dataCurta(c.data_vencimento)} — valor ${formatarPreco(c.em_falta)}. Obrigado!`;
+
+  return `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
 }
 
 export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }) {

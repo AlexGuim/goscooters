@@ -22,7 +22,7 @@ export async function cobrancasDaSemana(de: string, ate: string): Promise<Cobran
       .lte("data_vencimento", ate)
       .neq("estado_liquidacao", "anulada")
       .order("data_vencimento", { ascending: true }),
-    supabaseAdmin.from("motorista").select("id, nome, telefone, telefone_e164"),
+    supabaseAdmin.from("motorista").select("id, nome, telefone, telefone_e164, idioma_preferido"),
     supabaseAdmin.from("moto").select("id, matricula, modelo"),
     supabaseAdmin.from("proprietario").select("*"),
   ]);
@@ -43,6 +43,7 @@ export async function cobrancasDaSemana(de: string, ate: string): Promise<Cobran
       motorista_nome: m?.nome ?? "—",
       motorista_telefone: m?.telefone ?? null,
       motorista_e164: m?.telefone_e164 ?? null,
+      motorista_idioma: m?.idioma_preferido ?? null,
       veiculo_matricula: v?.matricula ?? "—",
       proprietario_id: (c.proprietario_id as string) ?? null,
       proprietario_nome: d?.nome ?? "Sem proprietário",
