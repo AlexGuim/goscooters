@@ -7,6 +7,12 @@ import { dataBR } from "@/lib/datas";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import type { DespesaCategoria } from "@/types/db";
 
+const IMPUTACAO: Record<string, string> = {
+  goscooters: "GoScooters",
+  proprietario: "parceiros",
+  motorista: "motoristas",
+};
+
 const MESES = [
   "", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -97,6 +103,98 @@ export default async function MesFinanceiroPage({
           </>
         )}
       </p>
+
+      {/* ── O NEGÓCIO INTEIRO ──────────────────────────────────────────── */}
+      <section className="print-junto rounded-3xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            O negócio todo
+          </h2>
+          <span className="text-xs text-slate-400">
+            toda a frota · todas as despesas, seja quem for a suportá-las
+          </span>
+        </div>
+        <div className="mt-3 grid gap-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-slate-500">Renda de todas as motos</p>
+            <p className="mt-0.5 text-2xl font-bold tabular-nums text-slate-950">
+              {formatarPreco(d.negocio.renda)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Despesas totais</p>
+            <p className="mt-0.5 text-2xl font-bold tabular-nums text-red-600">
+              −{formatarPreco(d.negocio.despesas)}
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {d.negocio.despesas_por_imputacao.map((x) => (
+                <li key={x.imputar_a} className="flex justify-between gap-2 text-xs">
+                  <span className="text-slate-500">suporta: {IMPUTACAO[x.imputar_a] ?? x.imputar_a}</span>
+                  <span className="tabular-nums text-slate-700">{formatarPreco(x.valor)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Resultado do negócio</p>
+            <p className={`mt-0.5 text-2xl font-bold tabular-nums ${d.negocio.resultado >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+              {formatarPreco(d.negocio.resultado)}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">antes de se repartir</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── POR DONO: os acertos todos lado a lado ─────────────────────── */}
+      <section className="print-junto">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Rendimento por dono
+          </h2>
+          <span className="text-xs text-slate-400">a mesma conta dos acertos, todos juntos</span>
+        </div>
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-2.5 font-semibold">Dono</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Renda</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Comissão GS</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Despesas</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Rendimento</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 tabular-nums">
+              {d.por_dono.map((l) => (
+                <tr key={l.proprietario_id}>
+                  <td className="px-4 py-3">
+                    <span className="font-medium text-slate-900">{l.nome}</span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      {l.motos} {l.motos === 1 ? "mota" : "motas"}
+                      {l.eh_propria ? " · própria" : ""}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700">{formatarPreco(l.renda)}</td>
+                  <td className="px-4 py-3 text-right text-slate-500">
+                    {l.eh_propria ? "—" : `−${formatarPreco(l.comissao)}`}
+                  </td>
+                  <td className="px-4 py-3 text-right text-red-600">
+                    {l.despesas > 0 ? `−${formatarPreco(l.despesas)}` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-950">
+                    {formatarPreco(l.rendimento)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-400">
+          <strong>Rendimento</strong> é o que fica para o dono: renda − comissão − despesas. Na
+          frota própria não há comissão — é tudo da casa. O que há a <em>transferir</em> a cada
+          parceiro pode diferir, conforme quem cobrou a renda; isso está no acerto dele.
+        </p>
+      </section>
 
       {/* Frota própria: renda inteira é receita */}
       <Seccao titulo="Frota própria" total={d.receita_frota} vazio="Nenhuma renda recebida de motos próprias neste mês.">

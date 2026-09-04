@@ -213,6 +213,41 @@ export interface LinhaDespesaPropria {
   documento_url: string | null;
 }
 
+/**
+ * Uma linha da consolidação por dono: quanto a frota dele rendeu, quanto disso
+ * foi comissão da GoScooters, que despesas suportou, e o que lhe sobra.
+ *
+ * É a mesma aritmética do acerto, mas com TODOS os donos lado a lado — e com a
+ * frota própria incluída, para a tabela cobrir o negócio inteiro em vez de só a
+ * parte que se acerta com terceiros.
+ */
+export interface LinhaPorDono {
+  proprietario_id: string;
+  nome: string;
+  eh_propria: boolean;
+  /** Renda paga pelos motoristas das motos dele, nas semanas do mês. */
+  renda: number;
+  /** Parte que fica para a GoScooters (0 na frota própria — é tudo dela). */
+  comissao: number;
+  /** Despesas imputadas a este dono no mês. */
+  despesas: number;
+  /** O que sobra para o dono: renda − comissão − despesas. */
+  rendimento: number;
+  motos: number;
+}
+
+/** O negócio inteiro no mês, independentemente de quem fica com o quê. */
+export interface NegocioTotal {
+  /** Toda a renda paga nas semanas do mês. */
+  renda: number;
+  /** TODAS as despesas do mês, seja quem for a suportá-las. */
+  despesas: number;
+  /** Renda − despesas: o que a operação gerou, antes de se repartir. */
+  resultado: number;
+  /** Despesas abertas por quem as suporta. */
+  despesas_por_imputacao: { imputar_a: string; valor: number }[];
+}
+
 export interface MesDetalhado extends MesFinanceiro {
   ano: number;
   frota_propria: LinhaFrotaPropria[];
@@ -222,6 +257,10 @@ export interface MesDetalhado extends MesFinanceiro {
   receita_frota: number;
   /** Soma das comissões — a outra parte da receita. */
   receita_comissao: number;
+  /** O negócio como um todo (todas as motos, todas as despesas). */
+  negocio: NegocioTotal;
+  /** Consolidação por dono — os acertos todos lado a lado. */
+  por_dono: LinhaPorDono[];
 }
 
 /**
@@ -278,6 +317,8 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
 
   const frota = new Map<string, number>();
   const porParceiro = new Map<string, { base: number; comissao: number }>();
+  // Por DONO (inclui a frota própria): a consolidação de todos os acertos.
+  const porDono = new Map<string, { renda: number; comissao: number; motos: Set<string> }>();
   let turnover = 0;
   let receitaFrota = 0;
   let receitaComissao = 0;
@@ -291,6 +332,14 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     turnover += pago;
     const moto = motoDe.get(c.veiculo_id);
     const dono = moto?.proprietario_id ? donoDe.get(moto.proprietario_id) : undefined;
+
+    if (dono) {
+      const at = porDono.get(dono.id) ?? { renda: 0, comissao: 0, motos: new Set<string>() };
+      at.renda += pago;
+      at.comissao += dono.eh_goscooters ? 0 : pago * taxa; // a frota própria não se cobra a si
+      at.motos.add(c.veiculo_id);
+      porDono.set(dono.id, at);
+    }
 
     if (dono?.eh_goscooters) {
       frota.set(c.veiculo_id, (frota.get(c.veiculo_id) ?? 0) + pago);
@@ -311,14 +360,14 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   }
 
   const ultimo = String(new Date(ano, mes, 0).getDate()).padStart(2, "0");
-  const { data: desps } = await supabaseAdmin
+  const { data: todasDesps } = await supabaseAdmin
     .from("despesa")
-    .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe")
-    .eq("imputar_a", "goscooters")
+    .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe, imputar_a, proprietario_id")
     .gte("data_despesa", de)
     .lte("data_despesa", `${ano}-${mm}-${ultimo}`)
     .order("data_despesa");
 
+  const desps = (todasDesps ?? []).filter((d) => d.imputar_a === "goscooters");
   const despesas: LinhaDespesaPropria[] = (desps ?? []).map((d) => ({
     id: d.id,
     data: d.data_despesa as string,
@@ -330,6 +379,56 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   }));
   const despesasTotal = despesas.reduce((s, d) => s + d.valor, 0);
   const receita = receitaFrota + receitaComissao;
+
+  // ── O negócio inteiro: toda a renda, todas as despesas ──────────────────
+  const porImput = new Map<string, number>();
+  for (const d of todasDesps ?? []) {
+    porImput.set(d.imputar_a as string, (porImput.get(d.imputar_a as string) ?? 0) + Number(d.valor_total));
+  }
+  const despesasTodas = [...porImput.values()].reduce((a, b) => a + b, 0);
+  const negocio: NegocioTotal = {
+    renda: r2(turnover),
+    despesas: r2(despesasTodas),
+    resultado: r2(turnover - despesasTodas),
+    despesas_por_imputacao: [...porImput.entries()]
+      .map(([imputar_a, valor]) => ({ imputar_a, valor: r2(valor) }))
+      .sort((a, b) => b.valor - a.valor),
+  };
+
+  // ── Por dono: a mesma conta do acerto, com todos lado a lado ────────────
+  // As despesas de cada dono são as imputadas a ELE (a frota própria fica com
+  // as da casa) — a mesma regra que o acerto usa.
+  const despDoDono = new Map<string, number>();
+  for (const d of todasDesps ?? []) {
+    const v = Number(d.valor_total);
+    if (d.imputar_a === "proprietario" && d.proprietario_id) {
+      despDoDono.set(d.proprietario_id as string, (despDoDono.get(d.proprietario_id as string) ?? 0) + v);
+    } else if (d.imputar_a === "goscooters") {
+      const propria = (donos ?? []).find((x) => x.eh_goscooters);
+      if (propria) despDoDono.set(propria.id, (despDoDono.get(propria.id) ?? 0) + v);
+    }
+  }
+  // A união dos dois: um dono pode ter tido despesas sem ter tido renda no mês
+  // (uma mota parada que foi à oficina). Se só olhássemos à renda, essa despesa
+  // aparecia no total do negócio e desaparecia da linha de quem a suporta.
+  const idsDono = new Set<string>([...porDono.keys(), ...despDoDono.keys()]);
+  const por_dono: LinhaPorDono[] = [...idsDono]
+    .map((id) => {
+      const v = porDono.get(id) ?? { renda: 0, comissao: 0, motos: new Set<string>() };
+      const dono = donoDe.get(id);
+      const desp = despDoDono.get(id) ?? 0;
+      return {
+        proprietario_id: id,
+        nome: dono?.nome ?? "—",
+        eh_propria: !!dono?.eh_goscooters,
+        renda: r2(v.renda),
+        comissao: r2(v.comissao),
+        despesas: r2(desp),
+        rendimento: r2(v.renda - v.comissao - desp),
+        motos: v.motos.size,
+      };
+    })
+    .sort((a, b) => b.renda - a.renda);
 
   return {
     ano,
@@ -355,5 +454,7 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
       }))
       .sort((a, b) => b.comissao - a.comissao),
     despesas,
+    negocio,
+    por_dono,
   };
 }
