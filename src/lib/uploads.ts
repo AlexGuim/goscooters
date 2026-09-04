@@ -129,6 +129,26 @@ export async function enviarAssinaturaPrivada(
 export const DOC_TAMANHO_MAXIMO = 15 * 1024 * 1024; // 15 MB
 export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 
+/**
+ * Documento para o bucket PRIVADO — identidade, carta, comprovativo de morada.
+ *
+ * Existe porque `enviarFotoPrivada` recusa PDF (é para fotos) e `enviarDocumento`
+ * grava no bucket PÚBLICO (é para faturas, que precisam de URL partilhável). Um
+ * documento de identidade precisa das duas coisas: aceitar PDF e não ficar
+ * acessível por URL.
+ */
+export async function enviarDocumentoPrivado(
+  ficheiro: File,
+): Promise<{ success: boolean; path?: string; error?: string }> {
+  if (!DOC_TIPOS.includes(ficheiro.type)) {
+    return { success: false, error: "Formato não suportado. Usa PDF, JPG, PNG ou WebP." };
+  }
+  if (ficheiro.size > DOC_TAMANHO_MAXIMO) {
+    return { success: false, error: `O ficheiro tem ${mb(ficheiro.size)} MB. O máximo é 15 MB.` };
+  }
+  return enviarPrivado(ficheiro, ficheiro.name, "kyc");
+}
+
 // ── Upload autorizado por TOKEN de entrega (motorista, sem conta) ────────────
 async function enviarPorToken(
   token: string,

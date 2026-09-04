@@ -12,7 +12,7 @@ import type { DocTipo } from "@/lib/gemini";
 import { lerComprovativoPagamento, type ComprovativoLido } from "@/actions/pagamentoActions";
 import PagamentoDeDocumento from "@/app/(admin)/admin/(protected)/documentos/PagamentoDeDocumento";
 import KycDeDocumento from "@/app/(admin)/admin/(protected)/documentos/KycDeDocumento";
-import { lerDocumentoIA } from "@/actions/fotoActions";
+import { lerDocumentoIA, apagarDocumentoPublico } from "@/actions/fotoActions";
 import type { CamposDocumento } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
@@ -206,7 +206,11 @@ export default function IntakeDocumento({
     if ((r.resultado.doc.tipo === "documento_id" || r.resultado.doc.tipo === "comprovativo_morada") && motoristas) {
       // Segunda leitura com o prompt de KYC: o classificador diz QUE documento
       // é, este extrai nome, NIF, nº, validades, carta e morada.
-      const kyc = await lerDocumentoIA([env.path]);
+      const kyc = await lerDocumentoIA([env.path], "motas");
+      // O ficheiro entrou pelo bucket público (é onde as faturas têm de ficar,
+      // para o extrato as poder abrir). Um documento de identidade não pode lá
+      // ficar: lidos os campos, o que interessa está na ficha e o ficheiro sai.
+      await apagarDocumentoPublico(env.path);
       if (!kyc.ok || !kyc.dados) {
         setErro(kyc.error ?? (kyc.semIA ? "A leitura por IA não está configurada." : "Não consegui ler o documento."));
         setFase("inicio");

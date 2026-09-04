@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { criarMotorista, procurarMotoristaPorTelefone, atualizarMotorista } from "@/actions/motoristaActions";
-import { enviarFotoPrivada } from "@/lib/uploads";
+import { enviarDocumentoPrivado } from "@/lib/uploads";
 import { lerDocumentoIA } from "@/actions/fotoActions";
 import type { CamposDocumento } from "@/lib/gemini";
 import { criarContrato } from "@/actions/contratoActions";
@@ -134,7 +134,7 @@ function PassoMotorista({
     try {
       const paths: string[] = [];
       for (const f of lista) {
-        const env = await enviarFotoPrivada(f);
+        const env = await enviarDocumentoPrivado(f);
         if (!env.success || !env.path) throw new Error(env.error ?? "Falha ao carregar.");
         paths.push(env.path);
       }

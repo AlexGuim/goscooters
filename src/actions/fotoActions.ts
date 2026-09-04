@@ -118,6 +118,13 @@ export async function criarUploadPrivado(
  */
 export async function lerDocumentoIA(
   paths: string[],
+  /**
+   * De que bucket ler. O intake de Documentos classifica o ficheiro a partir do
+   * bucket público (é lá que as faturas têm de ficar, para o extrato do parceiro
+   * as poder abrir); quando o documento afinal é de identidade, é preciso poder
+   * lê-lo de lá — e apagá-lo a seguir, que é o que o chamador faz.
+   */
+  bucket: "privado" | "motas" = "privado",
 ): Promise<{ ok: boolean; dados?: CamposDocumento; error?: string; semIA?: boolean }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { ok: false, error: auth.error };
@@ -126,7 +133,7 @@ export async function lerDocumentoIA(
   const imagens: { mime: string; base64: string }[] = [];
   for (const p of (paths ?? []).slice(0, 4)) {
     if (!p) continue;
-    const { data, error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).download(p);
+    const { data, error } = await supabaseAdmin.storage.from(bucket === "motas" ? BUCKET : BUCKET_PRIVADO).download(p);
     if (error || !data) continue;
     const mime = mimeDoCaminho(p);
     if (!mime.startsWith("image/") && mime !== "application/pdf") continue;
@@ -186,4 +193,21 @@ export async function deleteFotoMoto(
   }
 
   return { success: true };
+}
+
+
+/**
+ * Apaga um ficheiro do bucket PÚBLICO.
+ *
+ * Serve o caso do documento de identidade que entrou pela aba Documentos: o
+ * intake grava no bucket público para poder classificar, mas um documento de
+ * identidade não pode ficar acessível por URL. Lidos os campos para a ficha, o
+ * ficheiro deixa de ter razão de existir — e apaga-se.
+ */
+export async function apagarDocumentoPublico(path: string): Promise<{ ok: boolean }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { ok: false };
+  const { error } = await supabaseAdmin.storage.from(BUCKET).remove([path]);
+  if (error) console.error("apagarDocumentoPublico error:", error);
+  return { ok: !error };
 }
