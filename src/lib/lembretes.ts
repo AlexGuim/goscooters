@@ -54,9 +54,10 @@ export function textoCoima(dados: DadosCoima, idioma: string | null | undefined)
 }
 
 /** Línguas oferecidas no formulário do motorista. */
+// Inglês primeiro: é o idioma por omissão (a maioria da frota é estrangeira).
 export const IDIOMAS: { valor: string; rotulo: string }[] = [
-  { valor: "pt", rotulo: "Português" },
   { valor: "en", rotulo: "English" },
+  { valor: "pt", rotulo: "Português" },
   { valor: "es", rotulo: "Español" },
   { valor: "fr", rotulo: "Français" },
   { valor: "it", rotulo: "Italiano" },

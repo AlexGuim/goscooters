@@ -542,7 +542,7 @@ function FichaKYC({
       codigo_postal: String(dados.get("codigo_postal") ?? "").trim() || null,
       localidade: String(dados.get("localidade") ?? "").trim() || null,
       estado: String(dados.get("estado") ?? "lead") as MotoristaComAvaliacoes["estado"],
-      idioma_preferido: String(dados.get("idioma_preferido") ?? "pt").trim() || "pt",
+      idioma_preferido: String(dados.get("idioma_preferido") ?? "en").trim() || "en",
       iban: String(dados.get("iban") ?? "").trim() || null,
       // Guardar a ficha resolve a razão da revisão.
       precisa_revisao: false,
@@ -753,7 +753,7 @@ function FichaKYC({
         </label>
         <label className={etiqueta}>
           <span>Idioma (para lembretes)</span>
-          <select className={campo} name="idioma_preferido" defaultValue={motorista.idioma_preferido || "pt"}>
+          <select className={campo} name="idioma_preferido" defaultValue={motorista.idioma_preferido || "en"}>
             {IDIOMAS.map((i) => (
               <option key={i.valor} value={i.valor}>{i.rotulo}</option>
             ))}
@@ -1049,7 +1049,8 @@ function FormMotorista({
       localidade: input.localidade,
       estado: "lead",
       origem: "site",
-      idioma_preferido: "pt",
+      // A maioria da frota é estrangeira — o default certo é o caso comum.
+      idioma_preferido: "en",
       iban: null,
       telefone_mbway: null,
       precisa_revisao: false,

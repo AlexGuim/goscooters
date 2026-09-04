@@ -389,7 +389,9 @@ export default function ContratosList({
 function RegistoLinkModal({ onClose }: { onClose: () => void }) {
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
-  const [idioma, setIdioma] = useState("pt");
+  // Inglês por omissão: é o caso comum da frota (e o motorista ainda pode
+  // trocar no próprio ecrã de entrega).
+  const [idioma, setIdioma] = useState("en");
   const [aEnviar, setAEnviar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
@@ -440,8 +442,8 @@ function RegistoLinkModal({ onClose }: { onClose: () => void }) {
             <label className="block space-y-1.5 text-sm font-medium text-slate-700">
               <span>Idioma do link e do formulário</span>
               <select className={campoIn} value={idioma} onChange={(e) => setIdioma(e.target.value)}>
-                <option value="pt">Português</option>
                 <option value="en">English (outras línguas)</option>
+                <option value="pt">Português</option>
               </select>
             </label>
             {erro && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}

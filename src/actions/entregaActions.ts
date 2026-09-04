@@ -120,7 +120,9 @@ export async function criarSessaoRegisto(input: {
   if (!telefone) return { success: false, error: "Indica o telefone do motorista." };
   const digitos = normalizarTelefone(telefone);
   // A escolha do idioma determina a língua da mensagem E do formulário (pt|en).
-  const idioma = (input.idioma || "pt").slice(0, 2).toLowerCase() === "pt" ? "pt" : "en";
+  // Sem escolha explícita, assume-se inglês: e o caso comum da frota, e o
+  // motorista pode trocar no proprio ecra de entrega.
+  const idioma = (input.idioma || "en").slice(0, 2).toLowerCase() === "pt" ? "pt" : "en";
 
   // Reutiliza o motorista pelo telefone, ou cria um lead mínimo.
   let motoristaId: string;
