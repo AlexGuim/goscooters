@@ -311,8 +311,18 @@ export default function IntakeDocumento({
     }
     setProgresso(null);
 
-    const kycs = lidos.filter((d) => destinoDe(d.res.doc.tipo) === "kyc");
-    const resto = lidos.filter((d) => destinoDe(d.res.doc.tipo) !== "kyc");
+    // Rede de segurança para os VERSOS. O verso da carta é uma tabela de
+    // categorias sem título, sem nome e sem valor — é fácil de classificar como
+    // "outro" e seguir para a fila das despesas, levando com ele as categorias,
+    // que é justamente o que se foi lá buscar. Um documento sem valor E sem
+    // fornecedor não é despesa nenhuma; se veio num lote onde há documentos de
+    // identidade, pertence a esse lote.
+    const temIdNoLote = lidos.some((d) => destinoDe(d.res.doc.tipo) === "kyc");
+    const ehKyc = (d: Analisado) =>
+      destinoDe(d.res.doc.tipo) === "kyc" ||
+      (temIdNoLote && d.res.doc.tipo === "outro" && !d.res.doc.valor && !d.res.doc.fornecedor);
+    const kycs = lidos.filter(ehKyc);
+    const resto = lidos.filter((d) => !ehKyc(d));
 
     if (kycs.length && motoristas) {
       // Os KYC contam como UM caso no contador do lote; o resto fica em fila.

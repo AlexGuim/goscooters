@@ -227,7 +227,13 @@ Guia de classificação:
 - "manutencao": fatura de oficina (óleo, revisão, pneus, travões, corrente...). Preenche manutencao_tipo.
 - "portagem": Via Verde / portagens.
 - "coima": coima / multa / contraordenação de trânsito.
-- "documento_id": cartão de cidadão, passaporte, título de residência ou carta de condução.
+- "documento_id": cartão de cidadão, passaporte, título de residência, AIMA ou carta de condução —
+  A FRENTE OU O VERSO. Os versos não trazem título e enganam: classifica como "documento_id"
+  qualquer imagem com (a) as linhas de "<<<<" da zona MRZ; (b) "NÚMEROS DE IDENTIFICAÇÃO",
+  "Nº IDENT. FISCAL" ou "Nº SEGURANÇA SOCIAL"; ou (c) a tabela de categorias de carta
+  (AM, A1, A2, A, B1, B, C, D, BE… em coluna, com datas ou tracinhos ao lado).
+  Na dúvida entre "documento_id" e "outro" num documento SEM valor a pagar, escolhe
+  "documento_id": um papel de identificação nunca é uma despesa.
 - "comprovativo_morada": fatura de água/luz/gás ou extrato no nome de alguém (prova de morada).
 - "fatura": outra fatura de custo do veículo não coberta acima.
 - "outro": não encaixa em nada disto.
