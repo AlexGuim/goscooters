@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { atualizarMotorista, type MotoristaEditavel } from "@/actions/motoristaActions";
 import type { CamposDocumento, DocTipo } from "@/lib/gemini";
 import type { DocIdTipo } from "@/types/db";
+import { nifValidoPT } from "@/lib/kyc";
 import { Botao, campo, etiqueta } from "@/components/ui";
 
 /**
@@ -41,7 +42,7 @@ type Grupo = {
 const GRUPOS: Grupo[] = [
   {
     titulo: "Identificação",
-    ondeEsta: "título de residência, cartão de cidadão ou passaporte",
+    ondeEsta: "título de residência, cartão de cidadão ou passaporte — a FRENTE",
     campos: [
       { chave: "nome", rotulo: "Nome" },
       { chave: "data_nascimento", rotulo: "Data de nascimento" },
@@ -62,12 +63,14 @@ const GRUPOS: Grupo[] = [
   },
   {
     titulo: "Fiscal",
-    ondeEsta: "cartão de contribuinte, nota de liquidação do IRS ou fatura em nome dele",
+    ondeEsta:
+      "o VERSO do título de residência ou do cartão de cidadão, sob \u201cNº IDENT. FISCAL\u201d — ou o cartão de contribuinte",
     campos: [{ chave: "nif", rotulo: "NIF" }],
   },
   {
     titulo: "Morada",
-    ondeEsta: "comprovativo de morada — fatura de água/luz ou atestado de residência",
+    ondeEsta:
+      "o VERSO do título de residência (o cartão de cidadão não a mostra) ou um comprovativo — fatura de água/luz, atestado de residência",
     campos: [
       { chave: "morada_linha1", rotulo: "Morada" },
       { chave: "codigo_postal", rotulo: "Código postal" },
@@ -147,6 +150,13 @@ export default function KycDeDocumento({
 
   // Uma carta sem categoria de motociclo é o problema que só aparece tarde — a
   // moto já entregue. Vale a pena vê-lo agora, com o documento na mão.
+  // O NIF tem dígito de controlo, por isso um erro de leitura apanha-se aqui sem
+  // depender da IA. Vale a pena: no verso do título de residência o Nº DE UTENTE
+  // DE SAÚDE também tem 9 dígitos e está encostado ao NIF — trocá-los é o erro
+  // natural, e o checksum é precisamente o que os distingue.
+  const nifEscrito = campos.nif?.trim() ?? "";
+  const nifMau = nifEscrito.length > 0 && nifValidoPT(nifEscrito) === false;
+
   const cat = campos.carta_categoria?.trim();
   const semCategoriaMoto =
     !!cat &&
@@ -205,6 +215,16 @@ export default function KycDeDocumento({
           </span>
         )}
       </label>
+
+      {nifMau && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
+          <p className="text-sm text-red-800">
+            <strong>{nifEscrito}</strong> não passa no dígito de controlo do NIF. No verso do
+            título de residência há três números seguidos — confirma que copiaste o que está sob
+            <em> Nº IDENT. FISCAL</em>, e não o de segurança social ou o de utente de saúde.
+          </p>
+        </div>
+      )}
 
       {semCategoriaMoto && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">

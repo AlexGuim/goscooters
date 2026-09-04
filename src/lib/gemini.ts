@@ -168,12 +168,28 @@ TÍTULO DE RESIDÊNCIA / AIMA: o número está em grande no topo e repetido à e
   "VALIDADE DO CARTÃO / CARD EXPIRY" → doc_id_validade. "DATA NASC." → data_nascimento.
   Apelidos e nomes vêm em duas linhas ("SURNAMES Forenames") — junta na ordem natural.
 
-NIF: só o preenches se vires mesmo 9 dígitos identificados como NIF, nº de contribuinte,
-  nº fiscal ou VAT. NÃO existe NIF na carta de condução nem no título de residência.
-  NUNCA uses o nº do documento, o nº de segurança social, nem inventes. Sem NIF visível → null.
+NIF (9 dígitos): está no VERSO do título de residência e do Cartão de Cidadão, sob o
+  rótulo "Nº IDENT. FISCAL" ou "Nº de Identificação Fiscal".
+  CUIDADO: no verso do título de residência aparecem TRÊS números lado a lado, sob
+  "NÚMEROS DE IDENTIFICAÇÃO / PERSONAL NUMBERS":
+    "Nº IDENT. FISCAL"      → é ESTE o NIF
+    "Nº SEGURANÇA SOCIAL"   → 11 dígitos, NÃO é o NIF
+    "Nº UTENTE DE SAÚDE"    → também 9 dígitos, NÃO é o NIF
+  Lê o rótulo que está POR CIMA de cada número; não escolhas pelo número de dígitos.
+  A carta de condução não tem NIF. Nunca uses o nº do documento nem inventes → null.
 
-MORADA: extrai quando aparecer (comprovativo de morada, IDs estrangeiros). O Cartão de
-  Cidadão português e o título de residência NÃO mostram morada → null.
+MORADA: o VERSO do título de residência TEM morada, sob "MORADA / ADDRESS": rua e número
+  na primeira linha e o código postal (0000-000) na linha seguinte. A localidade costuma
+  vir no fim da linha da morada ou a seguir ao código postal — separa-a de morada_linha1.
+  Extrai também de comprovativos de morada e de IDs estrangeiros.
+  O Cartão de Cidadão português NÃO mostra morada → null.
+
+ZONA MRZ (as 3 linhas de "<<<<" no fundo dos títulos de residência e passaportes): é
+  legível por máquina e mais fiável do que o texto impresso — usa-a para CONFIRMAR.
+  Linha 1: tipo + país + nº do documento (o último dígito antes dos "<" é de controlo,
+  não faz parte do número). Linha 2: AAMMDD de nascimento + dígito, sexo, AAMMDD de
+  validade + dígito, e o país em ISO-3. Linha 3: APELIDOS<<NOMES.
+  Ex.: "7903281M2702283EGY" → nascimento 1979-03-28, validade 2027-02-28, EGY→EG.
 
 FORMATOS:
   Datas SEMPRE AAAA-MM-DD. Datas escritas dd.mm.aa (dois dígitos no ano) são do século XXI:
