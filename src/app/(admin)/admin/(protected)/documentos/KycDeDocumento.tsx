@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { atualizarMotorista, type MotoristaEditavel } from "@/actions/motoristaActions";
+import {
+  atualizarMotorista,
+  criarMotorista,
+  type MotoristaEditavel,
+} from "@/actions/motoristaActions";
 import type { CamposDocumento, DocTipo } from "@/lib/gemini";
 import type { DocIdTipo } from "@/types/db";
 import { nifValidoPT } from "@/lib/kyc";
@@ -118,7 +122,12 @@ export default function KycDeDocumento({
     ? motoristas.find((m) => semAcento(m.nome) === semAcento(lido.nome!))?.id ?? ""
     : "";
 
+  // "__novo" = criar do zero a partir deste documento. Existe porque a via
+  // normal de um documento é justamente alguém que AINDA não está na lista:
+  // obrigar a sair, criar a ficha e voltar era perder o que a IA acabou de ler.
   const [motoristaId, setMotoristaId] = useState(sugerido);
+  const [telefoneNovo, setTelefoneNovo] = useState("");
+  const criando = motoristaId === "__novo";
   const [campos, setCampos] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       GRUPOS.flatMap((g) => g.campos).map(({ chave }) => [chave, (lido[chave] as string | null) ?? ""]),
@@ -132,6 +141,8 @@ export default function KycDeDocumento({
     () => motoristas.find((m) => m.id === motoristaId)?.ficha ?? {},
     [motoristas, motoristaId],
   );
+
+  const nomeEscrito = campos.nome?.trim() ?? "";
 
   /** O que a ficha já tem para este campo (para mostrar ao lado do que a IA leu). */
   const naFicha = (c: Campo) => {
@@ -165,6 +176,28 @@ export default function KycDeDocumento({
   const gravar = async () => {
     setErro(null);
     setAGravar(true);
+
+    // Criar primeiro, aplicar depois: `criarMotorista` só aceita parte do
+    // perfil, e o resto (carta, validades) entra pelo mesmo caminho que uma
+    // atualização normal — um caminho só para gravar, não dois.
+    let alvo = motoristaId;
+    if (criando) {
+      const novo = await criarMotorista({ nome: nomeEscrito, telefone: telefoneNovo.trim() });
+      if (!novo.success || !novo.id) {
+        setAGravar(false);
+        if (novo.jaExistiaId) {
+          // Não é um erro do gestor: é a mesma pessoa outra vez. Passa a
+          // completar a ficha que já existe, sem perder a leitura.
+          setMotoristaId(novo.jaExistiaId);
+          setErro("Já existe um motorista com este telefone — selecionei-o. Confirma e grava.");
+          return;
+        }
+        setErro(novo.error ?? "Erro ao criar o motorista.");
+        return;
+      }
+      alvo = novo.id;
+    }
+
     // Só os campos preenchidos: um campo vazio aqui não deve APAGAR o que já
     // está na ficha — o documento acrescenta, não substitui à força.
     const updates: Record<string, string> = {};
@@ -173,7 +206,7 @@ export default function KycDeDocumento({
       if (v) updates[(c.coluna as string) ?? c.chave] = v;
     }
     if (docTipo) updates.doc_id_tipo = docTipo;
-    const r = await atualizarMotorista(motoristaId, updates as MotoristaEditavel);
+    const r = await atualizarMotorista(alvo, updates as MotoristaEditavel);
     setAGravar(false);
     if (!r.success) {
       setErro(r.error ?? "Erro ao gravar.");
@@ -181,7 +214,7 @@ export default function KycDeDocumento({
     }
     const falta = emFalta.flatMap((x) => x.faltam).length;
     onFeito(
-      `Ficha atualizada · ${Object.keys(updates).length} campo(s)` +
+      `${criando ? "Motorista criado" : "Ficha atualizada"} · ${Object.keys(updates).length} campo(s)` +
         (falta ? ` · ainda faltam ${falta}` : " · perfil completo"),
     );
   };
@@ -202,6 +235,7 @@ export default function KycDeDocumento({
         <span>Motorista</span>
         <select className={campo} value={motoristaId} onChange={(e) => setMotoristaId(e.target.value)}>
           <option value="">— escolhe o motorista —</option>
+          <option value="__novo">+ Criar motorista novo com estes dados</option>
           {motoristas.map((m) => (
             <option key={m.id} value={m.id}>
               {m.nome}
@@ -211,10 +245,37 @@ export default function KycDeDocumento({
         {lido.nome && (
           <span className="text-xs text-slate-500">
             O documento diz <strong>{lido.nome}</strong>
-            {sugerido ? " — encontrado na lista." : " — não encontrei ninguém com esse nome."}
+            {sugerido
+              ? " — encontrado na lista."
+              : " — não está na lista. Escolhe “Criar motorista novo”."}
           </span>
         )}
       </label>
+
+      {criando && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+          <p className="text-sm text-slate-700">
+            Vai ser criada uma ficha nova para <strong>{nomeEscrito || "—"}</strong> com tudo o que
+            está aqui em baixo.
+          </p>
+          <label className={`${etiqueta} mt-3`}>
+            <span>Telefone</span>
+            <input
+              className={campo}
+              inputMode="tel"
+              placeholder="+351 9xx xxx xxx"
+              value={telefoneNovo}
+              onChange={(e) => setTelefoneNovo(e.target.value)}
+            />
+            {/* O documento não traz telefone e o negócio inteiro assenta nele —
+                lembretes, contrato, WhatsApp. É o único campo que tem mesmo de
+                ser escrito à mão. */}
+            <span className="text-xs text-slate-500">
+              Não vem no documento e é por aqui que seguem os lembretes e o contrato.
+            </span>
+          </label>
+        </div>
+      )}
 
       {nifMau && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
@@ -308,16 +369,32 @@ export default function KycDeDocumento({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-slate-500">
-          {emFalta.length === 0
-            ? "Perfil completo depois de gravar."
-            : `Depois de gravar ficam ${emFalta.flatMap((x) => x.faltam).length} campo(s) por preencher — podes carregar mais documentos a qualquer momento.`}
+          {!motoristaId
+            ? "Escolhe o motorista — ou cria um novo — para poder gravar."
+            : criando && !telefoneNovo.trim()
+              ? "Falta o telefone para criar a ficha."
+              : emFalta.length === 0
+                ? "Perfil completo depois de gravar."
+                : `Depois de gravar ficam ${emFalta.flatMap((x) => x.faltam).length} campo(s) por preencher — podes carregar mais documentos a qualquer momento.`}
         </p>
         <div className="flex gap-2">
           <Botao variante="secondary" onClick={onCancelar} disabled={aGravar}>
             Cancelar
           </Botao>
-          <Botao variante="volt" onClick={gravar} disabled={aGravar || !motoristaId}>
-            {aGravar ? "A gravar…" : "Aplicar à ficha"}
+          <Botao
+            variante="volt"
+            onClick={gravar}
+            disabled={
+              aGravar || !motoristaId || (criando && (!nomeEscrito || !telefoneNovo.trim()))
+            }
+          >
+            {aGravar
+              ? criando
+                ? "A criar…"
+                : "A gravar…"
+              : criando
+                ? "Criar motorista"
+                : "Aplicar à ficha"}
           </Botao>
         </div>
       </div>
