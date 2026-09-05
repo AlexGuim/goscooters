@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
-import { notificar } from "@/lib/notificacoes";
+import { notificar, resolverNotificacoes } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 import { prontoParaEntrega, nifValidoPT } from "@/lib/kyc";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
@@ -111,11 +111,17 @@ export async function submeterVistoriaEntrega(
       .eq("id", c.motorista_id)
       .maybeSingle();
     const novoNif = input.nif?.trim() ? input.nif.replace(/\D/g, "") : null;
+    // Ficheiros novos JUNTAM-SE aos que a ficha tem AGORA — não aos que o
+    // ecrã viu ao carregar. Entre um e outro o motorista pode ter enviado os
+    // dele pelo link, ou o intake ter anexado os que o gestor fotografou.
+    const docsAtuais = atual?.doc_urls ?? [];
+    const docsNovos = (input.doc_paths ?? []).filter((p) => !docsAtuais.includes(p));
+    const docUrls = docsNovos.length ? [...docsAtuais, ...docsNovos] : null;
     const merged = {
       nif: novoNif ?? atual?.nif,
       nif_valido: novoNif ? nifValidoPT(novoNif) : atual?.nif_valido ?? null,
       doc_id_numero: input.doc_id_numero?.trim() || atual?.doc_id_numero,
-      doc_urls: input.doc_paths?.length ? input.doc_paths : atual?.doc_urls ?? null,
+      doc_urls: docUrls ?? (docsAtuais.length ? docsAtuais : null),
       carta_numero: input.carta_numero?.trim() || null,
       morada_linha1: input.morada_linha1?.trim() || atual?.morada_linha1,
     };
@@ -132,7 +138,7 @@ export async function submeterVistoriaEntrega(
     if (input.doc_id_tipo) upd.doc_id_tipo = input.doc_id_tipo as DocIdTipo;
     if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();
     if (input.doc_id_validade) upd.doc_id_validade = input.doc_id_validade;
-    if (input.doc_paths?.length) upd.doc_urls = input.doc_paths;
+    if (docUrls) upd.doc_urls = docUrls;
     if (input.morada_linha1?.trim()) upd.morada_linha1 = input.morada_linha1.trim();
     if (input.codigo_postal?.trim()) upd.codigo_postal = input.codigo_postal.trim();
     if (input.localidade?.trim()) upd.localidade = input.localidade.trim();
@@ -205,6 +211,18 @@ export async function submeterVistoriaEntrega(
   if (c.veiculo_id) {
     await ocuparMota(c.veiculo_id);
   }
+  // As notificações que pediam ESTA entrega já não têm nada para abrir: a
+  // página de entrega de um contrato ativo só diz "já tem vistoria".
+  await resolverNotificacoes(["contrato_pronto", "entrega_preparada"], input.contrato_id);
+  // E o link de entrega que ainda estivesse por usar deixa de fazer sentido —
+  // concluído depois disto, só produzia uma notificação "fazer entrega" para
+  // uma entrega já feita, e continuava a aceitar documentos e assinatura.
+  const { error: sessErr } = await supabaseAdmin
+    .from("entrega_sessao")
+    .update({ estado: "cancelado" })
+    .eq("contrato_id", input.contrato_id)
+    .in("estado", ["enviado", "aberto", "docs_carregados"]);
+  if (sessErr) console.error("submeterVistoriaEntrega cancelar sessões:", sessErr);
   if (c.motorista_id) {
     // Promove só se ainda for lead — não mexe num já ativo/bloqueado.
     await supabaseAdmin

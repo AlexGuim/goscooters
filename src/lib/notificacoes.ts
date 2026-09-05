@@ -34,3 +34,22 @@ export async function notificar(n: NovaNotificacao): Promise<void> {
     console.warn("notificar exception:", err);
   }
 }
+
+/**
+ * Dá por feitas as notificações de uns tipos para uma entidade — quando a ação
+ * que pediam aconteceu por outro caminho (a entrega foi feita: "contrato pronto"
+ * e "motorista preparou a entrega" já não têm nada para abrir). Best-effort.
+ */
+export async function resolverNotificacoes(tipos: string[], entidadeId: string): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin
+      .from("notificacao")
+      .update({ estado: "feita", feita_em: new Date().toISOString() })
+      .eq("entidade_id", entidadeId)
+      .in("tipo", tipos)
+      .neq("estado", "feita");
+    if (error) console.warn("resolverNotificacoes:", error.message);
+  } catch (err) {
+    console.warn("resolverNotificacoes exception:", err);
+  }
+}

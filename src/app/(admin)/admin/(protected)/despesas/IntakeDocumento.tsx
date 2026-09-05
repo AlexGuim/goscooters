@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
   DespesaCategoria,
@@ -13,9 +14,16 @@ import type { DocTipo } from "@/lib/gemini";
 import { lerComprovativoPagamento, type ComprovativoLido } from "@/actions/pagamentoActions";
 import PagamentoDeDocumento from "@/app/(admin)/admin/(protected)/documentos/PagamentoDeDocumento";
 import KycDeDocumento, {
+  type KycFeito,
   type MotoristaParaKyc,
 } from "@/app/(admin)/admin/(protected)/documentos/KycDeDocumento";
-import { lerDocumentoIA, apagarDocumentoPublico } from "@/actions/fotoActions";
+import {
+  lerDocumentoIA,
+  apagarDocumentoPublico,
+  apagarDocumentosPrivados,
+  moverDocumentoParaPrivado,
+} from "@/actions/fotoActions";
+import { hrefJornada } from "@/lib/jornada";
 import type { CamposDocumento } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
@@ -122,6 +130,8 @@ export default function IntakeDocumento({
 
   const [res, setRes] = useState<IntakeResultado | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+  /** Caminho no bucket do documento em revisão — para o poder apagar. */
+  const [docPath, setDocPath] = useState<string | null>(null);
   // Ramo "isto é dinheiro que entrou" — só existe quando a página fornece a
   // lista de motoristas (o ecrã de Documentos); em Despesas fica inativo.
   const [pagamentoLido, setPagamentoLido] = useState<ComprovativoLido | null>(null);
@@ -129,6 +139,18 @@ export default function IntakeDocumento({
   const [kycLido, setKycLido] = useState<CamposDocumento | null>(null);
   /** Que documentos deram origem à leitura — decide que campos são de esperar. */
   const [kycTipos, setKycTipos] = useState<DocTipo[]>([]);
+  /** Os mesmos ficheiros, já no bucket privado — vão para a ficha. */
+  const [kycPaths, setKycPaths] = useState<string[]>([]);
+  /**
+   * "N ficheiro(s) não ficaram guardados": mostra-se POR CIMA do painel de
+   * KYC, não no `erro` do intake — esse fica escondido atrás do painel e o
+   * `reset()` apagava-o antes de alguém o ler.
+   */
+  const [avisoKyc, setAvisoKyc] = useState<string | null>(null);
+  // Quem ficou criado/atualizado neste lote. Sobrevive ao `reset()` de
+  // propósito: é o cartão "próximo passo: criar contrato" — o motivo de o
+  // gestor ter carregado os documentos. Só um lote novo o substitui.
+  const [feitos, setFeitos] = useState<KycFeito[]>([]);
   const [comunicacao, setComunicacao] = useState<ComunicacaoPreparada | null>(null);
   const [textoMsg, setTextoMsg] = useState("");
   const [idiomaMsg, setIdiomaMsg] = useState("en");
@@ -165,6 +187,7 @@ export default function IntakeDocumento({
     setFase("inicio");
     setRes(null);
     setDocUrl(null);
+    setDocPath(null);
     setErro(null);
     setMotoristaId(null);
     setMotoristaNome(null);
@@ -215,6 +238,9 @@ export default function IntakeDocumento({
     }
     const r = await analisarDocumento(env.path, env.url);
     if (!r.success || !r.resultado) {
+      // Nada o referencia — e pode ser um documento de identidade que não
+      // pode ficar num bucket público. Sai já.
+      await apagarDocumentoPublico(env.path);
       return { ok: false, erro: r.error ?? "Não consegui ler o documento." };
     }
     return { ok: true, doc: { nome: ficheiro.name, path: env.path, url: env.url, res: r.resultado } };
@@ -227,13 +253,17 @@ export default function IntakeDocumento({
    * vez, no início. Repeti-lo era pagar duas vezes a mesma leitura e deixar
    * cópias órfãs no bucket.
    */
-  const encaminhar = async (a: Analisado) => {
+  const encaminhar = async (a: Analisado, seguintes: Analisado[] = fila) => {
+    setDocPath(a.path);
     if (a.res.doc.tipo === "comprovativo_pagamento" && motoristas) {
       setFase("a-processar");
       const pg = await lerComprovativoPagamento(a.path);
       if (!pg.success || !pg.dados) {
-        setErro(pg.error ?? "Não consegui ler o comprovativo.");
-        setFase("inicio");
+        // Um comprovativo ilegível não pode parar o lote: diz-se qual falhou e
+        // segue-se para o próximo (o ficheiro fica no bucket, pode ser
+        // registado à mão como despesa/pagamento).
+        setErro(`${a.nome}: ${pg.error ?? "não consegui ler o comprovativo."}`);
+        await seguirLote(seguintes);
         return;
       }
       setPagamentoLido(pg.dados);
@@ -244,6 +274,26 @@ export default function IntakeDocumento({
   };
 
   /**
+   * Avança para o próximo do lote a partir de uma lista EXPLÍCITA — de dentro
+   * de um handler async o `fila` do closure pode estar velho (acabou de ser
+   * definido no mesmo handler). Sem próximo, volta ao início.
+   */
+  const seguirLote = async (seguintes: Analisado[]) => {
+    setLote((l) => ({ ...l, feitos: l.feitos + 1 }));
+    const [proximo, ...resto] = seguintes;
+    setFila(resto);
+    setRes(null);
+    setDocUrl(null);
+    setDocPath(null);
+    if (proximo) {
+      await encaminhar(proximo, resto);
+      return;
+    }
+    setFase("inicio");
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  /**
    * Lê os documentos de identidade do lote NUMA SÓ leitura.
    *
    * É a diferença que interessa: o título de residência dá o nº e a validade, a
@@ -251,20 +301,45 @@ export default function IntakeDocumento({
    * um, cada leitura só vê um terço da pessoa e os campos dos outros ficam a
    * null. Lidos juntos, saem de uma vez — que é como o gestor os tem na mão.
    */
-  const lerKycEmConjunto = async (docs: Analisado[]) => {
+  const lerKycEmConjunto = async (docs: Analisado[], seguintes: Analisado[] = fila) => {
+    setFase("a-processar");
+    setAvisoKyc(null);
     const kyc = await lerDocumentoIA(docs.map((d) => d.path), "motas");
-    // Entraram pelo bucket público (é onde as faturas TÊM de ficar, para o
-    // extrato as abrir). Um documento de identidade não pode lá ficar: lidos os
-    // campos, o que interessa está na ficha e os ficheiros saem.
-    await Promise.all(docs.map((d) => apagarDocumentoPublico(d.path)));
     if (!kyc.ok || !kyc.dados) {
+      // Sem leitura não há ficha para os receber: saem do bucket público e
+      // não ficam órfãos no privado. O gestor volta a carregá-los — e o resto
+      // do lote (as faturas que vieram com eles) segue, em vez de ficar preso.
+      const apagados = await Promise.all(docs.map((d) => apagarDocumentoPublico(d.path)));
+      const ficaram = apagados.filter((a) => !a.ok).length;
       setErro(
-        kyc.error ??
-          (kyc.semIA ? "A leitura por IA não está configurada." : "Não consegui ler os documentos."),
+        (kyc.error ??
+          (kyc.semIA ? "A leitura por IA não está configurada." : "Não consegui ler os documentos de identidade.")) +
+          (ficaram ? ` ATENÇÃO: ${ficaram} ficheiro(s) de identidade ficaram no bucket público — apaga-os no Supabase.` : "") +
+          (seguintes.length ? " Sigo para o próximo documento do lote." : " Carrega-os outra vez."),
       );
-      setFase("inicio");
+      await seguirLote(seguintes);
       return;
     }
+    // Entraram pelo bucket público (é onde as faturas TÊM de ficar, para o
+    // extrato as abrir). Um documento de identidade não pode lá ficar — mas
+    // também não se deita fora: a entrega exige o ficheiro na ficha, e seria
+    // pedir ao motorista o mesmo cartão duas vezes. Passa para o privado.
+    const movidos = await Promise.all(docs.map((d) => moverDocumentoParaPrivado(d.path)));
+    const guardados = movidos.flatMap((m) => (m.ok && m.path ? [m.path] : []));
+    const publicosQueFicaram = movidos.filter((m) => m.publicoFicou).length;
+    setKycPaths(guardados);
+    const avisos: string[] = [];
+    if (guardados.length < docs.length) {
+      avisos.push(
+        `${docs.length - guardados.length} ficheiro(s) não ficaram guardados na ficha — os campos lidos aplicam-se na mesma; carrega esses ficheiros outra vez depois.`,
+      );
+    }
+    if (publicosQueFicaram) {
+      avisos.push(
+        `ATENÇÃO: ${publicosQueFicaram} ficheiro(s) de identidade não saíram do bucket público "motas" — apaga-os no Supabase.`,
+      );
+    }
+    setAvisoKyc(avisos.length ? avisos.join(" ") : null);
     setKycTipos(docs.map((d) => d.res.doc.tipo));
     setKycLido(kyc.dados);
     setFase("rever");
@@ -288,26 +363,37 @@ export default function IntakeDocumento({
     if (!escolhidos.length) return;
     setErro(null);
     setOk(null);
+    setFeitos([]);
     setFase("a-processar");
     setProgresso(escolhidos.length > 1 ? `A ler ${escolhidos.length} documentos…` : null);
 
     const lidos: Analisado[] = [];
-    for (const [i, f] of escolhidos.entries()) {
-      if (escolhidos.length > 1) setProgresso(`A ler documento ${i + 1} de ${escolhidos.length}…`);
-      const r = await carregarEClassificar(f);
-      if (!r.ok) {
-        // Um ficheiro ilegível não deita fora o lote: se já houver leituras
-        // boas, seguimos com elas e dizemos qual falhou.
-        if (!lidos.length) {
-          setErro(r.erro);
-          setProgresso(null);
-          setFase("inicio");
-          return;
+    try {
+      for (const [i, f] of escolhidos.entries()) {
+        if (escolhidos.length > 1) setProgresso(`A ler documento ${i + 1} de ${escolhidos.length}…`);
+        const r = await carregarEClassificar(f);
+        if (!r.ok) {
+          // Um ficheiro ilegível não deita fora o lote: se já houver leituras
+          // boas, seguimos com elas e dizemos qual falhou.
+          if (!lidos.length) {
+            setErro(r.erro);
+            setProgresso(null);
+            setFase("inicio");
+            return;
+          }
+          setErro(`${f.name}: ${r.erro} — segui com os restantes.`);
+          continue;
         }
-        setErro(`${f.name}: ${r.erro} — segui com os restantes.`);
-        continue;
+        lidos.push(r.doc);
       }
-      lidos.push(r.doc);
+    } catch (e) {
+      // Uma server action que rebenta (rede, timeout) não pode deixar o que
+      // já subiu no bucket público — pode ser um documento de identidade.
+      await Promise.all(lidos.map((d) => apagarDocumentoPublico(d.path)));
+      setErro(e instanceof Error ? e.message : "Falha ao carregar os documentos. Tenta outra vez.");
+      setProgresso(null);
+      setFase("inicio");
+      return;
     }
     setProgresso(null);
 
@@ -324,22 +410,30 @@ export default function IntakeDocumento({
     const kycs = lidos.filter(ehKyc);
     const resto = lidos.filter((d) => !ehKyc(d));
 
-    if (kycs.length && motoristas) {
-      // Os KYC contam como UM caso no contador do lote; o resto fica em fila.
-      setFila(resto);
-      setLote({ total: resto.length + 1, feitos: 0 });
-      await lerKycEmConjunto(kycs);
-      return;
-    }
+    try {
+      if (kycs.length && motoristas) {
+        // Os KYC contam como UM caso no contador do lote; o resto fica em fila.
+        setFila(resto);
+        setLote({ total: resto.length + 1, feitos: 0 });
+        await lerKycEmConjunto(kycs, resto);
+        return;
+      }
 
-    const [primeiro, ...seguintes] = lidos;
-    if (!primeiro) {
+      const [primeiro, ...seguintes] = lidos;
+      if (!primeiro) {
+        setFase("inicio");
+        return;
+      }
+      setFila(seguintes);
+      setLote({ total: lidos.length, feitos: 0 });
+      await encaminhar(primeiro, seguintes);
+    } catch (e) {
+      // Idem: nada de identidade fica no público, e o ecrã não fica preso em
+      // "a processar".
+      await Promise.all(kycs.map((d) => apagarDocumentoPublico(d.path)));
+      setErro(e instanceof Error ? e.message : "Falha ao ler os documentos. Tenta outra vez.");
       setFase("inicio");
-      return;
     }
-    setFila(seguintes);
-    setLote({ total: lidos.length, feitos: 0 });
-    await encaminhar(primeiro);
   };
 
   /**
@@ -531,6 +625,33 @@ export default function IntakeDocumento({
 
       {ok && <p className="mt-3 text-sm text-emerald-700">{ok}</p>}
 
+      {/* O passo seguinte, com o motorista ainda à frente do balcão. Sem isto
+          o ecrã acabava numa frase verde e o gestor tinha de ir procurar o nome
+          que acabou de criar — o contrato é para onde os documentos iam. */}
+      {feitos.map((f) => (
+        <div key={f.motoristaId} className="mt-3 space-y-2">
+          <Link
+            href={hrefJornada.criarContrato(f.motoristaId)}
+            className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+          >
+            <span>Próximo passo: criar contrato para {f.nome}</span>
+            <span aria-hidden>→</span>
+          </Link>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+            {f.pronto ? (
+              <span className="text-emerald-700">Ficha pronta para a entrega.</span>
+            ) : (
+              <span className="text-amber-800">
+                Para a entrega ainda falta: {f.faltam.join(", ")} — não impede de criar o contrato.
+              </span>
+            )}
+            <Link href={hrefJornada.ficha(f.motoristaId)} className="font-medium text-slate-600 underline">
+              Abrir ficha
+            </Link>
+          </div>
+        </div>
+      ))}
+
       {aberto && pagamentoLido && motoristas && (
         <div className="mt-4">
           <PagamentoDeDocumento
@@ -554,20 +675,33 @@ export default function IntakeDocumento({
       )}
 
       {aberto && kycLido && motoristas && (
-        <div className="mt-4">
+        <div className="mt-4 space-y-3">
+          {avisoKyc && <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">{avisoKyc}</p>}
           <KycDeDocumento
             lido={kycLido}
             motoristas={motoristas}
             tipos={kycTipos}
-            onFeito={(msg) => {
+            docPaths={kycPaths}
+            onFeito={(r) => {
+              // Um por motorista: o mesmo lote pode completar a mesma ficha
+              // duas vezes, e o cartão é da pessoa, não da gravação.
+              setFeitos((fs) => [...fs.filter((x) => x.motoristaId !== r.motoristaId), r]);
               setKycLido(null);
               setKycTipos([]);
-              setOk(msg);
+              setKycPaths([]);
+              setAvisoKyc(null);
+              setOk(r.msg);
               continuarOuFechar();
             }}
             onCancelar={() => {
+              // Ficheiros já no privado sem ficha que os reclame: saem.
+              if (kycPaths.length) void apagarDocumentosPrivados(kycPaths);
+              // O resto do lote também cai: sem revisão, sai do bucket.
+              if (fila.length) void Promise.all(fila.map((d) => apagarDocumentoPublico(d.path)));
               setKycLido(null);
               setKycTipos([]);
+              setKycPaths([]);
+              setAvisoKyc(null);
               setFila([]);
               setLote({ total: 0, feitos: 0 });
               reset();
@@ -589,6 +723,9 @@ export default function IntakeDocumento({
                 <button
                   onClick={() => {
                     // Abandonar o resto do lote sem perder o que já foi gravado.
+                    // Os que ficavam por rever nunca foram referenciados por
+                    // nada — saem do bucket, em vez de ficarem lá órfãos.
+                    if (fila.length) void Promise.all(fila.map((d) => apagarDocumentoPublico(d.path)));
                     setFila([]);
                     setLote({ total: 0, feitos: 0 });
                     reset();
@@ -665,11 +802,57 @@ export default function IntakeDocumento({
               </label>
 
               {destino === "kyc" ? (
-                <p className="rounded-xl bg-slate-100 px-3 py-3 text-sm text-slate-600">
-                  Isto parece um documento de identidade / comprovativo do motorista. Para o aplicar
-                  a uma ficha, carrega-o em <strong>Financeiro → Documentos</strong>. Podes ver o
-                  ficheiro acima.
-                </p>
+                <div className="space-y-3">
+                  <p className="rounded-xl bg-slate-100 px-3 py-3 text-sm text-slate-600">
+                    Isto parece um documento de identidade / comprovativo do motorista — não é
+                    uma despesa.
+                    {!motoristas && (
+                      <>
+                        {" "}Para o aplicar a uma ficha, carrega-o em{" "}
+                        <Link href="/admin/documentos" className="font-semibold text-emerald-700 underline">
+                          Financeiro → Documentos
+                        </Link>
+                        .
+                      </>
+                    )}
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {motoristas && res && docPath && (
+                      <button
+                        className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                        onClick={() => {
+                          // O mesmo ficheiro, sem o carregar outra vez: lê-se
+                          // como KYC com o tipo que o gestor corrigiu.
+                          const doc: Analisado = {
+                            nome: docPath.split("/").pop() ?? docPath,
+                            path: docPath,
+                            url: docUrl ?? "",
+                            res: { ...res, doc: { ...res.doc, tipo } },
+                          };
+                          void lerKycEmConjunto([doc], fila);
+                        }}
+                        disabled={fase === "a-gravar"}
+                      >
+                        Ler como documento do motorista →
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => {
+                        // Um documento de identidade não fica no bucket público
+                        // "só porque" veio parar ao ecrã errado. E o lote segue.
+                        // (Bloqueia-se durante o apagar: um duplo clique contava
+                        // o mesmo documento duas vezes no lote.)
+                        setFase("a-gravar");
+                        if (docPath) await apagarDocumentoPublico(docPath);
+                        continuarOuFechar();
+                      }}
+                      disabled={fase === "a-gravar"}
+                      className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white disabled:opacity-50"
+                    >
+                      {lote.total - lote.feitos - 1 > 0 ? "Apagar e seguir para o próximo" : "Apagar"}
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <>
                   <div className="grid gap-4 sm:grid-cols-2">

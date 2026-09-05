@@ -46,11 +46,13 @@ async function prep(v: Record<string, unknown> | null): Promise<VistoriaPrep | n
 
 export default async function VistoriaComparacao({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ entregue?: string }>;
 }) {
   await requireAdmin();
-  const { id } = await params;
+  const [{ id }, { entregue: entregueAgora }] = await Promise.all([params, searchParams]);
 
   const { data: c } = await supabaseAdmin
     .from("contrato_aluguer")
@@ -75,6 +77,23 @@ export default async function VistoriaComparacao({
 
   return (
     <div className="space-y-6">
+      {/* Acabou de fazer a entrega (?entregue=1): o passo seguinte é enviar o
+          contrato ao motorista — o link gera-se sozinho para poupar um clique. */}
+      {entregueAgora === "1" && entrega && (
+        <section className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <div>
+            <p className="font-semibold text-emerald-900">Entrega concluída · contrato ativo · 1.ª cobrança gerada</p>
+            <p className="mt-1 text-sm text-emerald-800">
+              Envia já o contrato ao motorista — ele fica com a cópia com a vistoria e a assinatura.
+            </p>
+          </div>
+          <ReciboBotao contratoId={c.id} autoGerar />
+          <Link href="/admin/cobrancas" className="inline-block text-sm font-semibold text-emerald-700 hover:text-emerald-800">
+            Ver cobranças →
+          </Link>
+        </section>
+      )}
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/admin/contratos" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">← Contratos</Link>
@@ -84,7 +103,7 @@ export default async function VistoriaComparacao({
             {kmRodados != null ? ` · ${kmRodados.toLocaleString("pt-PT")} km rodados` : ""}
           </p>
         </div>
-        {entrega && <ReciboBotao contratoId={c.id} />}
+        {entrega && entregueAgora !== "1" && <ReciboBotao contratoId={c.id} />}
       </div>
 
       {/* Caução */}

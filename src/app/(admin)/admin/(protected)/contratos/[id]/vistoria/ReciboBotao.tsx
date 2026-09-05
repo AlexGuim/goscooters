@@ -1,23 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { criarLinkRecibo } from "@/actions/reciboActions";
 import { Botao, classesBotao } from "@/components/ui";
 
-/** Gera o link do contrato + recibo de entrega e mostra-o com o WhatsApp pronto. */
-export default function ReciboBotao({ contratoId }: { contratoId: string }) {
+/**
+ * Gera o link do contrato + recibo de entrega e mostra-o com o WhatsApp pronto.
+ * `autoGerar` gera-o logo ao montar (cartão pós-entrega): o gestor acabou de
+ * submeter a entrega e o passo seguinte é enviar — não há razão para mais um clique.
+ */
+export default function ReciboBotao({ contratoId, autoGerar = false }: { contratoId: string; autoGerar?: boolean }) {
   const [aGerar, setAGerar] = useState(false);
   const [res, setRes] = useState<{ link: string; whatsapp: string | null } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
-  const gerar = async () => {
+  const gerar = useCallback(async () => {
     setErro(null);
     setAGerar(true);
     const r = await criarLinkRecibo(contratoId);
     setAGerar(false);
     if (r.success && r.link) setRes({ link: r.link, whatsapp: r.whatsapp ?? null });
     else setErro(r.error ?? "Erro ao gerar o recibo.");
-  };
+  }, [contratoId]);
+
+  // Só uma vez por montagem (o StrictMode em dev corre o efeito duas vezes).
+  const autoJaCorreu = useRef(false);
+  useEffect(() => {
+    if (!autoGerar || autoJaCorreu.current) return;
+    autoJaCorreu.current = true;
+    gerar();
+  }, [autoGerar, gerar]);
 
   if (res) {
     return (
@@ -48,7 +60,7 @@ export default function ReciboBotao({ contratoId }: { contratoId: string }) {
 
   return (
     <div className="space-y-1">
-      <Botao variante="secondary" onClick={gerar} disabled={aGerar}>
+      <Botao variante={autoGerar ? "volt" : "secondary"} onClick={gerar} disabled={aGerar}>
         {aGerar ? "A gerar…" : "Enviar contrato ao motorista"}
       </Botao>
       {erro && <p className="text-xs text-red-700">{erro}</p>}

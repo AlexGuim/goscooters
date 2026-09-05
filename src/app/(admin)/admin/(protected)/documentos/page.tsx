@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { motoristasParaIntake } from "@/lib/motoristasParaIntake";
 import IntakeDocumento from "@/app/(admin)/admin/(protected)/despesas/IntakeDocumento";
 
 /**
@@ -18,15 +19,9 @@ export default async function DocumentosPage() {
     .from("moto")
     .select("id, matricula, modelo, proprietario_id")
     .order("matricula");
-  // Traz também o perfil KYC: o painel de documentos completa a ficha em vez de
-  // a substituir, e para isso tem de saber o que ela já tem.
-  const { data: mots } = await supabaseAdmin
-    .from("motorista")
-    .select(
-      "id, nome, nif, pais_iso, data_nascimento, doc_id_tipo, doc_id_numero, doc_id_validade, carta_numero, carta_categoria, carta_pais, carta_validade, morada_linha1, codigo_postal, localidade",
-    )
-    .neq("estado", "bloqueado")
-    .order("nome");
+  // Com o perfil KYC e os ficheiros que a ficha já tem (loader partilhado com
+  // Despesas — os dois ecrãs tratam um documento de identidade da mesma forma).
+  const motoristas = await motoristasParaIntake();
 
   return (
     <div className="space-y-6">
@@ -34,13 +29,14 @@ export default async function DocumentosPage() {
         <h1 className="text-3xl font-semibold text-slate-950">Documentos</h1>
         <p className="mt-1 text-slate-600">
           Carrega qualquer documento — a IA identifica o que é e encaminha para o sítio certo.
+          Motorista novo? Carrega o documento de identidade e a carta — o contrato segue daqui.
         </p>
       </div>
 
       <div className="rounded-3xl bg-white p-6 shadow-sm">
         <IntakeDocumento
           motos={motos ?? []}
-          motoristas={(mots ?? []).map(({ id, nome, ...ficha }) => ({ id, nome, ficha }))}
+          motoristas={motoristas}
           sempreAberto
         />
       </div>

@@ -10,6 +10,7 @@ import { interpretarDocumento } from "@/lib/documentos";
 import { nomeInicial } from "@/lib/nomeMotorista";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 import { formatarPreco } from "@/lib/precos";
+import { hrefJornada } from "@/lib/jornada";
 
 interface ContratoInfo {
   id: string;
@@ -229,8 +230,8 @@ export default function CapturaEntrega({
     return (
       <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
         <p className="text-slate-700">Este contrato já tem uma vistoria de {recolha ? "recolha" : "entrega"}.</p>
-        <Link href="/admin/contratos" className="mt-4 inline-block text-sm font-semibold text-emerald-600 hover:text-emerald-700">
-          ← Voltar aos contratos
+        <Link href={hrefJornada.vistoria(contrato.id)} className="mt-4 inline-block text-sm font-semibold text-emerald-600 hover:text-emerald-700">
+          Ver vistoria →
         </Link>
       </div>
     );
@@ -295,10 +296,11 @@ export default function CapturaEntrega({
       materiais,
       notas: notas || null,
     };
-    // Novos ficheiros de documento carregados agora — juntam-se aos já existentes
-    // (nunca substituem, para não perder cópias anteriores).
+    // Só os ficheiros carregados AGORA: é o servidor que os junta ao que a
+    // ficha tem nesse momento. Mandar a lista inteira a partir do que este ecrã
+    // viu ao abrir apagava o que entrou entretanto (link do motorista, intake).
     const novosDocs = Object.values(docsKyc).filter(Boolean);
-    const docPaths = novosDocs.length ? [...(motorista?.doc_urls ?? []), ...novosDocs] : undefined;
+    const docPaths = novosDocs.length ? novosDocs : undefined;
     const r = recolha
       ? await submeterVistoriaRecolha(base)
       : await submeterVistoriaEntrega({
@@ -320,7 +322,10 @@ export default function CapturaEntrega({
         });
     setASubmeter(false);
     if (!r.success) return setErro(r.error ?? "Erro ao submeter.");
-    window.location.href = "/admin/contratos";
+    // Entrega feita: segue para a vistoria com o cartão "enviar contrato ao
+    // motorista" — o passo seguinte, em vez de voltar à lista e ficar sem pista.
+    // A recolha conclui o contrato — que a lista "abertos" já não mostra.
+    window.location.assign(recolha ? "/admin/contratos?f=concluido" : hrefJornada.vistoria(contrato.id, true));
   };
 
   return (

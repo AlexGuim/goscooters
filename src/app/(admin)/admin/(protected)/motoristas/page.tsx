@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { escolherContratoEmCurso } from "@/lib/contratoAberto";
 import { requireAdmin } from "@/lib/dal";
-import type { Avaliacao, Motorista } from "@/types/db";
+import type { Avaliacao, ContratoEstado, Motorista } from "@/types/db";
 import MotoristasList, { type MotoristaComAvaliacoes } from "./MotoristasList";
 
 async function getMotoristas(): Promise<MotoristaComAvaliacoes[]> {
@@ -31,15 +32,25 @@ export default async function MotoristasAdminPage({
   await requireAdmin();
   const [{ m: foco }, motoristas] = await Promise.all([searchParams, getMotoristas()]);
 
-  // Pré-contratos à espera de mota, por motorista — para a ficha oferecer o atalho
-  // "finalizar contrato" (o passo seguinte depois de validar a identidade).
-  const { data: pcs } = await supabaseAdmin
+  // Contrato em curso por motorista — para a ficha oferecer o "próximo passo"
+  // certo (finalizar o pré-contrato, entregar o rascunho, ou enviar o ativo).
+  // Um pré-contrato/rascunho ganha a um ativo+: é o que está a meio do caminho.
+  const { data: cs } = await supabaseAdmin
     .from("contrato_aluguer")
-    .select("id, numero, motorista_id")
-    .eq("estado", "pre_contrato");
-  const preContratos: Record<string, { id: string; numero: string }> = {};
-  for (const p of pcs ?? []) {
-    if (p.motorista_id) preContratos[p.motorista_id] = { id: p.id, numero: p.numero };
+    .select("id, numero, estado, motorista_id")
+    .in("estado", ["pre_contrato", "rascunho", "ativo", "pendente_fecho", "suspenso"])
+    .order("created_at", { ascending: false });
+  // A MESMA regra do wizard (`contratoAbertoDe`): a ficha e o "Criar aluguer"
+  // têm de apontar para o mesmo contrato.
+  const porMotorista: Record<string, { id: string; numero: string; estado: ContratoEstado }[]> = {};
+  for (const c of cs ?? []) {
+    if (!c.motorista_id) continue;
+    (porMotorista[c.motorista_id] ??= []).push({ id: c.id, numero: c.numero, estado: c.estado });
+  }
+  const contratoPorMotorista: Record<string, { id: string; numero: string; estado: ContratoEstado }> = {};
+  for (const [mid, lista] of Object.entries(porMotorista)) {
+    const c = escolherContratoEmCurso(lista);
+    if (c) contratoPorMotorista[mid] = c;
   }
 
   // Motoristas com "documentos por validar" em aberto — a ficha mostra o botão
@@ -63,7 +74,7 @@ export default async function MotoristasAdminPage({
       <MotoristasList
         inicial={motoristas}
         foco={foco ?? null}
-        preContratos={preContratos}
+        contratoPorMotorista={contratoPorMotorista}
         porValidar={porValidar}
       />
     </div>

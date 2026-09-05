@@ -37,7 +37,7 @@ interface Props {
   motoristas: Pick<Motorista, "id" | "nome" | "telefone">[];
   motos: Pick<Moto, "id" | "matricula" | "modelo" | "proprietario_id">[];
   proprietarios: Pick<Proprietario, "id" | "nome">[];
-  filtroInicial?: "preenchimento";
+  filtroInicial?: "preenchimento" | ContratoEstado;
 }
 
 const campo =
@@ -109,6 +109,11 @@ export default function ContratosList({
       const existe = atuais.some((x) => x.id === c.id);
       return existe ? atuais.map((x) => (x.id === c.id ? c : x)) : [c, ...atuais];
     });
+    // Um pré-contrato/rascunho não aparece em "abertos" — muda o filtro para o
+    // contrato acabado de guardar não desaparecer (parecia que falhou).
+    if (filtro === "abertos" && (c.estado === "pre_contrato" || c.estado === "rascunho")) {
+      setFiltro("preenchimento");
+    }
     setModal(null);
   };
 

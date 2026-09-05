@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { ContratoEstado, Notificacao } from "@/types/db";
 import { HeroMarca } from "@/components/HeroMarca";
 import { saudacaoLisboa } from "@/lib/datas";
+import { hrefJornada } from "@/lib/jornada";
 import NotificacoesList from "./notificacoes/NotificacoesList";
 
 /** Painel de entrada: a próxima ação de cada jornada + a caixa de notificações. */
@@ -39,7 +40,7 @@ export default async function AdminInicio() {
 
   const tiles: { rotulo: string; n: number; href: string; cor: string }[] = [
     { rotulo: "Por resolver", n: notifAbertas.count ?? 0, href: "/admin/notificacoes", cor: "text-emerald-600" },
-    { rotulo: "Pré-contratos", n: preContratos.count ?? 0, href: "/admin/contratos", cor: "text-indigo-600" },
+    { rotulo: "Pré-contratos", n: preContratos.count ?? 0, href: hrefJornada.preenchimento, cor: "text-indigo-600" },
     { rotulo: "Em atraso", n: emAtraso.count ?? 0, href: "/admin/cobrancas", cor: "text-red-600" },
     { rotulo: "Por recolher", n: porRecolher.count ?? 0, href: "/admin/contratos", cor: "text-amber-600" },
     { rotulo: "Contratos ativos", n: ativos.count ?? 0, href: "/admin/contratos", cor: "text-slate-950" },

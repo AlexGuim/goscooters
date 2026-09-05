@@ -8,9 +8,10 @@
 export function normalizarTelefone(telefone: string): string {
   let digitos = (telefone ?? "").replace(/\D/g, "");
 
-  if (digitos.startsWith("00351")) {
-    digitos = digitos.slice(5);
-  } else if (digitos.startsWith("351") && digitos.length > 9) {
+  // "00" é o mesmo que "+": "0044 7…" e "+44 7…" são o mesmo número, e têm de
+  // dar na mesma ficha — senão o segundo formato cria um motorista em duplicado.
+  if (digitos.startsWith("00")) digitos = digitos.slice(2);
+  if (digitos.startsWith("351") && digitos.length > 9) {
     digitos = digitos.slice(3);
   }
 

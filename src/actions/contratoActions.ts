@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { notificar } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
+import { hrefJornada } from "@/lib/jornada";
+import { contratoAbertoDe, type ContratoAberto } from "@/lib/contratoAberto";
 import type { ContratoEstado, Database, Periodicidade } from "@/types/db";
 
 type ContratoUpdate = Database["public"]["Tables"]["contrato_aluguer"]["Update"];
@@ -93,7 +95,7 @@ export async function criarContrato(
       tipo: "pre_contrato_sem_mota",
       titulo: "Pré-contrato à espera de mota",
       detalhe: `Jornada ${data.numero} aberta — atribuir mota, preço e data.`,
-      href: "/admin/contratos",
+      href: hrefJornada.preenchimento,
       entidade: "contrato",
       entidade_id: data.id,
     });
@@ -102,6 +104,23 @@ export async function criarContrato(
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/motas");
   return { success: true, id: data.id, numero: data.numero };
+}
+
+/**
+ * O contrato em curso do motorista, para o wizard NÃO criar um segundo por cima
+ * de um pré-contrato ou rascunho que já existe (o passo 1 escolhe o motorista
+ * no cliente, depois de a página ter carregado).
+ */
+export async function contratoAbertoDeMotorista(
+  motoristaId: string,
+): Promise<{ success: boolean; contrato: ContratoAberto | null; error?: string }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, contrato: null, error: auth.error };
+  try {
+    return { success: true, contrato: await contratoAbertoDe(motoristaId) };
+  } catch (e) {
+    return { success: false, contrato: null, error: e instanceof Error ? e.message : "Erro ao verificar contratos." };
+  }
 }
 
 export interface FinalizarPreContratoInput {
@@ -211,7 +230,7 @@ export async function finalizarPreContrato(
     tipo: "contrato_pronto",
     titulo: "Contrato pronto — agendar entrega",
     detalhe: `Contrato ${data.numero} finalizado. Enviar link de entrega / agendar.`,
-    href: "/admin/contratos",
+    href: hrefJornada.preenchimento,
     entidade: "contrato",
     entidade_id: id,
   });

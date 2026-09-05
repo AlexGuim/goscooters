@@ -5,6 +5,7 @@ import type { PedidoAluguer, PedidoEstado } from "@/types/db";
 import Link from "next/link";
 import { updatePedidoEstado, converterPedidoEmJornada } from "@/actions/pedidoActions";
 import { duracaoPorExtenso } from "@/lib/precos";
+import { hrefJornada } from "@/lib/jornada";
 import { Botao, Badge, classesBotao } from "@/components/ui";
 import pt from "@/dictionaries/pt.json";
 
@@ -36,8 +37,9 @@ export default function PedidosList({ initialPedidos, avisos }: PedidosListProps
     const r = await converterPedidoEmJornada(pedidoId);
     setAConverter(null);
     if (!r.success) return alert(r.error);
-    // Abre a jornada (pré-contrato) para atribuir mota/preço/data.
-    window.location.href = "/admin/contratos";
+    // Direto ao passo 2 do wizard: o pré-contrato já existe, só falta atribuir
+    // mota/preço/data — sem passar pela lista para o ir procurar.
+    window.location.href = r.motoristaId ? hrefJornada.criarContrato(r.motoristaId) : hrefJornada.preenchimento;
   };
 
   const handleEstadoChange = async (pedidoId: string, novoEstado: PedidoEstado) => {
@@ -149,7 +151,12 @@ export default function PedidosList({ initialPedidos, avisos }: PedidosListProps
               )}
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
                 {pedido.estado === "fechado" ? (
-                  <Link href="/admin/contratos" className={classesBotao("secondary", "md")}>
+                  // A ficha mostra sempre o passo em que a jornada vai — a lista
+                  // "em preenchimento" deixa de a mostrar assim que avança.
+                  <Link
+                    href={pedido.motorista_id ? hrefJornada.ficha(pedido.motorista_id) : hrefJornada.preenchimento}
+                    className={classesBotao("secondary", "md")}
+                  >
                     Ver jornada
                   </Link>
                 ) : (

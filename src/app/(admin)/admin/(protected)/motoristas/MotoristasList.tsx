@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Avaliacao, AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
+import type { Avaliacao, AvaliacaoTipo, ContratoEstado, DocIdTipo, Motorista } from "@/types/db";
 import { normalizarTelefone } from "@/lib/telefone";
 import { IDIOMAS } from "@/lib/lembretes";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento, iso3ParaIso2 } from "@/lib/documentos";
 import { kycCompleto } from "@/lib/kyc";
 import { nomeInicial } from "@/lib/nomeMotorista";
+import { hrefJornada } from "@/lib/jornada";
 import {
   criarMotorista,
   atualizarMotorista,
@@ -39,6 +40,9 @@ const NOME_TIPO: Record<AvaliacaoTipo, string> = {
   neutra: "Neutra",
 };
 
+/** Contrato em curso do motorista (pré-contrato/rascunho antes de ativo+). */
+type ContratoResumo = { id: string; numero: string; estado: ContratoEstado };
+
 function contar(avaliacoes: Avaliacao[], tipo: AvaliacaoTipo) {
   return avaliacoes.filter((a) => a.tipo === tipo).length;
 }
@@ -46,12 +50,12 @@ function contar(avaliacoes: Avaliacao[], tipo: AvaliacaoTipo) {
 export default function MotoristasList({
   inicial,
   foco = null,
-  preContratos = {},
+  contratoPorMotorista = {},
   porValidar = [],
 }: {
   inicial: MotoristaComAvaliacoes[];
   foco?: string | null;
-  preContratos?: Record<string, { id: string; numero: string }>;
+  contratoPorMotorista?: Record<string, ContratoResumo>;
   porValidar?: string[];
 }) {
   const porValidarSet = useMemo(() => new Set(porValidar), [porValidar]);
@@ -244,7 +248,7 @@ export default function MotoristasList({
                 {expandido === m.id && (
                   <DetalheMotorista
                     motorista={m}
-                    preContrato={preContratos[m.id]}
+                    contrato={contratoPorMotorista[m.id]}
                     porValidar={porValidarSet.has(m.id)}
                     onAvaliacoes={(avs) => atualizarLocal(m.id, avs)}
                     onAtualizado={(campos) => atualizarCampos(m.id, campos)}
@@ -266,14 +270,14 @@ export default function MotoristasList({
 
 function DetalheMotorista({
   motorista,
-  preContrato,
+  contrato,
   porValidar,
   onAvaliacoes,
   onAtualizado,
   onEliminar,
 }: {
   motorista: MotoristaComAvaliacoes;
-  preContrato?: { id: string; numero: string };
+  contrato?: ContratoResumo;
   porValidar?: boolean;
   onAvaliacoes: (avs: Avaliacao[]) => void;
   onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
@@ -339,7 +343,7 @@ function DetalheMotorista({
 
   return (
     <div className="space-y-6 border-t border-slate-200 bg-slate-50 px-6 py-5">
-      <FichaKYC motorista={motorista} preContrato={preContrato} porValidar={porValidar} onAtualizado={onAtualizado} />
+      <FichaKYC motorista={motorista} contrato={contrato} porValidar={porValidar} onAtualizado={onAtualizado} />
 
       {motorista.notas && (
         <p className="rounded-2xl bg-white p-4 text-sm text-slate-700 shadow-sm">
@@ -478,14 +482,53 @@ const ESTADOS_MOTORISTA: { valor: MotoristaComAvaliacoes["estado"]; rotulo: stri
   { valor: "bloqueado", rotulo: "Bloqueado" },
 ];
 
+function proximoPassoJornada(
+  motorista: MotoristaComAvaliacoes,
+  contrato?: ContratoResumo,
+): { href: string; texto: string; neutro?: boolean } | null {
+  if (motorista.estado === "bloqueado") return null;
+  if (!contrato) {
+    return {
+      href: hrefJornada.criarContrato(motorista.id),
+      texto: "Próximo passo: criar contrato para este motorista.",
+    };
+  }
+  switch (contrato.estado) {
+    // O wizard retoma o pré-contrato aberto em vez de criar outro.
+    case "pre_contrato":
+      return {
+        href: hrefJornada.criarContrato(motorista.id),
+        texto: `Próximo passo: finalizar o contrato ${contrato.numero} — atribuir mota, preço e data.`,
+      };
+    case "rascunho":
+      return {
+        href: hrefJornada.entregar(contrato.id),
+        texto: `Próximo passo: entregar a mota (contrato ${contrato.numero}).`,
+      };
+    case "ativo":
+      return {
+        href: hrefJornada.vistoria(contrato.id),
+        texto: `Contrato ${contrato.numero} ativo · abrir vistoria e enviar o contrato ao motorista`,
+        neutro: true,
+      };
+    // Suspenso / pendente de fecho: o que há para fazer é na lista de contratos.
+    default:
+      return {
+        href: `/admin/contratos?f=${contrato.estado}`,
+        texto: `Contrato ${contrato.numero} ${contrato.estado.replace("_", " ")} · abrir na lista de contratos`,
+        neutro: true,
+      };
+  }
+}
+
 function FichaKYC({
   motorista,
-  preContrato,
+  contrato,
   porValidar,
   onAtualizado,
 }: {
   motorista: MotoristaComAvaliacoes;
-  preContrato?: { id: string; numero: string };
+  contrato?: ContratoResumo;
   porValidar?: boolean;
   onAtualizado: (campos: Partial<MotoristaComAvaliacoes>) => void;
 }) {
@@ -516,6 +559,11 @@ function FichaKYC({
     if (r.success && r.link) setLinkGerado({ link: r.link, whatsapp: r.whatsapp ?? null });
     else setErro(r.error ?? "Erro ao gerar o link.");
   };
+
+  // Cartão "próximo passo" da jornada — a ficha diz sempre o que se segue, para
+  // um fluxo interrompido (pré-contrato sem mota, rascunho por entregar) poder
+  // ser retomado daqui. Um bloqueado não tem passo seguinte.
+  const proximoPasso = proximoPassoJornada(motorista, contrato);
 
   // Abre um ficheiro do documento (bucket privado) com link assinado temporário.
   const abrirDocumento = async (path: string) => {
@@ -662,12 +710,16 @@ function FichaKYC({
             ✓ Identidade validada
           </p>
         )}
-        {preContrato && (
+        {proximoPasso && (
           <Link
-            href="/admin/contratos?f=preenchimento"
-            className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
+            href={proximoPasso.href}
+            className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+              proximoPasso.neutro
+                ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+            }`}
           >
-            <span>Próximo passo: finalizar o contrato {preContrato.numero} — atribuir mota, preço e data.</span>
+            <span>{proximoPasso.texto}</span>
             <span aria-hidden>→</span>
           </Link>
         )}

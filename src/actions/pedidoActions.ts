@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import { notificar } from "@/lib/notificacoes";
+import { hrefJornada } from "@/lib/jornada";
 import type { PedidoEstado } from "@/types/db";
 
 export async function updatePedidoEstado(
@@ -131,7 +132,7 @@ export async function converterPedidoEmJornada(
         tipo: "pre_contrato_sem_mota",
         titulo: "Pré-contrato à espera de mota",
         detalhe: `Jornada ${c.numero} (do pedido de ${p.nome}) — atribuir mota, preço e data.`,
-        href: "/admin/contratos",
+        href: hrefJornada.preenchimento,
         entidade: "contrato",
         entidade_id: c.id,
       });

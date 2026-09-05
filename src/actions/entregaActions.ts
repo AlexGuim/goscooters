@@ -10,6 +10,7 @@ import { regrasAtivas } from "@/actions/regrasActions";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import { notificar } from "@/lib/notificacoes";
+import { hrefJornada } from "@/lib/jornada";
 import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
@@ -219,7 +220,8 @@ export async function criarSessaoRegisto(input: {
         tipo: "pre_contrato_sem_mota",
         titulo: "Pré-contrato à espera de mota",
         detalhe: `Registo por link aberto (${pc.numero}) — atribuir mota, preço e data.`,
-        href: "/admin/contratos",
+        // Filtro onde o pré-contrato aparece (o "abertos" por omissão esconde-o).
+        href: hrefJornada.preenchimento,
         entidade: "contrato",
         entidade_id: pc.id,
       });
@@ -571,7 +573,17 @@ export async function concluirPorToken(
     if (input.doc_id_tipo) upd.doc_id_tipo = input.doc_id_tipo as DocIdTipo;
     if (input.doc_id_numero?.trim()) upd.doc_id_numero = input.doc_id_numero.trim();
     if (input.doc_id_validade) upd.doc_id_validade = input.doc_id_validade;
-    if (input.doc_paths.length) upd.doc_urls = input.doc_paths;
+    if (input.doc_paths.length) {
+      // JUNTA aos que a ficha já tem: o gestor pode ter digitalizado o cartão
+      // em Documentos antes de o motorista abrir o link — não se deita fora.
+      const { data: mAtual } = await supabaseAdmin
+        .from("motorista")
+        .select("doc_urls")
+        .eq("id", s.motorista_id)
+        .maybeSingle();
+      const atuais = (mAtual?.doc_urls as string[] | null) ?? [];
+      upd.doc_urls = [...atuais, ...input.doc_paths.filter((p) => !atuais.includes(p))];
+    }
     if (input.morada_linha1?.trim()) upd.morada_linha1 = input.morada_linha1.trim();
     if (input.codigo_postal?.trim()) upd.codigo_postal = input.codigo_postal.trim();
     if (input.localidade?.trim()) upd.localidade = input.localidade.trim();
@@ -633,6 +645,30 @@ export async function concluirPorToken(
       href: `/admin/motoristas?m=${s.motorista_id}`,
       entidade: "motorista",
       entidade_id: s.motorista_id,
+    });
+  }
+
+  // Link de ENTREGA concluído: o próximo passo é o gestor fazer a entrega
+  // presencial (vistoria + ativar). O registo puro não a gera — ainda falta a mota.
+  // `precisaRegras` já é a natureza fixada na criação (ou inferida, nas antigas).
+  if (s.contrato_id && precisaRegras) {
+    // Só enquanto a entrega estiver POR fazer: um link concluído depois da
+    // entrega presencial (corrida de segundos com o cancelamento) não pode
+    // pedir ao gestor uma entrega que ele acabou de fazer.
+    const { data: est } = await supabaseAdmin
+      .from("contrato_aluguer")
+      .select("estado")
+      .eq("id", s.contrato_id)
+      .maybeSingle();
+    if (est && est.estado !== "rascunho" && est.estado !== "pre_contrato") return { ok: true };
+    const nome = input.nome?.trim() && !ehNomePlaceholder(input.nome) ? input.nome.trim() : "O motorista";
+    await notificar({
+      tipo: "entrega_preparada",
+      titulo: "Motorista preparou a entrega — fazer entrega",
+      detalhe: `${nome} concluiu o link: documentos e assinatura recebidos.`,
+      href: hrefJornada.entregar(s.contrato_id),
+      entidade: "contrato",
+      entidade_id: s.contrato_id,
     });
   }
 

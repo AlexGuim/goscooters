@@ -3,12 +3,13 @@
 import { useMemo, useState } from "react";
 import {
   atualizarMotorista,
+  anexarDocumentosMotorista,
   criarMotorista,
   type MotoristaEditavel,
 } from "@/actions/motoristaActions";
 import type { CamposDocumento, DocTipo } from "@/lib/gemini";
 import type { DocIdTipo } from "@/types/db";
-import { nifValidoPT } from "@/lib/kyc";
+import { nifValidoPT, prontoParaEntrega } from "@/lib/kyc";
 import { Botao, campo, etiqueta } from "@/components/ui";
 
 /**
@@ -98,6 +99,23 @@ export type MotoristaParaKyc = {
   nome: string;
   /** O que a ficha já tem, para o ecrã completar em vez de substituir. */
   ficha?: Partial<Record<string, string | null>>;
+  /** Ficheiros de identidade já na ficha — contam para "pronto para entregar". */
+  docUrls?: string[] | null;
+};
+
+/**
+ * O que sai daqui quando se grava. Não é só uma frase: quem chamou precisa do
+ * id para oferecer o passo seguinte (criar o contrato) sem obrigar a procurar
+ * o motorista outra vez numa lista.
+ */
+export type KycFeito = {
+  msg: string;
+  motoristaId: string;
+  nome: string;
+  criado: boolean;
+  /** Pela definição canónica de lib/kyc.ts — o que a ENTREGA vai exigir. */
+  pronto: boolean;
+  faltam: string[];
 };
 
 const semAcento = (s: string) =>
@@ -107,6 +125,7 @@ export default function KycDeDocumento({
   lido,
   tipos,
   motoristas,
+  docPaths,
   onFeito,
   onCancelar,
 }: {
@@ -114,7 +133,9 @@ export default function KycDeDocumento({
   /** Que documentos foram lidos neste lote — vai no resumo do topo. */
   tipos: DocTipo[];
   motoristas: MotoristaParaKyc[];
-  onFeito: (msg: string) => void;
+  /** Os ficheiros lidos, já no bucket privado — ficam na ficha (`doc_urls`). */
+  docPaths?: string[];
+  onFeito: (r: KycFeito) => void;
   onCancelar: () => void;
 }) {
   // Sugere pelo nome lido no documento — mas nunca escolhe sozinho.
@@ -176,47 +197,104 @@ export default function KycDeDocumento({
   const gravar = async () => {
     setErro(null);
     setAGravar(true);
+    try {
+      await gravarInterno();
+    } catch (e) {
+      // Uma server action que rebenta (rede, timeout) não pode deixar o painel
+      // bloqueado: o gestor tenta outra vez (anexar é idempotente) ou cancela.
+      setErro(e instanceof Error ? e.message : "Falha ao gravar. Tenta outra vez.");
+    } finally {
+      setAGravar(false);
+    }
+  };
+
+  const gravarInterno = async () => {
 
     // Criar primeiro, aplicar depois: `criarMotorista` só aceita parte do
     // perfil, e o resto (carta, validades) entra pelo mesmo caminho que uma
     // atualização normal — um caminho só para gravar, não dois.
     let alvo = motoristaId;
+    let criouAgora = false;
     if (criando) {
       const novo = await criarMotorista({ nome: nomeEscrito, telefone: telefoneNovo.trim() });
-      if (!novo.success || !novo.id) {
+      if (novo.success && novo.id) {
+        alvo = novo.id;
+        criouAgora = true;
+      } else if (novo.jaExistiaId && motoristas.some((m) => m.id === novo.jaExistiaId)) {
+        // Já existe uma ficha com este telefone. Aponta-se para ela, mas NÃO se
+        // grava por cima sem o gestor ver de quem é: um dígito trocado no
+        // telefone reescrevia o nome e o NIF de outra pessoa.
+        const dono = motoristas.find((m) => m.id === novo.jaExistiaId);
+        setMotoristaId(novo.jaExistiaId);
         setAGravar(false);
-        if (novo.jaExistiaId) {
-          // Não é um erro do gestor: é a mesma pessoa outra vez. Passa a
-          // completar a ficha que já existe, sem perder a leitura.
-          setMotoristaId(novo.jaExistiaId);
-          setErro("Já existe um motorista com este telefone — selecionei-o. Confirma e grava.");
-          return;
-        }
-        setErro(novo.error ?? "Erro ao criar o motorista.");
+        setErro(
+          `Já existe um motorista com este telefone: ${dono?.nome ?? "—"}. Se for a mesma pessoa, carrega outra vez em "Aplicar à ficha" para a completar.`,
+        );
+        return;
+      } else {
+        setAGravar(false);
+        setErro(
+          novo.jaExistiaId
+            ? "Já existe um motorista com este telefone, mas não está nesta lista (pode estar bloqueado ou ter sido criado agora) — abre-o em Motoristas."
+            : novo.error ?? "Erro ao criar o motorista.",
+        );
         return;
       }
-      alvo = novo.id;
     }
 
     // Só os campos preenchidos: um campo vazio aqui não deve APAGAR o que já
     // está na ficha — o documento acrescenta, não substitui à força.
-    const updates: Record<string, string> = {};
+    const texto: Record<string, string> = {};
     for (const c of GRUPOS.flatMap((g) => g.campos)) {
       const v = campos[c.chave]?.trim();
-      if (v) updates[(c.coluna as string) ?? c.chave] = v;
+      if (v) texto[(c.coluna as string) ?? c.chave] = v;
     }
-    if (docTipo) updates.doc_id_tipo = docTipo;
-    const r = await atualizarMotorista(alvo, updates as MotoristaEditavel);
-    setAGravar(false);
+    const alvoFicha = motoristas.find((m) => m.id === alvo);
+    const updates: MotoristaEditavel = {
+      ...(texto as MotoristaEditavel),
+      ...(docTipo ? { doc_id_tipo: docTipo as DocIdTipo } : {}),
+    };
+    const r = await atualizarMotorista(alvo, updates);
     if (!r.success) {
+      setAGravar(false);
       setErro(r.error ?? "Erro ao gravar.");
       return;
     }
-    const falta = emFalta.flatMap((x) => x.faltam).length;
-    onFeito(
-      `${criando ? "Motorista criado" : "Ficha atualizada"} · ${Object.keys(updates).length} campo(s)` +
-        (falta ? ` · ainda faltam ${falta}` : " · perfil completo"),
-    );
+    // Os ficheiros JUNTAM-SE aos que já lá estão — no servidor, a partir do que
+    // a ficha tem AGORA (a lista deste ecrã pode estar velha).
+    let docUrls = alvoFicha?.docUrls ?? [];
+    if (docPaths?.length) {
+      const a = await anexarDocumentosMotorista(alvo, docPaths);
+      if (!a.success) {
+        setAGravar(false);
+        setErro(`${a.error ?? "Não consegui guardar os ficheiros na ficha."} Os campos ficaram gravados.`);
+        return;
+      }
+      docUrls = a.doc_urls ?? [...docUrls, ...docPaths];
+    }
+    setAGravar(false);
+
+    // O que a ENTREGA vai exigir, pela definição canónica — ficha + o que
+    // acabou de entrar. É isto que o passo seguinte precisa de saber.
+    const antes = alvoFicha?.ficha ?? {};
+    const nifFinal = texto.nif ?? antes.nif ?? null;
+    const prontidao = prontoParaEntrega({
+      nif: nifFinal,
+      nif_valido: nifValidoPT(nifFinal),
+      doc_id_numero: texto.doc_id_numero ?? antes.doc_id_numero ?? null,
+      carta_numero: texto.carta_numero ?? antes.carta_numero ?? null,
+      morada_linha1: texto.morada_linha1 ?? antes.morada_linha1 ?? null,
+      doc_urls: docUrls,
+    });
+    onFeito({
+      msg: `${criouAgora ? "Motorista criado" : "Ficha atualizada"} · ${Object.keys(texto).length} campo(s) gravado(s)`,
+      motoristaId: alvo,
+      // O nome que ficou na ficha: o que se acabou de gravar, ou o que lá estava.
+      nome: texto.nome ?? alvoFicha?.nome ?? nomeEscrito ?? "motorista",
+      criado: criouAgora,
+      pronto: prontidao.pronto,
+      faltam: prontidao.faltam,
+    });
   };
 
   return (

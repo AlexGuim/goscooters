@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
-import { kycCompleto } from "@/lib/kyc";
+import { kycCompleto, prontoParaEntrega } from "@/lib/kyc";
 import type { AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
 
 /** NIF português: 9 dígitos com checksum mod-11. */
@@ -243,6 +243,60 @@ export async function atualizarMotorista(
 
   revalidatePath("/admin/motoristas");
   return { success: true, derivados };
+}
+
+/**
+ * O que ainda falta para PODER ENTREGAR a mota a este motorista — a definição
+ * canónica (lib/kyc.ts), lida da BD e não do que o ecrã acha que gravou.
+ * Serve o passo 3 do wizard para dizer a verdade em vez de uma lista fixa.
+ */
+export async function prontidaoEntrega(
+  motoristaId: string,
+): Promise<{ pronto: boolean; faltam: string[]; nome: string; erro?: string }> {
+  const auth = await requireAdminForAction();
+  // Um erro NÃO é "nada em falta": vai em `erro`, separado de `faltam`, para o
+  // ecrã não mostrar tudo ✓ só porque a verificação falhou.
+  if (!auth.ok) return { pronto: false, faltam: [], nome: "", erro: auth.error ?? "Sem sessão." };
+  const { data: m } = await supabaseAdmin
+    .from("motorista")
+    .select("nome, nif, nif_valido, doc_id_numero, carta_numero, morada_linha1, doc_urls")
+    .eq("id", motoristaId)
+    .maybeSingle();
+  if (!m) return { pronto: false, faltam: [], nome: "", erro: "Motorista não encontrado." };
+  const r = prontoParaEntrega({ ...m, doc_urls: (m.doc_urls as string[] | null) ?? null });
+  return { ...r, nome: m.nome ?? "" };
+}
+
+/**
+ * Junta ficheiros de identidade à ficha — no servidor, a partir do que lá está
+ * AGORA. O cliente não manda a lista inteira: uma lista feita a partir de uma
+ * cópia antiga da ficha apagava o que outro ecrã (o link do motorista, outro
+ * lote) tivesse entretanto acrescentado.
+ */
+export async function anexarDocumentosMotorista(
+  motoristaId: string,
+  paths: string[],
+): Promise<{ success: boolean; error?: string; doc_urls?: string[] }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+  const novos = paths.filter((p) => typeof p === "string" && p.trim());
+  const { data: m } = await supabaseAdmin
+    .from("motorista")
+    .select("doc_urls")
+    .eq("id", motoristaId)
+    .maybeSingle();
+  if (!m) return { success: false, error: "Motorista não encontrado." };
+  const atuais = (m.doc_urls as string[] | null) ?? [];
+  const doc_urls = [...atuais, ...novos.filter((p) => !atuais.includes(p))];
+  if (doc_urls.length === atuais.length) return { success: true, doc_urls };
+  const { error } = await supabaseAdmin.from("motorista").update({ doc_urls }).eq("id", motoristaId);
+  if (error) {
+    console.error("anexarDocumentosMotorista error:", error);
+    return { success: false, error: "Erro ao guardar os documentos na ficha." };
+  }
+  revalidatePath("/admin/motoristas");
+  revalidatePath("/admin/documentos");
+  return { success: true, doc_urls };
 }
 
 export async function eliminarMotorista(

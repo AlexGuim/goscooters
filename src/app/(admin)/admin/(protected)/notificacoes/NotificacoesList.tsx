@@ -11,6 +11,7 @@ const COR: Record<string, string> = {
   pre_contrato_sem_mota: "bg-indigo-500",
   contrato_pronto: "bg-emerald-500",
   kyc_por_validar: "bg-amber-500",
+  entrega_preparada: "bg-emerald-500",
   coima_reembolso: "bg-purple-500",
   dano_recolha: "bg-red-500",
   acerto_por_pagar: "bg-emerald-600",

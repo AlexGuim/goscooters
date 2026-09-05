@@ -213,3 +213,65 @@ export async function apagarDocumentoPublico(path: string): Promise<{ ok: boolea
   if (error) console.error("apagarDocumentoPublico error:", error);
   return { ok: !error };
 }
+
+/**
+ * Move um documento do bucket PÚBLICO para o PRIVADO, no servidor.
+ *
+ * O intake classifica a partir do bucket público (é onde as faturas têm de
+ * ficar). Quando o que lá entrou é um documento de identidade, a cópia tem de
+ * sair de lá — mas o FICHEIRO faz falta na ficha (`doc_urls`): sem ele a
+ * entrega volta a pedir o mesmo cartão que o gestor acabou de fotografar.
+ * Copiar de servidor para servidor evita o segundo upload a partir do
+ * telemóvel; o público apaga-se em qualquer caso.
+ */
+export async function moverDocumentoParaPrivado(
+  path: string,
+): Promise<{ ok: boolean; path?: string; publicoFicou?: boolean }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { ok: false };
+  const { data: blob, error: erroLer } = await supabaseAdmin.storage.from(BUCKET).download(path);
+  if (erroLer || !blob) {
+    console.error("moverDocumentoParaPrivado download:", erroLer);
+    // Mesmo sem conseguir ler, tenta tirá-lo de lá: um documento de identidade
+    // não fica acessível por URL por causa de uma falha de leitura.
+    return { ok: false, publicoFicou: !(await removerDoPublico(path)) };
+  }
+  const nome = path.split("/").pop() ?? path;
+  const destino = `kyc/${crypto.randomUUID()}-${nomeSeguro(nome)}`;
+  const { error: erroGravar } = await supabaseAdmin.storage
+    .from(BUCKET_PRIVADO)
+    .upload(destino, blob, { contentType: mimeDoCaminho(path), upsert: false });
+  // O público sai SEMPRE — mesmo que a cópia falhe. E diz-se se NÃO saiu:
+  // um "ok" com o cartão ainda acessível por URL era o pior dos silêncios.
+  const publicoFicou = !(await removerDoPublico(path));
+  if (erroGravar) {
+    console.error("moverDocumentoParaPrivado upload:", erroGravar);
+    return { ok: false, publicoFicou };
+  }
+  return { ok: true, path: destino, publicoFicou };
+}
+
+/** Remove do bucket público, com uma segunda tentativa. True se saiu. */
+async function removerDoPublico(path: string): Promise<boolean> {
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    const { error } = await supabaseAdmin.storage.from(BUCKET).remove([path]);
+    if (!error) return true;
+    console.error(`moverDocumentoParaPrivado remove (tentativa ${tentativa + 1}):`, error);
+  }
+  return false;
+}
+
+/**
+ * Apaga ficheiros do bucket PRIVADO que ficaram sem dono — os documentos lidos
+ * de um lote que o gestor cancelou antes de os aplicar a uma ficha. Só toca em
+ * `kyc/…`: é o único prefixo que este fluxo cria.
+ */
+export async function apagarDocumentosPrivados(paths: string[]): Promise<{ ok: boolean }> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { ok: false };
+  const alvo = paths.filter((p) => p.startsWith("kyc/") && !p.includes(".."));
+  if (!alvo.length) return { ok: true };
+  const { error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).remove(alvo);
+  if (error) console.error("apagarDocumentosPrivados error:", error);
+  return { ok: !error };
+}

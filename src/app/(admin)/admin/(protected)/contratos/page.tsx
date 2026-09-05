@@ -55,10 +55,12 @@ export default async function ContratosAdminPage({
   searchParams: Promise<{ f?: string }>;
 }) {
   await requireAdmin();
+  const FILTROS = ["preenchimento", "ativo", "pendente_fecho", "suspenso", "concluido", "cancelado"] as const;
   const [{ f }, { contratos, motoristas, motos, proprietarios }] = await Promise.all([
     searchParams,
     getDados(),
   ]);
+  const filtroInicial = FILTROS.find((x) => x === f);
 
   return (
     <div className="space-y-6">
@@ -70,11 +72,14 @@ export default async function ContratosAdminPage({
       </div>
 
       <ContratosList
+        // A key faz o filtro seguir o URL: navegar de "?f=preenchimento" para a
+        // lista normal por Link não pode deixar o filtro antigo preso.
+        key={filtroInicial ?? "abertos"}
         inicial={contratos}
         motoristas={motoristas}
         motos={motos}
         proprietarios={proprietarios}
-        filtroInicial={f === "preenchimento" ? "preenchimento" : undefined}
+        filtroInicial={filtroInicial}
       />
     </div>
   );

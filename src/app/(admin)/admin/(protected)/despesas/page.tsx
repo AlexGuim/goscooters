@@ -4,6 +4,7 @@ import type { Despesa, Moto, Proprietario } from "@/types/db";
 import DespesasList, { type DespesaComNomes } from "./DespesasList";
 import ImportarFatura from "./ImportarFatura";
 import IntakeDocumento from "./IntakeDocumento";
+import { motoristasParaIntake } from "@/lib/motoristasParaIntake";
 
 async function getDados(): Promise<{
   despesas: DespesaComNomes[];
@@ -37,7 +38,12 @@ async function getDados(): Promise<{
 
 export default async function DespesasAdminPage() {
   await requireAdmin();
-  const { despesas, motos, proprietarios } = await getDados();
+  // Os motoristas também: um documento de identidade ou um comprovativo que
+  // entre por aqui segue para a ficha/cobrança em vez de bater num aviso.
+  const [{ despesas, motos, proprietarios }, motoristas] = await Promise.all([
+    getDados(),
+    motoristasParaIntake(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -48,7 +54,7 @@ export default async function DespesasAdminPage() {
         </p>
       </div>
 
-      <IntakeDocumento motos={motos} />
+      <IntakeDocumento motos={motos} motoristas={motoristas} />
 
       <details className="rounded-3xl bg-white p-6 shadow-sm">
         <summary className="cursor-pointer text-sm font-semibold text-slate-700">
