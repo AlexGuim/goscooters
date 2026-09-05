@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type {
@@ -183,6 +183,25 @@ export default function IntakeDocumento({
   const [proximaKm, setProximaKm] = useState("");
   const [proximaData, setProximaData] = useState("");
 
+  // Ficheiros que ainda não são de ninguém: os que esperam na fila e o que está
+  // em revisão. Se o gestor fechar o separador ou navegar para outro ecrã, saem
+  // do bucket público — em vez de lá ficarem legíveis por URL para sempre.
+  // (Um em gravação, "a-gravar", fica de fora: passa a ser referenciado pela
+  // despesa que está a ser criada.)
+  const porLimparRef = useRef<string[]>([]);
+  useEffect(() => {
+    porLimparRef.current = [
+      ...(docPath && fase === "rever" ? [docPath] : []),
+      ...fila.map((d) => d.path),
+    ];
+  }, [docPath, fase, fila]);
+  useEffect(
+    () => () => {
+      for (const p of porLimparRef.current) void apagarDocumentoPublico(p);
+    },
+    [],
+  );
+
   const reset = () => {
     setFase("inicio");
     setRes(null);
@@ -236,14 +255,26 @@ export default function IntakeDocumento({
     if (!env.success || !env.path || !env.url) {
       return { ok: false, erro: env.error ?? "Erro ao carregar o ficheiro." };
     }
-    const r = await analisarDocumento(env.path, env.url);
-    if (!r.success || !r.resultado) {
-      // Nada o referencia — e pode ser um documento de identidade que não
-      // pode ficar num bucket público. Sai já.
+    // A partir daqui o ficheiro JÁ ESTÁ no bucket público (é de lá que a
+    // classificação o lê, e é onde as faturas têm de ficar). Só sabemos o que
+    // ele é depois de classificado — até lá pode ser um cartão de cidadão. Por
+    // isso qualquer saída que não seja "classificado com sucesso" tem de o
+    // apagar, INCLUINDO a excepção: um 504 da Vercel a meio da leitura deixava
+    // o documento legível por URL, sem nada na base de dados a apontar para ele.
+    try {
+      const r = await analisarDocumento(env.path, env.url);
+      if (!r.success || !r.resultado) {
+        await apagarDocumentoPublico(env.path);
+        return { ok: false, erro: r.error ?? "Não consegui ler o documento." };
+      }
+      return { ok: true, doc: { nome: ficheiro.name, path: env.path, url: env.url, res: r.resultado } };
+    } catch (e) {
       await apagarDocumentoPublico(env.path);
-      return { ok: false, erro: r.error ?? "Não consegui ler o documento." };
+      return {
+        ok: false,
+        erro: e instanceof Error ? e.message : "O servidor não respondeu a tempo a ler o documento.",
+      };
     }
-    return { ok: true, doc: { nome: ficheiro.name, path: env.path, url: env.url, res: r.resultado } };
   };
 
   /**
@@ -361,6 +392,10 @@ export default function IntakeDocumento({
   const aoEscolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const escolhidos = Array.from(e.target.files ?? []);
     if (!escolhidos.length) return;
+    // A fila do lote ANTERIOR é substituída já a seguir; se ficasse por
+    // limpar, os ficheiros dela ficavam no bucket público sem dono — foi o que
+    // aconteceu a quem carregou 4 documentos, teve um erro, e carregou logo 2.
+    if (fila.length) void Promise.all(fila.map((d) => apagarDocumentoPublico(d.path)));
     setErro(null);
     setOk(null);
     setFeitos([]);
