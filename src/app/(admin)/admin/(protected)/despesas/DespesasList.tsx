@@ -24,6 +24,11 @@ import { CAT_ROTULO, CAT_COR, ESTADO_PAG_TOM, IMPUTAR_ROTULO } from "@/lib/despe
 export interface DespesaComNomes extends Despesa {
   veiculo_matricula: string | null;
   proprietario_nome: string | null;
+  /**
+   * Para o "Ver documento", resolvido no servidor: o URL público da fatura, ou um
+   * URL assinado (expira) quando o documento é privado — coimas e portagens.
+   */
+  documento_ver?: string | null;
 }
 
 const CATEGORIAS: { valor: DespesaCategoria; rotulo: string }[] = [
@@ -189,9 +194,10 @@ export default function DespesasList({
                     acoes={[
                       {
                         rotulo: "Ver documento",
-                        href: (d.detalhe as { documento_url?: string } | null)?.documento_url,
+                        // Resolvido no servidor: nunca o caminho cru de um documento privado.
+                        href: d.documento_ver ?? undefined,
                         externo: true,
-                        oculta: !(d.detalhe as { documento_url?: string } | null)?.documento_url,
+                        oculta: !d.documento_ver,
                       },
                       { rotulo: "Eliminar", onClick: () => handleEliminar(d), perigo: true },
                     ]}
@@ -359,12 +365,18 @@ function FormDespesa({
         setErro(r.error ?? "Erro ao gravar.");
         return;
       }
+      // Ao passar uma coima/portagem antiga para privado, o original pode não ter
+      // saído do bucket público: o gestor tem de o saber antes de o formulário fechar.
+      if ("aviso" in r && r.aviso) alert(r.aviso);
       const dono = veiculoId
         ? motos.find((m) => m.id === veiculoId)?.proprietario_id ?? null
         : null;
       onSaved({
         ...(despesa ?? ({ created_at: new Date().toISOString() } as DespesaComNomes)),
         ...(base as Partial<Despesa>),
+        // Ao editar, o documento pode ter mudado de bucket com a categoria
+        // (coima/portagem ↔ fatura): o link resolvido vem do servidor.
+        ...("documento_ver" in r ? { documento_ver: r.documento_ver ?? null } : {}),
         valor_total: String(Number(base.valor) + Number(base.iva ?? 0)),
         proprietario_id: dono,
         id: aEditar ? despesa!.id : (r as { id?: string }).id ?? "",

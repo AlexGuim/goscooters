@@ -10,6 +10,8 @@ import { rotuloSemanaMes, mesDaSemana, semanasDoMes } from "@/lib/datas";
 import type { ManutencaoNaSemana, SemanaEstado, SemanaMoto } from "@/types/db";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import { assinarAcerto } from "@/lib/reciboToken";
+import { documentoDoDetalhe, urlPublicoDoDocumento } from "@/lib/documentoDespesa";
+import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import type { AcertoLinhaTipo, Database } from "@/types/db";
 
 /** O que se grava em acerto_linha: uma coluna que a tabela não tem não compila. */
@@ -305,7 +307,9 @@ async function computar(
         arr.push({
           data: d.data_despesa as string,
           valor: Number(d.valor_total),
-          url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+          // Fica congelado em acerto.semanas e abre-se no portal e no link público:
+          // só um URL público (um documento privado não aparece — nem partido).
+          url: urlPublicoDoDocumento(documentoDoDetalhe(d.detalhe)),
           tipo: tipoDe.get(d.id) ?? null,
         });
         manPorVeiculo.set(d.veiculo_id as string, arr);
@@ -477,7 +481,10 @@ async function computar(
     .gte("data_despesa", mesDesp.inicio)
     .lte("data_despesa", mesDesp.fim);
 
-  for (const d of desps ?? []) {
+  // O documento de cada despesa, para a linha abrir no preview — que só o admin
+  // vê (o fecho não grava este link). Uma coima/portagem vai por URL assinado.
+  const docsDespesa = await urlsDocumentosParaAdmin((desps ?? []).map((d) => documentoDoDetalhe(d.detalhe)));
+  for (const [i, d] of (desps ?? []).entries()) {
     const v = Number(d.valor_total);
     despesaTotal += v;
     linhas.push({
@@ -487,7 +494,7 @@ async function computar(
       veiculo_id: d.veiculo_id,
       cobranca_id: null,
       despesa_id: d.id,
-      documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+      documento_url: docsDespesa[i],
       periodo_inicio: null,
       valor: -v,
     });

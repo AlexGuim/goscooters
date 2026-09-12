@@ -8,6 +8,7 @@ import {
   apagarSeguro,
   criarManutencao,
   apagarManutencao,
+  type ComDocumento,
 } from "@/actions/frotaSaudeActions";
 import { dataBR } from "@/lib/datas";
 import { formatarPreco } from "@/lib/precos";
@@ -40,8 +41,9 @@ const TIPO_MANUT: { v: ManutencaoTipo; r: string }[] = [
 ];
 const rotuloManut = (t: ManutencaoTipo) => TIPO_MANUT.find((x) => x.v === t)?.r ?? t;
 
-const docDe = (detalhe: unknown): string | null =>
-  (detalhe as { documento_url?: string } | null)?.documento_url ?? null;
+// O documento pronto a abrir, resolvido no servidor (saudeMoto): o URL público, ou
+// um URL assinado quando é privado. Nunca o `detalhe.documento_url` cru.
+const docDe = (linha: ComDocumento<unknown>): string | null => linha.documento_ver ?? null;
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasEntre = (iso: string) =>
@@ -78,8 +80,8 @@ function BadgeManut({ m, kmAtual }: { m: Manutencao; kmAtual: number | null }) {
 }
 
 export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose: () => void }) {
-  const [seguros, setSeguros] = useState<Seguro[] | null>(null);
-  const [manut, setManut] = useState<Manutencao[] | null>(null);
+  const [seguros, setSeguros] = useState<ComDocumento<Seguro>[] | null>(null);
+  const [manut, setManut] = useState<ComDocumento<Manutencao>[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aGravar, setAGravar] = useState(false);
 
@@ -194,8 +196,8 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {docDe(s.detalhe) && (
-                      <a href={docDe(s.detalhe)!} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">doc</a>
+                    {docDe(s) && (
+                      <a href={docDe(s)!} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">doc</a>
                     )}
                     <button onClick={() => delSeguro(s.id)} className="px-2 text-slate-400 hover:text-red-600" aria-label="Apagar">×</button>
                   </div>
@@ -244,8 +246,8 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {docDe(m.detalhe) && (
-                      <a href={docDe(m.detalhe)!} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">doc</a>
+                    {docDe(m) && (
+                      <a href={docDe(m)!} target="_blank" rel="noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">doc</a>
                     )}
                     <button onClick={() => delManut(m.id)} className="px-2 text-slate-400 hover:text-red-600" aria-label="Apagar">×</button>
                   </div>

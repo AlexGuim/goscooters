@@ -55,6 +55,8 @@ export interface DocClassificado {
   valor: string | null; // total, ponto decimal, ex.: "123.45"
   fornecedor: string | null; // seguradora/oficina/entidade
   referencia: string | null; // nº fatura/apólice/auto
+  /** Só coima/portagem: onde foi a infração ou a passagem — nunca a morada de quem foi notificado. */
+  local: string | null;
   descricao: string | null;
   km: number | null;
   /** Só comprovativo de pagamento: nome de quem enviou o dinheiro. */
@@ -213,6 +215,7 @@ Primeiro CLASSIFICA o tipo do documento, depois EXTRAI os campos. Devolve um obj
   "valor": string|null,              // total a pagar, número com PONTO decimal e sem €, ex.: "123.45"
   "fornecedor": string|null,         // entidade emissora (seguradora, oficina, Via Verde, ANSR...)
   "referencia": string|null,         // nº do documento/fatura/apólice/auto de contraordenação
+  "local": string|null,              // SÓ coima/portagem: onde foi a infração ou a passagem (estrada, pórtico, rua, localidade) — NUNCA a morada de quem foi notificado
   "descricao": string|null,          // resumo curto (serviços, cobertura...)
   "km": number|null,                 // quilómetros do veículo, se aparecer
   "pagador": string|null,            // SÓ comprovativo_pagamento: nome de QUEM ENVIOU o dinheiro

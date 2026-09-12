@@ -1,4 +1,6 @@
 import "server-only";
+import { headers } from "next/headers";
+import { novoPedidoTelegram } from "@/lib/mensagensTelegram";
 
 export interface NovoPedidoNotificacao {
   pedidoId: string;
@@ -23,6 +25,10 @@ export interface NovoPedidoNotificacao {
  * Ambos os canais são opcionais: sem as variáveis de ambiente respectivas, o
  * canal é simplesmente saltado. Assim a aplicação funciona antes de as
  * credenciais existirem.
+ *
+ * O email leva o pedido todo (é o canal do admin, e responder-lhe fala com o
+ * cliente). O Telegram — um terceiro, com a conversa em todos os dispositivos do
+ * gestor — leva só o aviso, o modelo da mota e o link para os Pedidos.
  */
 
 const linha = (rotulo: string, valor?: string | null) =>
@@ -87,7 +93,9 @@ async function enviarTelegram(p: NovoPedidoNotificacao): Promise<void> {
     return;
   }
 
-  const texto = `🛵 *Novo pedido de aluguer*\n\n${corpoTexto(p)}`;
+  // Só o aviso, o modelo da mota e o link para os Pedidos: o nome, o telefone, o
+  // email e a mensagem do cliente ficam no email e no admin (mensagensTelegram.ts).
+  const texto = novoPedidoTelegram({ motoModelo: p.motoModelo }, await origemDoSite());
 
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
@@ -106,8 +114,34 @@ async function enviarTelegram(p: NovoPedidoNotificacao): Promise<void> {
 }
 
 /**
+ * A origem do site (https://…) para os links das mensagens ao gestor. Primeiro
+ * o NEXT_PUBLIC_SITE_URL, o endereço canónico que o sitemap também usa: não
+ * depende dos cabeçalhos de quem faz o pedido. Sem ele, vem do pedido em curso,
+ * como nas actions da entrega, do recibo e do comprovativo — nas Server Actions
+ * o Next recusa pedidos cujo Origin não bate com o Host, e dentro de after()
+ * numa Server Action os headers ainda se leem. Fora de um pedido (um script, um
+ * Server Component em after()) headers() lança: fica o domínio da Vercel.
+ */
+export async function origemDoSite(): Promise<string> {
+  const omissao = "https://goscooters.vercel.app";
+  const canonica = process.env.NEXT_PUBLIC_SITE_URL;
+  if (canonica && /^https?:\/\/[^\s()]+$/.test(canonica)) return canonica.replace(/\/+$/, "");
+  try {
+    const h = await headers();
+    const origin = h.get("origin");
+    if (origin && /^https?:\/\/[^\s()]+$/.test(origin)) return origin;
+    const host = h.get("host");
+    return host ? `https://${host}` : omissao;
+  } catch {
+    return omissao;
+  }
+}
+
+/**
  * Envia uma mensagem de texto simples ao Telegram do gestor (canal de alertas).
  * Best-effort: devolve false e não lança se não estiver configurado ou falhar.
+ * O texto monta-se em resumoAlertas.ts ou mensagensTelegram.ts: o Telegram é um
+ * terceiro e só leva contagens, o tipo do evento e links para o admin.
  */
 export async function enviarTelegramTexto(texto: string): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;

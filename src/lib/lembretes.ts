@@ -37,15 +37,17 @@ export interface DadosCoima {
   matricula: string;
   data: string; // data da infração, já formatada
   valor: string; // já formatado
+  /** Onde foi a infração, se se souber (lido do auto). */
+  local?: string | null;
 }
 
 type ModeloCoima = (d: DadosCoima) => string;
 
 const MODELOS_COIMA: Record<"pt" | "en", ModeloCoima> = {
   pt: (d) =>
-    `Olá ${d.nome}, a GoScooters recebeu uma coima da mota ${d.matricula} referente a ${d.data} — valor ${d.valor}. Este montante fica na tua conta. Qualquer dúvida, fala connosco.`,
+    `Olá ${d.nome}, a GoScooters recebeu uma coima da mota ${d.matricula} referente a ${d.data}${d.local ? `, em ${d.local}` : ""} — valor ${d.valor}. Este montante fica na tua conta. Qualquer dúvida, fala connosco.`,
   en: (d) =>
-    `Hi ${d.nome}, GoScooters received a traffic fine for scooter ${d.matricula} dated ${d.data} — amount ${d.valor}. This amount is added to your account. Any questions, contact us.`,
+    `Hi ${d.nome}, GoScooters received a traffic fine for scooter ${d.matricula} dated ${d.data}${d.local ? ` at ${d.local}` : ""} — amount ${d.valor}. This amount is added to your account. Any questions, contact us.`,
 };
 
 /** Texto da notificação de coima: português para 'pt', inglês para os restantes. */

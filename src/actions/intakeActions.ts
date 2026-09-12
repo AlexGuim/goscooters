@@ -9,6 +9,8 @@ import {
   type DocClassificado,
 } from "@/lib/gemini";
 import { encontrarMatricula } from "@/lib/matriculas";
+import { ehInfracao } from "@/lib/documentoDespesa";
+import { guardarInfracaoEmPrivado, urlDocumentoParaAdmin } from "@/lib/documentoDespesaServidor";
 import type { ImputarA } from "@/types/db";
 
 /**
@@ -32,7 +34,13 @@ const IMPUTAR_PADRAO: Partial<Record<DocClassificado["tipo"], ImputarA>> = {
 
 export interface IntakeResultado {
   doc: DocClassificado;
+  /**
+   * O que a despesa guarda em `detalhe.documento_url`: o URL público (faturas)
+   * ou, numa coima/portagem, o CAMINHO no bucket privado (`infracoes/…`).
+   */
   documento_url: string;
+  /** Para abrir o ficheiro na revisão: o URL público, ou um URL assinado (expira). */
+  documento_ver: string | null;
   veiculo: { id: string; matricula: string | null; modelo: string } | null;
   proprietario: { id: string; nome: string; eh_goscooters: boolean } | null;
   /** Só para portagem/coima: motorista que tinha a moto na data (do ledger). */
@@ -104,11 +112,30 @@ export async function analisarDocumento(
   const doc = await classificarDocumentoGemini([{ mime, base64: buf.toString("base64") }]);
   if (!doc) return { success: false, error: "Não consegui ler o documento. Tenta outra foto/ficheiro." };
 
-  return { success: true, resultado: await enriquecer(doc, documentoUrl) };
+  // Coima ou portagem: o aviso/auto traz matrícula, local, hora e a quem foi
+  // notificado (nome, NIF, morada). Sai do bucket público JÁ — antes da revisão
+  // e de um lote inteiro ficar à espera na fila —, como os documentos de
+  // identidade e os comprovativos. A despesa guarda o caminho privado; a revisão
+  // abre-o por URL assinado. Falha fechado: se a cópia falhar, o público sai na
+  // mesma e o gestor volta a carregar (o ficheiro está-lhe na mão); se o público
+  // não sair, não segue — erro com o aviso, e o ecrã tenta tirá-lo outra vez.
+  let documento = documentoUrl;
+  if (ehInfracao(doc.tipo)) {
+    const g = await guardarInfracaoEmPrivado(path);
+    if (!g.ok) return { success: false, error: g.error };
+    documento = g.caminho;
+  }
+  const documentoVer = await urlDocumentoParaAdmin(documento);
+
+  return { success: true, resultado: await enriquecer(doc, documento, documentoVer) };
 }
 
 /** Associa veículo/dono/motorista e sugere quem suporta o custo + deduplicação. */
-async function enriquecer(doc: DocClassificado, documentoUrl: string): Promise<IntakeResultado> {
+async function enriquecer(
+  doc: DocClassificado,
+  documento: string,
+  documentoVer: string | null,
+): Promise<IntakeResultado> {
   let veiculo: IntakeResultado["veiculo"] = null;
   let proprietario: IntakeResultado["proprietario"] = null;
   let motorista: IntakeResultado["motorista"] = null;
@@ -162,5 +189,15 @@ async function enriquecer(doc: DocClassificado, documentoUrl: string): Promise<I
     duplicado = !!ja;
   }
 
-  return { doc, documento_url: documentoUrl, veiculo, proprietario, motorista, imputar_a_sugerido, duplicado, aviso };
+  return {
+    doc,
+    documento_url: documento,
+    documento_ver: documentoVer,
+    veiculo,
+    proprietario,
+    motorista,
+    imputar_a_sugerido,
+    duplicado,
+    aviso,
+  };
 }

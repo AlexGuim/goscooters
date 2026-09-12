@@ -5,6 +5,7 @@ import { formatarPreco } from "@/lib/precos";
 import { textoLembrete } from "@/lib/lembretes";
 import { varrerDerivadas } from "@/lib/notificacoesDerivadas";
 import { enviarTelegramTexto } from "@/lib/notifications";
+import { resumoAlertasTelegram } from "@/lib/resumoAlertas";
 
 /**
  * Rotina diária de lembretes de pagamento (chamada pelo Vercel Cron).
@@ -58,13 +59,17 @@ export async function GET(request: NextRequest) {
     .select("tipo, titulo, detalhe")
     .in("tipo", ["seguro_a_expirar", "manutencao_a_vencer", "doc_motorista_a_expirar"])
     .neq("estado", "feita");
+  // O detalhe (nome do motorista, matrícula, datas) fica para o email ao admin e
+  // para a caixa de Notificações, que pede sessão. O Telegram — um terceiro, com
+  // a conversa em todos os dispositivos do gestor — leva SÓ quantos alertas há de
+  // cada tipo e o link para as Notificações (src/lib/resumoAlertas.ts).
   const linhasAlerta = (alertas ?? []).map((a) => `• ${a.detalhe ?? a.titulo}`);
   let alertasEnviados = false;
-  if (linhasAlerta.length) {
-    alertasEnviados = await enviarTelegramTexto(
-      `⚠️ *Alertas GoScooters* (${linhasAlerta.length})\n\n${linhasAlerta.join("\n")}`,
-    );
-  }
+  const resumoTelegram = resumoAlertasTelegram(
+    (alertas ?? []).map((a) => a.tipo as string),
+    `${request.nextUrl.origin}/admin/notificacoes`,
+  );
+  if (resumoTelegram) alertasEnviados = await enviarTelegramTexto(resumoTelegram);
 
   // Empurrão de lembretes de pagamento a comunicar (a lista pronta fica nas
   // Notificações, cada um com o WhatsApp já preenchido para enviar em 1 clique).

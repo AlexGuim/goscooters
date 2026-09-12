@@ -3,6 +3,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
+import { ehCaminhoDeInfracao } from "@/lib/documentoDespesa";
+import { linhasComDocumento } from "@/lib/documentoUsos";
 
 const BUCKET = "motas";
 
@@ -222,7 +224,9 @@ export async function apagarDocumentoPublico(path: string): Promise<{ ok: boolea
  * sair de lá — mas o FICHEIRO faz falta na ficha (`doc_urls`): sem ele a
  * entrega volta a pedir o mesmo cartão que o gestor acabou de fotografar.
  * Copiar de servidor para servidor evita o segundo upload a partir do
- * telemóvel; o público apaga-se em qualquer caso.
+ * telemóvel; o público apaga-se em qualquer caso — certo para o que acabou de ser
+ * carregado. Os avisos de coima/portagem não passam por aqui (ver
+ * documentoDespesaServidor): um registo antigo pode ter o ÚNICO exemplar no público.
  */
 export async function moverDocumentoParaPrivado(
   path: string,
@@ -265,16 +269,33 @@ async function removerDoPublico(path: string): Promise<boolean> {
 }
 
 /**
- * Apaga ficheiros do bucket PRIVADO que ficaram sem dono — os documentos lidos
- * de um lote que o gestor cancelou antes de os aplicar a uma ficha. Só toca em
- * `kyc/…`: é o único prefixo que este fluxo cria.
+ * Apaga ficheiros do bucket PRIVADO que ficaram sem dono:
+ *  - `kyc/…` — os documentos lidos de um lote que o gestor cancelou antes de os
+ *    aplicar a uma ficha;
+ *  - `infracoes/…` — avisos de coima/portagem que a leitura já tinha passado
+ *    para privado e que ficaram por gravar (lote descartado, ecrã fechado). Estes
+ *    só saem se NENHUMA despesa, seguro ou manutenção os usar: um caminho já
+ *    gravado é o documento de uma despesa, e isso não se apaga por aqui.
  */
 export async function apagarDocumentosPrivados(paths: string[]): Promise<{ ok: boolean }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { ok: false };
-  const alvo = paths.filter((p) => p.startsWith("kyc/") && !p.includes(".."));
+  const validos = (paths ?? []).filter((p) => typeof p === "string" && !p.includes(".."));
+  const alvo = [
+    ...validos.filter((p) => p.startsWith("kyc/")),
+    ...(await infracoesSemDono(validos.filter(ehCaminhoDeInfracao))),
+  ];
   if (!alvo.length) return { ok: true };
   const { error } = await supabaseAdmin.storage.from(BUCKET_PRIVADO).remove(alvo);
   if (error) console.error("apagarDocumentosPrivados error:", error);
   return { ok: !error };
+}
+
+/** Dos caminhos `infracoes/…`, os que nenhuma linha usa. Na dúvida (erro a ler), nenhum. */
+async function infracoesSemDono(caminhos: string[]): Promise<string[]> {
+  if (!caminhos.length) return [];
+  const linhas = await linhasComDocumento(caminhos);
+  if (!linhas) return [];
+  const usados = new Set(linhas.map((l) => l.documento));
+  return caminhos.filter((c) => !usados.has(c));
 }

@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import type { DespesaCategoria, ImputarA, Moto } from "@/types/db";
 import { enviarDocumento } from "@/lib/uploads";
 import { ocrFicheiro } from "@/lib/ocr";
+import { apagarDocumentoPublico } from "@/actions/fotoActions";
+import { textoFalhaAoCarregar } from "@/lib/documentoDespesa";
 import {
   lerFatura,
   interpretarTextoFatura,
@@ -49,6 +51,8 @@ export default function ImportarFatura({
   // Dados extraídos + estado do formulário de revisão.
   const [campos, setCampos] = useState<FaturaCampos | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+  /** Para abrir na revisão — numa coima/portagem é um URL assinado (o ficheiro já é privado). */
+  const [docVer, setDocVer] = useState<string | null>(null);
   const [matriculaLida, setMatriculaLida] = useState<string | null>(null);
   const [veiculoId, setVeiculoId] = useState("");
   const [categoria, setCategoria] = useState<DespesaCategoria>("manutencao");
@@ -65,6 +69,7 @@ export default function ImportarFatura({
     setFase("inicio");
     setCampos(null);
     setDocUrl(null);
+    setDocVer(null);
     setMatriculaLida(null);
     setVeiculoId("");
     setErro(null);
@@ -74,11 +79,12 @@ export default function ImportarFatura({
   };
 
   const preencher = (res: LerFaturaResultado) => {
-    const { campos: c, veiculo, imputar_a_sugerido, documento_url } = res;
+    const { campos: c, veiculo, imputar_a_sugerido, documento_url, documento_ver } = res;
     setAvisoMatch(res.aviso);
     setVeiculoAssociadoId(veiculo?.id ?? null);
     setCampos(c);
     setDocUrl(documento_url);
+    setDocVer(documento_ver);
     setMatriculaLida(c.matricula);
     setVeiculoId(veiculo?.id ?? "");
     setCategoria(c.categoria);
@@ -107,37 +113,47 @@ export default function ImportarFatura({
       setFase("inicio");
       return;
     }
+    const caminho = env.path;
+    const url = env.url;
+
+    // Uma leitura falhada deixa o ficheiro sem dono no bucket público: sai de lá
+    // (uma coima/portagem que o servidor não conseguiu tirar tem aqui outra
+    // tentativa), e a mensagem só diz que ficou se também esta falhar.
+    const falhou = async (texto: string) => {
+      const apagado = await apagarDocumentoPublico(caminho);
+      setErro(textoFalhaAoCarregar(texto, apagado.ok));
+      setFase("inicio");
+    };
 
     // 1) Tenta ler o texto do PDF no servidor (instantâneo, se houver camada de texto).
-    const r = await lerFatura(env.path, env.url);
+    const r = await lerFatura(caminho, url);
     if (r.success && r.resultado) {
       preencher(r.resultado);
       return;
     }
     if (!r.semTexto) {
-      setErro(r.error ?? "Não consegui ler a fatura.");
-      setFase("inicio");
+      await falhou(r.error ?? "Não consegui ler a fatura.");
       return;
     }
 
     // 2) Sem texto (fatura digitalizada ou foto) → OCR no browser.
+    let r2: Awaited<ReturnType<typeof interpretarTextoFatura>>;
     try {
       setProgresso({ fase: "A preparar", pct: 0 });
       const texto = await ocrFicheiro(ficheiro, (fase, pct) => setProgresso({ fase, pct }));
-      const r2 = await interpretarTextoFatura(texto, env.url);
-      setProgresso(null);
-      if (!r2.success || !r2.resultado) {
-        setErro(r2.error ?? "O OCR não reconheceu texto suficiente. Tenta uma imagem mais nítida.");
-        setFase("inicio");
-        return;
-      }
-      preencher(r2.resultado);
+      r2 = await interpretarTextoFatura(texto, url);
     } catch (err) {
       console.error("OCR error:", err);
       setProgresso(null);
-      setErro("Erro no OCR. Tenta uma imagem mais nítida ou preenche à mão.");
-      setFase("inicio");
+      await falhou("Erro no OCR. Tenta uma imagem mais nítida ou preenche à mão.");
+      return;
     }
+    setProgresso(null);
+    if (!r2.success || !r2.resultado) {
+      await falhou(r2.error ?? "O OCR não reconheceu texto suficiente. Tenta uma imagem mais nítida.");
+      return;
+    }
+    preencher(r2.resultado);
   };
 
   const gravar = async () => {
@@ -163,6 +179,9 @@ export default function ImportarFatura({
       setFase("rever");
       return;
     }
+    // O original de uma coima/portagem não saiu do bucket público: a página
+    // recarrega já a seguir, por isso o aviso vai numa janela — tem de ser lido.
+    if (r.aviso) alert(r.aviso);
     setOk("Despesa criada a partir da fatura." + (r.avisoKm ? ` ${r.avisoKm}` : ""));
     reset();
     // Recarrega para a nova despesa aparecer na lista abaixo.
@@ -235,9 +254,9 @@ export default function ImportarFatura({
                 <p className="text-sm font-semibold text-slate-700">
                   Confere os dados lidos e corrige o que for preciso
                 </p>
-                {docUrl && (
+                {docVer && (
                   <a
-                    href={docUrl}
+                    href={docVer}
                     target="_blank"
                     rel="noreferrer"
                     className="text-xs font-medium text-emerald-700 underline"

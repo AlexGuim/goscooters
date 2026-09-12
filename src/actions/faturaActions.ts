@@ -5,6 +5,12 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { interpretarFatura, type FaturaCampos } from "@/lib/faturas";
 import { encontrarMatricula } from "@/lib/matriculas";
+import { caminhoDoUrlPublico, ehInfracao } from "@/lib/documentoDespesa";
+import {
+  documentoConformeCategoria,
+  guardarInfracaoEmPrivado,
+  urlDocumentoParaAdmin,
+} from "@/lib/documentoDespesaServidor";
 import type { DespesaCategoria, ImputarA } from "@/types/db";
 
 // Quem costuma suportar cada custo (igual ao default do formulário de despesas).
@@ -23,7 +29,10 @@ export interface LerFaturaResultado {
   veiculo: { id: string; matricula: string | null; modelo: string } | null;
   proprietario: { id: string; nome: string; eh_goscooters: boolean } | null;
   imputar_a_sugerido: ImputarA;
+  /** URL público (faturas) ou, numa coima/portagem, o caminho privado `infracoes/…`. */
   documento_url: string;
+  /** Para abrir o ficheiro na revisão: o URL público, ou um URL assinado (expira). */
+  documento_ver: string | null;
   texto_encontrado: boolean;
   /** Aviso quando a matrícula foi associada por aproximação (confirmar!). */
   aviso: string | null;
@@ -74,7 +83,7 @@ export async function lerFatura(
     };
   }
 
-  return { success: true, resultado: await montarResultado(texto, documentoUrl) };
+  return montarResultado(texto, path, documentoUrl);
 }
 
 /**
@@ -90,12 +99,26 @@ export async function interpretarTextoFatura(
   if (texto.trim().length < 10) {
     return { success: false, error: "Não consegui reconhecer texto suficiente na fatura." };
   }
-  return { success: true, resultado: await montarResultado(texto, documentoUrl) };
+  // O OCR correu no browser: do ficheiro, o servidor só conhece o URL público.
+  return montarResultado(texto, caminhoDoUrlPublico(documentoUrl), documentoUrl);
 }
 
 /** Interpreta o texto + associa veículo + sugere quem suporta o custo. */
-async function montarResultado(texto: string, documentoUrl: string): Promise<LerFaturaResultado> {
+async function montarResultado(
+  texto: string,
+  caminhoPublico: string | null,
+  documentoUrl: string,
+): Promise<{ success: boolean; resultado?: LerFaturaResultado; error?: string }> {
   const campos = interpretarFatura(texto);
+
+  // Coima ou portagem: o aviso sai do bucket público já, antes da revisão — a
+  // mesma regra do intake com IA (ver analisarDocumento).
+  let documento = documentoUrl;
+  if (ehInfracao(campos.categoria)) {
+    const g = await guardarInfracaoEmPrivado(caminhoPublico);
+    if (!g.ok) return { success: false, error: g.error };
+    documento = g.caminho;
+  }
 
   // Associa a matrícula lida a um veículo da frota, tolerando erros de OCR.
   let veiculo: LerFaturaResultado["veiculo"] = null;
@@ -135,13 +158,17 @@ async function montarResultado(texto: string, documentoUrl: string): Promise<Ler
     : IMPUTAR_PADRAO[campos.categoria];
 
   return {
-    campos,
-    veiculo,
-    proprietario,
-    imputar_a_sugerido,
-    documento_url: documentoUrl,
-    texto_encontrado: true,
-    aviso,
+    success: true,
+    resultado: {
+      campos,
+      veiculo,
+      proprietario,
+      imputar_a_sugerido,
+      documento_url: documento,
+      documento_ver: await urlDocumentoParaAdmin(documento),
+      texto_encontrado: true,
+      aviso,
+    },
   };
 }
 
@@ -159,6 +186,7 @@ export interface GravarFaturaInput {
   fornecedor: string | null;
   referencia_externa: string | null;
   km: number | null;
+  /** URL público (faturas) ou caminho privado `infracoes/…` (coima/portagem). */
   documento_url: string | null;
   detalhe: FaturaCampos | Record<string, unknown> | null;
 }
@@ -170,7 +198,16 @@ export interface GravarFaturaInput {
  */
 export async function gravarDespesaDeFatura(
   input: GravarFaturaInput,
-): Promise<{ success: boolean; id?: string; error?: string; avisoKm?: string }> {
+): Promise<{
+  success: boolean;
+  id?: string;
+  error?: string;
+  avisoKm?: string;
+  /** O documento como ficou gravado — pode ter mudado de bucket com a categoria. */
+  documento_url?: string | null;
+  /** O original de uma coima/portagem ficou no bucket público depois de gravar: mostrar ao gestor. */
+  aviso?: string | null;
+}> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
@@ -211,6 +248,16 @@ export async function gravarDespesaDeFatura(
     proprietario_id = v?.proprietario_id ?? null;
   }
 
+  // O documento no bucket que a categoria CONFIRMADA pede, antes de a despesa
+  // existir (documentoConformeCategoria): uma coima/portagem ainda no público — a
+  // categoria mudou na revisão — é copiada para privado (o público só sai depois
+  // de a despesa ficar gravada, no `confirmar`), e um aviso que afinal é uma
+  // fatura — a leitura enganou-se — volta a motas/faturas, para o extrato do
+  // parceiro o abrir. A despesa nunca fica gravada com o documento no sítio errado.
+  const doc = await documentoConformeCategoria(input.documento_url, input.categoria);
+  if (!doc.ok) return { success: false, error: doc.error };
+  const documento = doc.valor;
+
   const { data: despesa, error } = await supabaseAdmin
     .from("despesa")
     .insert({
@@ -228,9 +275,9 @@ export async function gravarDespesaDeFatura(
       referencia_externa: referencia,
       origem: "ingestao",
       detalhe: input.detalhe
-        ? { ...input.detalhe, documento_url: input.documento_url ?? null }
-        : input.documento_url
-          ? { documento_url: input.documento_url }
+        ? { ...input.detalhe, documento_url: documento }
+        : documento
+          ? { documento_url: documento }
           : null,
     })
     .select("id")
@@ -238,8 +285,10 @@ export async function gravarDespesaDeFatura(
 
   if (error || !despesa) {
     console.error("gravarDespesaDeFatura error:", error);
+    await doc.desfazer();
     return { success: false, error: "Erro ao gravar a despesa." };
   }
+  const aviso = await doc.confirmar();
 
   // Atualiza a KM da moto (só se for maior que a atual) e regista no histórico.
   let avisoKm: string | undefined;
@@ -268,5 +317,5 @@ export async function gravarDespesaDeFatura(
 
   revalidatePath("/admin/despesas");
   revalidatePath("/admin/frota");
-  return { success: true, id: despesa.id, avisoKm };
+  return { success: true, id: despesa.id, avisoKm, documento_url: documento, aviso };
 }

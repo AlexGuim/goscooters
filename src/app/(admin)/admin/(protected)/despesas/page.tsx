@@ -5,6 +5,8 @@ import DespesasList, { type DespesaComNomes } from "./DespesasList";
 import ImportarFatura from "./ImportarFatura";
 import IntakeDocumento from "./IntakeDocumento";
 import { motoristasParaIntake } from "@/lib/motoristasParaIntake";
+import { documentoDoDetalhe } from "@/lib/documentoDespesa";
+import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 
 async function getDados(): Promise<{
   despesas: DespesaComNomes[];
@@ -23,10 +25,17 @@ async function getDados(): Promise<{
   const matricula = new Map((motosRes.data ?? []).map((m) => [m.id, m.matricula]));
   const nomeDono = new Map((donosRes.data ?? []).map((d) => [d.id, d.nome]));
 
-  const despesas: DespesaComNomes[] = (despRes.data ?? []).map((d: Despesa) => ({
+  // "Ver documento": a fatura pelo URL público; a coima/portagem (bucket privado)
+  // por URL assinado — gerado aqui, no servidor; a página só chega cá depois do
+  // requireAdmin.
+  const linhas: Despesa[] = despRes.data ?? [];
+  const docs = await urlsDocumentosParaAdmin(linhas.map((d) => documentoDoDetalhe(d.detalhe)));
+
+  const despesas: DespesaComNomes[] = linhas.map((d, i) => ({
     ...d,
     veiculo_matricula: d.veiculo_id ? matricula.get(d.veiculo_id) ?? "—" : null,
     proprietario_nome: d.proprietario_id ? nomeDono.get(d.proprietario_id) ?? null : null,
+    documento_ver: docs[i],
   }));
 
   return {

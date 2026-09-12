@@ -26,6 +26,7 @@ import {
 import { hrefJornada } from "@/lib/jornada";
 import type { CamposDocumento } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
+import { documentoDoDetalhe, lerRefDocumento, textoFalhaAoCarregar } from "@/lib/documentoDespesa";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
 import { criarSeguro, criarManutencao, garantirManutencaoDeDespesa } from "@/actions/frotaSaudeActions";
@@ -100,6 +101,13 @@ type Fase = "inicio" | "a-processar" | "rever" | "a-gravar" | "comunicar";
 /** Um ficheiro já carregado e classificado — o que circula na fila do lote. */
 type Analisado = { nome: string; path: string; url: string; res: IntakeResultado };
 
+/**
+ * Dos documentos guardados, os que já estão no bucket PRIVADO: as coimas e as
+ * portagens, que a leitura tira do público antes da revisão (`infracoes/…`).
+ */
+const soPrivados = (guardados: (string | null | undefined)[]): string[] =>
+  guardados.filter((v): v is string => lerRefDocumento(v)?.onde === "privado");
+
 export default function IntakeDocumento({
   motos,
   motoristas,
@@ -125,6 +133,11 @@ export default function IntakeDocumento({
   const [fase, setFase] = useState<Fase>("inicio");
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  /**
+   * O que ficou por fazer DEPOIS de gravar — o original de uma coima/portagem que
+   * não saiu do bucket público. Sobrevive ao `reset()`, como o `ok`: é para ler.
+   */
+  const [avisoGravado, setAvisoGravado] = useState<string | null>(null);
   /** "A ler documento 2 de 4…" — um lote demora, e o silêncio parece bloqueio. */
   const [progresso, setProgresso] = useState<string | null>(null);
 
@@ -170,6 +183,8 @@ export default function IntakeDocumento({
   const [km, setKm] = useState("");
   const [fornecedor, setFornecedor] = useState("");
   const [referencia, setReferencia] = useState("");
+  /** Coima/portagem: onde foi — vai na mensagem ao motorista, por isso é editável. */
+  const [local, setLocal] = useState("");
   // Seguro
   const [seguradora, setSeguradora] = useState("");
   const [apolice, setApolice] = useState("");
@@ -188,19 +203,39 @@ export default function IntakeDocumento({
   // do bucket público — em vez de lá ficarem legíveis por URL para sempre.
   // (Um em gravação, "a-gravar", fica de fora: passa a ser referenciado pela
   // despesa que está a ser criada.)
-  const porLimparRef = useRef<string[]>([]);
+  // As coimas/portagens já não estão no público: a leitura passou-as para
+  // `privado/infracoes/` — é essa cópia que sai (o servidor recusa apagar um
+  // caminho que alguma despesa já use).
+  const porLimparRef = useRef<{ publicos: string[]; privados: string[] }>({ publicos: [], privados: [] });
   useEffect(() => {
-    porLimparRef.current = [
-      ...(docPath && fase === "rever" ? [docPath] : []),
-      ...fila.map((d) => d.path),
-    ];
-  }, [docPath, fase, fila]);
+    const emRevisao = fase === "rever";
+    porLimparRef.current = {
+      publicos: [...(docPath && emRevisao ? [docPath] : []), ...fila.map((d) => d.path)],
+      privados: soPrivados([...(emRevisao ? [docUrl] : []), ...fila.map((d) => d.res.documento_url)]),
+    };
+  }, [docPath, docUrl, fase, fila]);
   useEffect(
     () => () => {
-      for (const p of porLimparRef.current) void apagarDocumentoPublico(p);
+      const { publicos, privados } = porLimparRef.current;
+      for (const p of publicos) void apagarDocumentoPublico(p);
+      if (privados.length) void apagarDocumentosPrivados(privados);
     },
     [],
   );
+
+  /** Tira do storage documentos que não chegaram a ser gravados — do público e do privado. */
+  const descartarCaminhos = (publicos: string[], guardados: (string | null | undefined)[]) => {
+    const privados = soPrivados(guardados);
+    return Promise.all([
+      ...publicos.map((p) => apagarDocumentoPublico(p)),
+      ...(privados.length ? [apagarDocumentosPrivados(privados)] : []),
+    ]);
+  };
+  const descartar = (docs: Analisado[]) =>
+    descartarCaminhos(
+      docs.map((d) => d.path),
+      docs.map((d) => d.res.documento_url),
+    );
 
   const reset = () => {
     setFase("inicio");
@@ -232,6 +267,7 @@ export default function IntakeDocumento({
     setKm(d.km != null ? String(d.km) : "");
     setFornecedor(d.fornecedor ?? "");
     setReferencia(d.referencia ?? "");
+    setLocal(d.local ?? "");
     setSeguradora(d.fornecedor ?? "");
     setApolice(d.seguro_apolice ?? "");
     setDataFim(d.data_fim ?? "");
@@ -261,18 +297,23 @@ export default function IntakeDocumento({
     // isso qualquer saída que não seja "classificado com sucesso" tem de o
     // apagar, INCLUINDO a excepção: um 504 da Vercel a meio da leitura deixava
     // o documento legível por URL, sem nada na base de dados a apontar para ele.
+    // Se nem esta tentativa o tirar, a mensagem diz que ficou — e só nesse caso:
+    // uma coima/portagem que o servidor não conseguiu tirar e o ecrã sim não é alarme.
     try {
       const r = await analisarDocumento(env.path, env.url);
       if (!r.success || !r.resultado) {
-        await apagarDocumentoPublico(env.path);
-        return { ok: false, erro: r.error ?? "Não consegui ler o documento." };
+        const apagado = await apagarDocumentoPublico(env.path);
+        return { ok: false, erro: textoFalhaAoCarregar(r.error ?? "Não consegui ler o documento.", apagado.ok) };
       }
       return { ok: true, doc: { nome: ficheiro.name, path: env.path, url: env.url, res: r.resultado } };
     } catch (e) {
-      await apagarDocumentoPublico(env.path);
+      const apagado = await apagarDocumentoPublico(env.path);
       return {
         ok: false,
-        erro: e instanceof Error ? e.message : "O servidor não respondeu a tempo a ler o documento.",
+        erro: textoFalhaAoCarregar(
+          e instanceof Error ? e.message : "O servidor não respondeu a tempo a ler o documento.",
+          apagado.ok,
+        ),
       };
     }
   };
@@ -395,9 +436,10 @@ export default function IntakeDocumento({
     // A fila do lote ANTERIOR é substituída já a seguir; se ficasse por
     // limpar, os ficheiros dela ficavam no bucket público sem dono — foi o que
     // aconteceu a quem carregou 4 documentos, teve um erro, e carregou logo 2.
-    if (fila.length) void Promise.all(fila.map((d) => apagarDocumentoPublico(d.path)));
+    if (fila.length) void descartar(fila);
     setErro(null);
     setOk(null);
+    setAvisoGravado(null);
     setFeitos([]);
     setFase("a-processar");
     setProgresso(escolhidos.length > 1 ? `A ler ${escolhidos.length} documentos…` : null);
@@ -424,7 +466,7 @@ export default function IntakeDocumento({
     } catch (e) {
       // Uma server action que rebenta (rede, timeout) não pode deixar o que
       // já subiu no bucket público — pode ser um documento de identidade.
-      await Promise.all(lidos.map((d) => apagarDocumentoPublico(d.path)));
+      await descartar(lidos);
       setErro(e instanceof Error ? e.message : "Falha ao carregar os documentos. Tenta outra vez.");
       setProgresso(null);
       setFase("inicio");
@@ -510,7 +552,18 @@ export default function IntakeDocumento({
     if (destino === "seguro" && !dataFim) return setErro("Indica a validade (fim) da apólice.");
 
     setFase("a-gravar");
-    const detalheDoc = { ...(res?.doc ?? {}), documento_url: docUrl };
+    const localAuto = ehPortagemCoima ? local.trim() || null : null;
+    const detalheDoc = {
+      ...(res?.doc ?? {}),
+      ...(ehPortagemCoima ? { local: localAuto } : {}),
+      documento_url: docUrl,
+    };
+    // O documento como ficou gravado. O servidor põe-no no bucket que a categoria
+    // confirmada pede — um aviso lido como coima que afinal é fatura volta ao
+    // público, com outro URL —, e o que se grava a seguir (seguro, manutenção,
+    // mensagem) tem de usar esse. Vai também para o estado: uma nova tentativa
+    // depois de um erro não pode pedir o ficheiro pelo caminho antigo.
+    let docFinal = docUrl;
     let msgOk = "";
     try {
       if (destino === "despesa") {
@@ -531,6 +584,9 @@ export default function IntakeDocumento({
           detalhe: detalheDoc,
         });
         if (!r.success) throw new Error(r.error);
+        if (r.aviso) setAvisoGravado(r.aviso);
+        docFinal = r.documento_url ?? null;
+        setDocUrl(docFinal);
         // Despesa de manutenção (mesmo guardada como "despesa") passa a ter registo
         // operacional, para o painel de saúde e os alertas a verem.
         if (categoria === "manutencao" && veiculoId && r.id) {
@@ -548,13 +604,17 @@ export default function IntakeDocumento({
           });
           if (!rd.success) throw new Error(rd.error);
           despesaId = rd.id ?? null;
+          docFinal = rd.documento_url ?? null;
+          setDocUrl(docFinal);
         }
         const rs = await criarSeguro({
           veiculo_id: veiculoId, data_fim: dataFim, seguradora: seguradora || null, apolice: apolice || null,
           tipo: seguroTipo, data_inicio: dataInicio || null, premio: valor || null, quem_paga: quemPaga,
-          despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docUrl },
+          despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docFinal },
         });
         if (!rs.success) throw new Error(rs.error);
+        docFinal = documentoDoDetalhe(rs.seguro?.detalhe) ?? docFinal;
+        setDocUrl(docFinal);
         msgOk = "Apólice de seguro registada" + (despesaId ? " (com despesa do prémio)." : ".");
       } else if (destino === "manutencao") {
         let despesaId: string | null = null;
@@ -567,14 +627,18 @@ export default function IntakeDocumento({
           });
           if (!rd.success) throw new Error(rd.error);
           despesaId = rd.id ?? null;
+          docFinal = rd.documento_url ?? null;
+          setDocUrl(docFinal);
         }
         const rm = await criarManutencao({
           veiculo_id: veiculoId, tipo: manutTipo, data: data || new Date().toISOString().slice(0, 10),
           km: km ? Number(km) : null, oficina: oficina || null, custo: valor || null,
           proxima_km: proximaKm ? Number(proximaKm) : null, proxima_data: proximaData || null,
-          despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docUrl },
+          despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docFinal },
         });
         if (!rm.success) throw new Error(rm.error);
+        docFinal = documentoDoDetalhe(rm.manutencao?.detalhe) ?? docFinal;
+        setDocUrl(docFinal);
         msgOk = "Manutenção registada" + (despesaId ? " (com despesa)." : ".");
       }
 
@@ -589,7 +653,8 @@ export default function IntakeDocumento({
           matricula: motos.find((m) => m.id === veiculoId)?.matricula ?? null,
           valor: valor || null,
           data: data ? dataBR(data) : null,
-          documento_url: docUrl,
+          local: localAuto,
+          documento_url: docFinal,
           categoria: tipo === "coima" ? "coima" : tipo === "portagem" ? "portagem" : "seguro",
         });
         const resultados = rc.resultados ?? [];
@@ -628,6 +693,7 @@ export default function IntakeDocumento({
       matricula: motos.find((m) => m.id === veiculoId)?.matricula ?? null,
       valor: valor || null,
       data: data ? dataBR(data) : null,
+      local: tipoC === "seguro" ? null : local.trim() || null,
       documento_url: docUrl,
       idioma,
     });
@@ -659,6 +725,9 @@ export default function IntakeDocumento({
       </div>
 
       {ok && <p className="mt-3 text-sm text-emerald-700">{ok}</p>}
+      {avisoGravado && (
+        <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">{avisoGravado}</p>
+      )}
 
       {/* O passo seguinte, com o motorista ainda à frente do balcão. Sem isto
           o ecrã acabava numa frase verde e o gestor tinha de ir procurar o nome
@@ -732,7 +801,7 @@ export default function IntakeDocumento({
               // Ficheiros já no privado sem ficha que os reclame: saem.
               if (kycPaths.length) void apagarDocumentosPrivados(kycPaths);
               // O resto do lote também cai: sem revisão, sai do bucket.
-              if (fila.length) void Promise.all(fila.map((d) => apagarDocumentoPublico(d.path)));
+              if (fila.length) void descartar(fila);
               setKycLido(null);
               setKycTipos([]);
               setKycPaths([]);
@@ -760,7 +829,7 @@ export default function IntakeDocumento({
                     // Abandonar o resto do lote sem perder o que já foi gravado.
                     // Os que ficavam por rever nunca foram referenciados por
                     // nada — saem do bucket, em vez de ficarem lá órfãos.
-                    if (fila.length) void Promise.all(fila.map((d) => apagarDocumentoPublico(d.path)));
+                    if (fila.length) void descartar(fila);
                     setFila([]);
                     setLote({ total: 0, feitos: 0 });
                     reset();
@@ -812,8 +881,9 @@ export default function IntakeDocumento({
                     confiança {res.doc.confianca}
                   </span>
                 </div>
-                {docUrl && (
-                  <a href={docUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-emerald-700 underline">
+                {/* Resolvido no servidor: numa coima/portagem é um URL assinado (já é privado). */}
+                {res.documento_ver && (
+                  <a href={res.documento_ver} target="_blank" rel="noreferrer" className="text-xs font-medium text-emerald-700 underline">
                     ver ficheiro
                   </a>
                 )}
@@ -852,7 +922,10 @@ export default function IntakeDocumento({
                     )}
                   </p>
                   <div className="flex flex-wrap gap-3">
-                    {motoristas && res && docPath && (
+                    {/* Lido como coima/portagem, o ficheiro já saiu do público (está em
+                        privado/infracoes): não há cópia pública para ler como KYC —
+                        apaga-se e carrega-se outra vez. */}
+                    {motoristas && res && docPath && !soPrivados([docUrl]).length && (
                       <button
                         className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
                         onClick={() => {
@@ -876,9 +949,10 @@ export default function IntakeDocumento({
                         // Um documento de identidade não fica no bucket público
                         // "só porque" veio parar ao ecrã errado. E o lote segue.
                         // (Bloqueia-se durante o apagar: um duplo clique contava
-                        // o mesmo documento duas vezes no lote.)
+                        // o mesmo documento duas vezes no lote.) Se a leitura o
+                        // tinha passado para privado, essa cópia sai também.
                         setFase("a-gravar");
-                        if (docPath) await apagarDocumentoPublico(docPath);
+                        await descartarCaminhos(docPath ? [docPath] : [], [docUrl]);
                         continuarOuFechar();
                       }}
                       disabled={fase === "a-gravar"}
@@ -912,6 +986,17 @@ export default function IntakeDocumento({
                       <span>Fornecedor / entidade</span>
                       <input className={campo} value={fornecedor} onChange={(e) => { setFornecedor(e.target.value); if (destino === "seguro") setSeguradora(e.target.value); }} />
                     </label>
+                    {ehPortagemCoima && (
+                      <label className={`${etiqueta} sm:col-span-2`}>
+                        <span>Local</span>
+                        <input
+                          className={campo}
+                          value={local}
+                          onChange={(e) => setLocal(e.target.value)}
+                          placeholder="Onde foi a infração / a passagem — vai na mensagem ao motorista"
+                        />
+                      </label>
+                    )}
                   </div>
 
                   {ehPortagemCoima && (

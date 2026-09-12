@@ -5,6 +5,7 @@ import { financeiroMes } from "@/lib/financeiro";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
+import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import type { DespesaCategoria } from "@/types/db";
 
 const IMPUTACAO: Record<string, string> = {
@@ -42,7 +43,12 @@ export default async function MesFinanceiroPage({
   const mes = Number(m[2]);
   if (mes < 1 || mes > 12) notFound();
 
-  const d = await financeiroMes(ano, mes);
+  const mesBruto = await financeiroMes(ano, mes);
+  // A fatura de cada despesa própria, pronta a abrir: o URL público, ou um URL
+  // assinado quando o documento é privado (coima/portagem) — gerado aqui, no
+  // servidor, depois do requireAdmin.
+  const docs = await urlsDocumentosParaAdmin(mesBruto.despesas.map((x) => x.documento_url));
+  const d = { ...mesBruto, despesas: mesBruto.despesas.map((x, i) => ({ ...x, documento_url: docs[i] })) };
   const anterior = mes === 1 ? `${ano - 1}-12` : `${ano}-${String(mes - 1).padStart(2, "0")}`;
   const seguinte = mes === 12 ? `${ano + 1}-01` : `${ano}-${String(mes + 1).padStart(2, "0")}`;
 

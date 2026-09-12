@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { validarAcerto } from "@/lib/reciboToken";
 import { dataBR } from "@/lib/datas";
 import { formatarPreco } from "@/lib/precos";
+import { documentoDoDetalhe, urlDocumentoParaParceiro } from "@/lib/documentoDespesa";
 import { Logo } from "@/components/Logo";
 import { ExtratoAcerto } from "@/components/ExtratoAcerto";
 import type { SemanaMoto } from "@/types/db";
@@ -60,6 +61,8 @@ export default async function ExtratoAcertoPublico({
   ]);
 
   // A fatura de cada despesa, para as linhas serem clicáveis (igual ao portal).
+  // Só faturas e só URLs públicos: esta página abre-se por token, sem sessão — o
+  // documento de uma coima/portagem não aparece aqui, esteja no bucket que estiver.
   const despesaIds = [
     ...new Set((linhasBrutas ?? []).map((l) => l.despesa_id).filter(Boolean) as string[]),
   ];
@@ -67,10 +70,10 @@ export default async function ExtratoAcertoPublico({
   if (despesaIds.length) {
     const { data: desps } = await supabaseAdmin
       .from("despesa")
-      .select("id, detalhe")
+      .select("id, categoria, detalhe")
       .in("id", despesaIds);
     for (const d of desps ?? []) {
-      docDe.set(d.id, (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null);
+      docDe.set(d.id, urlDocumentoParaParceiro(d.categoria, documentoDoDetalhe(d.detalhe)));
     }
   }
 

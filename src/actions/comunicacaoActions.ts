@@ -4,16 +4,25 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { gerarTextoGemini } from "@/lib/gemini";
 import { textoCoima, IDIOMAS } from "@/lib/lembretes";
+import { textoComLinkDocumento } from "@/lib/documentoDespesa";
+import { linkAssinadoParaPartilhar } from "@/lib/documentoDespesaServidor";
+import {
+  localDaInfracao,
+  promptComunicacao,
+  textoModeloComunicacao,
+  textoParaMotorista,
+  type ComunicacaoTipo,
+  type DadosComunicacao,
+} from "@/lib/comunicacaoTexto";
 
 /**
  * Comunicações ao motorista — o "procedimento padrão" após registar uma coima,
  * portagem ou nova apólice (carta verde). Descobre o motorista, redige a
  * mensagem com a IA no idioma dele (com fallback para template) e devolve o
  * texto + telefone. NÃO envia — o admin revê e envia por WhatsApp (link wa.me),
- * mantendo a regra "prepara, tu confirmas".
+ * mantendo a regra "prepara, tu confirmas". Os textos (o prompt, os templates e
+ * o local que não vai à IA) estão em src/lib/comunicacaoTexto.ts.
  */
-
-export type ComunicacaoTipo = "coima" | "portagem" | "seguro";
 
 interface MotoristaMin {
   id: string;
@@ -54,7 +63,10 @@ export interface PrepararComunicacaoInput {
   matricula?: string | null;
   valor?: string | null; // já em euros, ex. "2.40"
   data?: string | null; // formatada, ex. "12/07"
-  documento_url?: string | null; // carta verde / comprovativo
+  /** Só coima/portagem: onde foi a infração ou a passagem, como está no auto. */
+  local?: string | null;
+  /** O documento guardado. Só a carta verde o envia — e assinado; coima/portagem nunca. */
+  documento_url?: string | null;
   idioma?: string | null; // código ISO (pt/en/es…) para redigir; default inglês
 }
 
@@ -86,45 +98,28 @@ export async function prepararComunicacao(
   // defeito e não é fiável). O gestor pode mudar antes de enviar.
   const idiomaCod = (input.idioma || "en").slice(0, 2).toLowerCase();
   const idioma = nomeIdioma(idiomaCod);
-  const matricula = input.matricula ?? "?";
   const valor = input.valor ? `${input.valor} €` : "";
+  const dados: DadosComunicacao = { nome: m.nome, matricula: input.matricula ?? "?", data: input.data ?? "", valor };
+  // Os dados do auto que a mensagem leva: data, local e valor (o documento não vai).
+  const local = localDaInfracao(input.tipo, input.local);
 
-  // Contexto por tipo (o que a mensagem deve dizer).
-  const contexto: Record<ComunicacaoTipo, string> = {
-    coima: `a GoScooters recebeu uma coima/multa de trânsito da mota ${matricula}${input.data ? `, de ${input.data}` : ""}${valor ? `, no valor de ${valor}` : ""}. Este montante fica na conta do motorista.`,
-    portagem: `há uma portagem por pagar da mota ${matricula}${input.data ? `, de ${input.data}` : ""}${valor ? `, no valor de ${valor}` : ""}. Este montante fica na conta do motorista.`,
-    seguro: `há um novo comprovativo de seguro (carta verde) da mota ${matricula}. Pede para guardar o documento (o link vai a seguir).`,
-  };
+  // A IA (um terceiro) redige SEM o local; junta-se a seguir, numa linha à parte.
+  // Os templates do fallback sem IA correm aqui e levam-no na frase.
+  const redigido = await gerarTextoGemini(promptComunicacao(input.tipo, idioma, dados, Boolean(local)));
+  const fallback = !redigido;
+  const modelo =
+    input.tipo === "coima"
+      ? textoCoima({ ...dados, local }, idiomaCod)
+      : textoModeloComunicacao(input.tipo, { ...dados, local }, idiomaCod);
+  let texto = textoParaMotorista(redigido, modelo, local);
 
-  const prompt = `Escreve UMA mensagem curta de WhatsApp, no idioma ${idioma}, da equipa GoScooters (aluguer de scooters em Lisboa) para o motorista ${m.nome}.
-Contexto a comunicar: ${contexto[input.tipo]}
-Tom cordial, direto e simples (o motorista pode ser imigrante). Sem assunto, sem assinatura formal, sem parênteses de instrução, sem placeholders. Devolve APENAS o texto da mensagem.`;
-
-  let texto = await gerarTextoGemini(prompt);
-  let fallback = false;
-
-  if (!texto) {
-    // Fallback sem IA: template (coima existe; portagem/seguro em pt/en simples).
-    fallback = true;
-    const pt = idiomaCod === "pt";
-    if (input.tipo === "coima") {
-      texto = textoCoima({ nome: m.nome, matricula, data: input.data ?? "", valor }, idiomaCod);
-    } else if (input.tipo === "portagem") {
-      texto = pt
-        ? `Olá ${m.nome}, a GoScooters registou uma portagem da mota ${matricula}${input.data ? ` de ${input.data}` : ""}${valor ? ` — valor ${valor}` : ""}. Este montante fica na tua conta. Qualquer dúvida, fala connosco.`
-        : `Hi ${m.nome}, GoScooters registered a toll for scooter ${matricula}${input.data ? ` on ${input.data}` : ""}${valor ? ` — amount ${valor}` : ""}. This amount is added to your account. Any questions, contact us.`;
-    } else {
-      texto = pt
-        ? `Olá ${m.nome}, segue o novo comprovativo de seguro (carta verde) da mota ${matricula}. Por favor guarda-o.`
-        : `Hi ${m.nome}, here is the new insurance certificate (green card) for scooter ${matricula}. Please keep it.`;
-    }
-  }
-
-  // O link do documento vai SEMPRE na mensagem (coima/portagem/carta verde) — o
-  // motorista vê o documento original. Nunca dependemos da IA para o URL.
-  if (input.documento_url) {
-    texto = `${texto.trim()}\n${input.documento_url}`;
-  }
+  // O link do documento NÃO é da IA — junta-se aqui, e só à carta verde:
+  //  - coima/portagem: nunca. O aviso traz dados de terceiros (a quem foi
+  //    notificado, NIF, morada) e a mensagem já leva a data e o valor;
+  //  - carta verde: sim, mas ASSINADO (expira) — nunca o URL público permanente,
+  //    que ficava para sempre na conversa e em cada reencaminhamento.
+  const link = input.tipo === "seguro" ? await linkAssinadoParaPartilhar(input.documento_url) : null;
+  texto = textoComLinkDocumento(texto, input.tipo, link);
 
   return {
     success: true,

@@ -1,12 +1,10 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import {
-  prepararComunicacao,
-  type ComunicacaoPreparada,
-  type ComunicacaoTipo,
-} from "@/actions/comunicacaoActions";
+import { prepararComunicacao, type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
+import type { ComunicacaoTipo } from "@/lib/comunicacaoTexto";
 import { enviarLembrete } from "@/lib/sms";
-import { enviarTelegramTexto } from "@/lib/notifications";
+import { enviarTelegramTexto, origemDoSite } from "@/lib/notifications";
+import { alertaProcedimentoTelegram } from "@/lib/mensagensTelegram";
 import type { Procedimento, ProcedimentoGatilho } from "@/types/db";
 
 /**
@@ -23,6 +21,8 @@ export interface ContextoEvento {
   matricula?: string | null;
   valor?: string | null; // "12.40"
   data?: string | null; // já formatada (dd/mm/aaaa)
+  /** Só coima/portagem: onde foi — vai na mensagem ao motorista (nunca no alerta ao gestor). */
+  local?: string | null;
   documento_url?: string | null;
   categoria?: string | null; // para as condições
 }
@@ -75,6 +75,7 @@ export async function avaliarProcedimentos(
         matricula: ctx.matricula ?? null,
         valor: ctx.valor ?? null,
         data: ctx.data ?? null,
+        local: ctx.local ?? null,
         documento_url: ctx.documento_url ?? null,
       });
       if (!prep.success || !prep.dados) {
@@ -99,8 +100,11 @@ export async function avaliarProcedimentos(
         detalhe: r.ok ? `enviada (${r.canal})` : r.erro,
       });
     } else if (p.acao === "alertar_gestor") {
-      const partes = [ctx.matricula, ctx.valor ? `${ctx.valor} €` : null, ctx.data].filter(Boolean);
-      const ok = await enviarTelegramTexto(`⚠️ *${p.nome}*\n${partes.join(" · ")}`);
+      // Ao Telegram (um terceiro) vai só o evento, o nome do procedimento e o link
+      // para o admin — nunca a matrícula, o valor, a data ou o local, que ficam na
+      // página, com sessão (src/lib/mensagensTelegram.ts).
+      const texto = alertaProcedimentoTelegram({ procedimento: p.nome, gatilho }, await origemDoSite());
+      const ok = await enviarTelegramTexto(texto);
       out.push({ procedimento: p.nome, estado: ok ? "enviada" : "falhou", detalhe: ok ? "telegram" : "telegram indisponível" });
     }
   }

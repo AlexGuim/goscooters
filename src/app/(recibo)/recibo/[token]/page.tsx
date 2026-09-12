@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { validarRecibo } from "@/lib/reciboToken";
 import { dataBR } from "@/lib/datas";
+import { documentoDoDetalhe, urlPublicoDoDocumento } from "@/lib/documentoDespesa";
 import { Logo } from "@/components/Logo";
 import ImprimirRecibo from "./ImprimirRecibo";
 
@@ -192,8 +193,9 @@ export default async function ContratoRecibo({
         .limit(1)
         .maybeSingle()
     : { data: null };
-  const seguroDoc =
-    (seguro?.detalhe as { documento_url?: string } | null)?.documento_url ?? null;
+  // Só um URL público: esta página abre-se por token, sem sessão de admin — um
+  // documento guardado no bucket privado não se mostra aqui.
+  const seguroDoc = urlPublicoDoDocumento(documentoDoDetalhe(seguro?.detalhe));
 
   const lang: Lang = (mot?.idioma_preferido ?? "pt") === "en" ? "en" : "pt";
   const t = T[lang];

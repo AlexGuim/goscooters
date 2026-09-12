@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { calcularHistoricoAtivo, type HistoricoAtivo } from "@/lib/ativoHistorico";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
+import { documentoDoDetalhe, urlDocumentoParaParceiro } from "@/lib/documentoDespesa";
 import type { Acerto, AcertoLinha, DespesaCategoria, EstadoPagamentoDespesa } from "@/types/db";
 
 /** Linha do acerto + o documento (fatura/portagem/coima/seguro) da despesa de origem. */
@@ -94,11 +95,12 @@ export async function acertoDoParceiro(
   if (despesaIds.length > 0) {
     const { data: despesas } = await supabaseAdmin
       .from("despesa")
-      .select("id, detalhe")
+      .select("id, categoria, detalhe")
       .in("id", despesaIds);
     for (const d of despesas ?? []) {
-      const url = (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null;
-      docPorDespesa.set(d.id, url);
+      // Só faturas, e só por URL público: o aviso de uma coima/portagem é privado
+      // e só o admin o abre — mesmo um registo antigo que ainda esteja no público.
+      docPorDespesa.set(d.id, urlDocumentoParaParceiro(d.categoria, documentoDoDetalhe(d.detalhe)));
     }
   }
 
@@ -220,7 +222,9 @@ export async function despesasDaMotoDoParceiro(
     valor_total: d.valor_total as string,
     estado_pagamento: d.estado_pagamento as EstadoPagamentoDespesa,
     fornecedor: (d.fornecedor as string) ?? null,
-    documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+    // Só faturas, por URL público: o documento de uma coima/portagem é privado (só o
+    // admin o abre) — mesmo num registo antigo que ainda esteja no bucket público.
+    documento_url: urlDocumentoParaParceiro(d.categoria as string, documentoDoDetalhe(d.detalhe)),
   }));
 }
 
@@ -256,7 +260,9 @@ export async function despesasDoParceiro(proprietarioId: string): Promise<Despes
     valor_total: d.valor_total as string,
     estado_pagamento: d.estado_pagamento as EstadoPagamentoDespesa,
     fornecedor: (d.fornecedor as string) ?? null,
-    documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+    // Só faturas, por URL público: o documento de uma coima/portagem é privado (só o
+    // admin o abre) — mesmo num registo antigo que ainda esteja no bucket público.
+    documento_url: urlDocumentoParaParceiro(d.categoria as string, documentoDoDetalhe(d.detalhe)),
     matricula: d.veiculo_id ? matDe.get(d.veiculo_id as string) ?? null : null,
   }));
 }

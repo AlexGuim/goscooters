@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdmin } from "@/lib/dal";
 import type { Acerto, AcertoLinha, Proprietario } from "@/types/db";
+import { documentoDoDetalhe } from "@/lib/documentoDespesa";
+import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import AcertosList, { type AcertoComLinhas } from "./AcertosList";
 
 async function getDados(): Promise<{
@@ -24,15 +26,16 @@ async function getDados(): Promise<{
   const nomeDono = new Map((donosRes.data ?? []).map((d) => [d.id, d.nome]));
   const linRows = linRes.data ?? [];
 
-  // Documento (bucket público) por despesa — para o detalhe do acerto abrir a
-  // fatura/portagem/coima/apólice, tal como o parceiro vê no portal.
+  // Documento por despesa — para o detalhe do acerto abrir a fatura/portagem/
+  // coima/apólice. As faturas abrem pelo URL público (como no portal); uma coima
+  // ou portagem está no bucket privado e abre por URL assinado, só aqui no admin.
   const despesaIds = [...new Set(linRows.filter((l) => l.despesa_id).map((l) => l.despesa_id as string))];
   const docPorDespesa = new Map<string, string | null>();
   if (despesaIds.length > 0) {
     const { data: despesas } = await supabaseAdmin.from("despesa").select("id, detalhe").in("id", despesaIds);
-    for (const d of despesas ?? []) {
-      docPorDespesa.set(d.id, (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null);
-    }
+    const lista = despesas ?? [];
+    const urls = await urlsDocumentosParaAdmin(lista.map((d) => documentoDoDetalhe(d.detalhe)));
+    lista.forEach((d, i) => docPorDespesa.set(d.id, urls[i]));
   }
 
   const linhasPor = new Map<string, (AcertoLinha & { documento_url: string | null })[]>();

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { garantirManutencaoDeDespesa } from "@/actions/frotaSaudeActions";
+import { documentoDoDetalhe } from "@/lib/documentoDespesa";
+import { documentoConformeCategoria, urlDocumentoParaAdmin } from "@/lib/documentoDespesaServidor";
 import type {
   Database,
   DespesaCategoria,
@@ -99,21 +101,57 @@ export async function criarDespesa(
 export async function atualizarDespesa(
   id: string,
   updates: DespesaUpdate,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  documento_ver?: string | null;
+  /** O original de uma coima/portagem ficou no bucket público depois de gravar: mostrar ao gestor. */
+  aviso?: string;
+}> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
   const erro = valida(updates.valor);
   if (erro) return { success: false, error: erro };
 
-  const { error } = await supabaseAdmin.from("despesa").update(updates).eq("id", id);
+  // O documento segue a categoria que fica gravada: passar uma despesa a coima ou
+  // portagem tira o aviso do bucket público, e o contrário devolve às faturas o
+  // que a leitura tinha tomado por coima. Lê-se o que está na base — o formulário
+  // de edição não traz o `detalhe`. Numa despesa antiga, o ficheiro no público pode
+  // ser o único exemplar: é copiado e confirmado antes do update, e só sai do
+  // público no `confirmar`, com a linha já gravada.
+  const { data: atual, error: erroLer } = await supabaseAdmin
+    .from("despesa")
+    .select("categoria, detalhe")
+    .eq("id", id)
+    .maybeSingle();
+  if (erroLer || !atual) {
+    if (erroLer) console.error("atualizarDespesa (ler) error:", erroLer);
+    return { success: false, error: "Não encontrei a despesa." };
+  }
+  const detalhe = updates.detalhe !== undefined ? updates.detalhe : atual.detalhe;
+  const doc = await documentoConformeCategoria(
+    documentoDoDetalhe(detalhe),
+    updates.categoria ?? atual.categoria,
+    id,
+  );
+  if (!doc.ok) return { success: false, error: doc.error };
+  const final: DespesaUpdate = doc.mudou
+    ? { ...updates, detalhe: { ...(detalhe as Record<string, unknown>), documento_url: doc.valor } }
+    : updates;
+
+  const { error } = await supabaseAdmin.from("despesa").update(final).eq("id", id);
   if (error) {
     console.error("atualizarDespesa error:", error);
+    await doc.desfazer();
     return { success: false, error: "Erro ao atualizar a despesa." };
   }
+  const aviso = await doc.confirmar();
 
   revalidatePath("/admin/despesas");
-  return { success: true };
+  const resposta = aviso ? { success: true, aviso } : { success: true };
+  // O link da lista muda com o bucket: vai resolvido (assinado, se ficou privado).
+  return doc.mudou ? { ...resposta, documento_ver: await urlDocumentoParaAdmin(doc.valor) } : resposta;
 }
 
 export async function eliminarDespesa(

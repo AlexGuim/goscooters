@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mesDaSemana } from "@/lib/datas";
+import { documentoDoDetalhe } from "@/lib/documentoDespesa";
 
 /**
  * Consolidação financeira da GoScooters.
@@ -210,6 +211,7 @@ export interface LinhaDespesaPropria {
   descricao: string | null;
   matricula: string | null;
   valor: number;
+  /** Como está guardado: URL público (fatura) ou caminho privado (coima/portagem). O ecrã resolve-o. */
   documento_url: string | null;
 }
 
@@ -375,7 +377,8 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     descricao: (d.descricao as string) ?? null,
     matricula: d.veiculo_id ? motoDe.get(d.veiculo_id)?.matricula ?? null : null,
     valor: Number(d.valor_total),
-    documento_url: (d.detalhe as { documento_url?: string } | null)?.documento_url ?? null,
+    // O valor guardado (URL público ou caminho privado): o ecrã resolve-o para abrir.
+    documento_url: documentoDoDetalhe(d.detalhe),
   }));
   const despesasTotal = despesas.reduce((s, d) => s + d.valor, 0);
   const receita = receitaFrota + receitaComissao;
