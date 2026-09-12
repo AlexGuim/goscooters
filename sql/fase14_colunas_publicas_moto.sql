@@ -8,7 +8,9 @@
 --      src/app/[lang]/moto/[id]/pedido/page.tsx e src/app/sitemap.ts) e
 --      confirmar no admin que essa versão está no ar.
 --   2. SÓ DEPOIS correr este ficheiro:
---        npm run sql -- sql/fase14_colunas_publicas_moto.sql
+--        produção, no checkout do main:  npm run sql -- sql/fase14_colunas_publicas_moto.sql
+--        instância com controlo da plataforma (ramo feat/instancias):
+--          npm run sql -- --instancia <nome> --forcar [--aplicar] sql/fase14_colunas_publicas_moto.sql
 --
 --   Pela ordem inversa, o código antigo continua a pedir todas as colunas e o
 --   PostgREST responde "permission denied for table moto": o catálogo fica
@@ -72,7 +74,9 @@
 -- As duas instruções têm de correr juntas: o `npm run sql` põe o ficheiro
 -- inteiro numa transação, e se o GRANT falhar o REVOKE também é desfeito.
 --
--- NÃO APLICADO. Correr só depois do passo 1 da ORDEM OBRIGATÓRIA.
+-- ENSAIADO NA DEMO a 12/09/2026 (13 colunas só para a anon; provas pela API ok;
+-- demo reposta a seguir). NÃO APLICADO na produção. Correr só depois do passo 1
+-- da ORDEM OBRIGATÓRIA.
 
 revoke select on public.moto from anon, authenticated;
 
@@ -95,7 +99,7 @@ grant select (
 --   Esperado: as 13 colunas acima para anon e nenhuma linha para authenticated
 --   (antes: as 30 para os dois).
 --   Pela API, com a anon key: /rest/v1/moto?select=id,modelo -> 200;
---   /rest/v1/moto?select=matricula -> 401 "permission denied for table moto".
+--   /rest/v1/moto?select=matricula -> 401, code 42501, "permission denied for table moto".
 --
 -- REVERSÃO (volta ao SELECT da tabela inteira; correr ANTES de um rollback do
 -- deploy para uma versão que ainda faça select("*"))
