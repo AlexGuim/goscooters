@@ -130,7 +130,9 @@ export const DOC_TAMANHO_MAXIMO = 15 * 1024 * 1024; // 15 MB
 export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 
 /**
- * Documento para o bucket PRIVADO — identidade, carta, comprovativo de morada.
+ * Documento para o bucket PRIVADO — identidade, carta, comprovativo de morada
+ * (`kyc`), ou comprovativo de pagamento (`comprovativos`: um print de MB WAY ou
+ * de homebanking traz nomes, IBAN e valores de terceiros).
  *
  * Existe porque `enviarFotoPrivada` recusa PDF (é para fotos) e `enviarDocumento`
  * grava no bucket PÚBLICO (é para faturas, que precisam de URL partilhável). Um
@@ -139,6 +141,7 @@ export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/w
  */
 export async function enviarDocumentoPrivado(
   ficheiro: File,
+  pasta: "kyc" | "comprovativos" = "kyc",
 ): Promise<{ success: boolean; path?: string; error?: string }> {
   if (!DOC_TIPOS.includes(ficheiro.type)) {
     return { success: false, error: "Formato não suportado. Usa PDF, JPG, PNG ou WebP." };
@@ -146,7 +149,7 @@ export async function enviarDocumentoPrivado(
   if (ficheiro.size > DOC_TAMANHO_MAXIMO) {
     return { success: false, error: `O ficheiro tem ${mb(ficheiro.size)} MB. O máximo é 15 MB.` };
   }
-  return enviarPrivado(ficheiro, ficheiro.name, "kyc");
+  return enviarPrivado(ficheiro, ficheiro.name, pasta);
 }
 
 // ── Upload autorizado por TOKEN de entrega (motorista, sem conta) ────────────

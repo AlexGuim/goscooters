@@ -291,8 +291,8 @@ export default function IntakeDocumento({
       const pg = await lerComprovativoPagamento(a.path);
       if (!pg.success || !pg.dados) {
         // Um comprovativo ilegível não pode parar o lote: diz-se qual falhou e
-        // segue-se para o próximo (o ficheiro fica no bucket, pode ser
-        // registado à mão como despesa/pagamento).
+        // segue-se para o próximo. O ficheiro já não está no bucket público — a
+        // leitura tira-o de lá antes de tudo; o pagamento regista-se à mão.
         setErro(`${a.nome}: ${pg.error ?? "não consegui ler o comprovativo."}`);
         await seguirLote(seguintes);
         return;

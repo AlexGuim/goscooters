@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { enviarDocumento } from "@/lib/uploads";
+import { enviarDocumentoPrivado } from "@/lib/uploads";
 import { lerComprovativoPagamento, type ComprovativoLido } from "@/actions/pagamentoActions";
 import { Botao, Modal, campo, etiqueta } from "@/components/ui";
 import { formatarPreco } from "@/lib/precos";
@@ -37,7 +37,8 @@ export default function LerComprovativo({
     setErro(null);
     setFase("a-ler");
     try {
-      const env = await enviarDocumento(f);
+      // Direto para o privado: o print traz nomes, IBAN e valores de terceiros.
+      const env = await enviarDocumentoPrivado(f, "comprovativos");
       if (!env.success || !env.path) {
         setErro(env.error ?? "Falha ao carregar o ficheiro.");
         setFase("inicio");

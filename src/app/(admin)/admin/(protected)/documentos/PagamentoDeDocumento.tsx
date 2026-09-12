@@ -45,6 +45,7 @@ export default function PagamentoDeDocumento({
       metodo: lido.metodo,
       referencia: referencia.trim() || null,
       recebido_por: recebidoPor,
+      comprovativo_url: lido.comprovativo_path,
     });
     setAGravar(false);
     if (!r.success) {

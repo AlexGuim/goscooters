@@ -203,6 +203,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
   const [aLerComprovativo, setALerComprovativo] = useState(false);
   const [prePagamento, setPrePagamento] = useState<{
     valor?: string | null; data?: string | null; metodo?: PagamentoMetodo | null; referencia?: string | null;
+    comprovativo_url?: string | null;
   } | null>(null);
 
   /** Motoristas com dívida em aberto — os únicos a quem faz sentido alocar. */
@@ -231,6 +232,7 @@ export default function CobrancasList({ inicial }: { inicial: CobrancaPainel[] }
       data: lido.data,
       metodo: lido.metodo,
       referencia: lido.referencia,
+      comprovativo_url: lido.comprovativo_path,
     });
     setALerComprovativo(false);
     setPagar(dele[0]);
@@ -1075,7 +1077,10 @@ function FormPagamento({
   cobrancaClicada: CobrancaPainel;
   cobrancasDoMotorista: CobrancaPainel[];
   /** Pré-preenchimento vindo da leitura de um comprovativo (só sugestão). */
-  inicial?: { valor?: string | null; data?: string | null; metodo?: PagamentoMetodo | null; referencia?: string | null };
+  inicial?: {
+    valor?: string | null; data?: string | null; metodo?: PagamentoMetodo | null; referencia?: string | null;
+    comprovativo_url?: string | null;
+  };
   onClose: () => void;
   onPago: (liquidados: Set<string>, parciais: Map<string, number>) => void;
 }) {
@@ -1120,6 +1125,7 @@ function FormPagamento({
         metodo,
         referencia,
         recebido_por: recebidoPor,
+        comprovativo_url: inicial?.comprovativo_url ?? null,
         alocacoes,
       });
       if (!r.success) {

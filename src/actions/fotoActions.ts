@@ -226,6 +226,8 @@ export async function apagarDocumentoPublico(path: string): Promise<{ ok: boolea
  */
 export async function moverDocumentoParaPrivado(
   path: string,
+  /** `comprovativos` para os comprovativos de pagamento, que também não ficam no público. */
+  pasta: "kyc" | "comprovativos" = "kyc",
 ): Promise<{ ok: boolean; path?: string; publicoFicou?: boolean }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { ok: false };
@@ -237,7 +239,8 @@ export async function moverDocumentoParaPrivado(
     return { ok: false, publicoFicou: !(await removerDoPublico(path)) };
   }
   const nome = path.split("/").pop() ?? path;
-  const destino = `kyc/${crypto.randomUUID()}-${nomeSeguro(nome)}`;
+  // Revalidado aqui: é uma server action, o tipo de `pasta` não chega ao runtime.
+  const destino = `${pasta === "comprovativos" ? "comprovativos" : "kyc"}/${crypto.randomUUID()}-${nomeSeguro(nome)}`;
   const { error: erroGravar } = await supabaseAdmin.storage
     .from(BUCKET_PRIVADO)
     .upload(destino, blob, { contentType: mimeDoCaminho(path), upsert: false });

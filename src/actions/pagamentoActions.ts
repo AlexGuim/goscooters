@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { comprovativosAtivosDe } from "@/lib/comprovativos";
 import { geminiConfigurado, lerComprovativoGemini, mimeDoCaminho, ultimoErroDaIA } from "@/lib/gemini";
+import { moverDocumentoParaPrivado } from "@/actions/fotoActions";
 import type { PagamentoMetodo, PagamentoRecebidoPor } from "@/types/db";
 
 export interface AlocacaoInput {
@@ -20,6 +21,8 @@ export interface RegistarPagamentoInput {
   referencia?: string | null;
   /** Quem recebeu: 'goscooters' (default) ou 'proprietario' (conta do parceiro). */
   recebido_por?: PagamentoRecebidoPor;
+  /** Caminho do comprovativo no bucket PRIVADO (`comprovativos/…`), quando veio de um. */
+  comprovativo_url?: string | null;
   alocacoes: AlocacaoInput[];
 }
 
@@ -63,6 +66,8 @@ export async function registarPagamento(
       data_recebimento: input.data_recebimento,
       metodo: input.metodo ?? null,
       referencia: input.referencia?.trim() || null,
+      // Só caminhos do bucket privado: um URL público aqui voltava a expor o print.
+      comprovativo_url: input.comprovativo_url?.startsWith("comprovativos/") ? input.comprovativo_url : null,
       // Só enviar recebido_por quando NÃO é o default, para o insert funcionar
       // mesmo antes da migração (coluna inexistente). Omisso → default da BD.
       ...(input.recebido_por && input.recebido_por !== "goscooters"
@@ -315,10 +320,12 @@ export async function estornarPagamento(
  * uma conversa de WhatsApp, foto de talão): a IA extrai valor, data e quem
  * pagou, e o servidor tenta identificar o motorista pelo nome.
  *
- * O objetivo é o gestor só ter de CONFIRMAR. Por isso nada se grava aqui — a
- * função devolve uma sugestão; quem decide é o formulário de pagamento.
+ * O objetivo é o gestor só ter de CONFIRMAR. Por isso nenhum pagamento se grava
+ * aqui — a função devolve uma sugestão; quem decide é o formulário de pagamento.
  */
 export interface ComprovativoLido {
+  /** Onde o ficheiro ficou: bucket PRIVADO, `comprovativos/…`. Segue para pagamento.comprovativo_url. */
+  comprovativo_path: string;
   valor: string | null;
   data: string | null;
   metodo: PagamentoMetodo | null;
@@ -357,16 +364,38 @@ export async function lerComprovativoPagamento(
 ): Promise<{ success: boolean; dados?: ComprovativoLido; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
+
+  // Um comprovativo traz nomes, IBAN e valores de terceiros: não fica no bucket
+  // público. Cobranças já o carrega para o privado; o intake de Documentos só
+  // sabe o que é depois de o classificar a partir do público — e tira-o de lá
+  // aqui, ANTES de qualquer verificação ou leitura que possa falhar. Sem isto,
+  // cada pagamento registado deixava o print legível por URL, sem dono na BD.
+  let caminho = path;
+  if (path.startsWith("faturas/")) {
+    const m = await moverDocumentoParaPrivado(path, "comprovativos");
+    if (!m.ok || !m.path) {
+      return {
+        success: false,
+        error:
+          "Não consegui guardar o comprovativo em privado." +
+          (m.publicoFicou ? " ATENÇÃO: ficou no bucket público — apaga-o no Supabase." : ""),
+      };
+    }
+    caminho = m.path;
+  } else if (!path.startsWith("comprovativos/")) {
+    return { success: false, error: "Caminho de comprovativo inválido." };
+  }
+
   if (!geminiConfigurado()) {
     return { success: false, error: "A leitura por IA (Gemini) não está configurada neste ambiente." };
   }
 
-  const mime = mimeDoCaminho(path);
+  const mime = mimeDoCaminho(caminho);
   if (!mime.startsWith("image/") && mime !== "application/pdf") {
     return { success: false, error: "Formato não suportado. Usa uma imagem (JPG/PNG) ou PDF." };
   }
 
-  const { data: blob, error: dlErr } = await supabaseAdmin.storage.from("motas").download(path);
+  const { data: blob, error: dlErr } = await supabaseAdmin.storage.from("privado").download(caminho);
   if (dlErr || !blob) {
     console.error("lerComprovativoPagamento download error:", dlErr);
     return { success: false, error: "Não consegui abrir o ficheiro carregado." };
@@ -478,6 +507,7 @@ export async function lerComprovativoPagamento(
   return {
     success: true,
     dados: {
+      comprovativo_path: caminho,
       valor: lido.valor,
       data: lido.data,
       metodo: lido.metodo && metodosValidos.includes(lido.metodo) ? lido.metodo : null,
@@ -512,6 +542,7 @@ export async function registarPagamentoAuto(input: {
   /** Quem ficou com o dinheiro. Sem isto, um pagamento direto ao parceiro era
    *  registado como recebido pela GoScooters e o acerto dele saía errado. */
   recebido_por?: PagamentoRecebidoPor;
+  comprovativo_url?: string | null;
 }): Promise<{ success: boolean; id?: string; alocadas?: number; sobra?: number; error?: string }> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
@@ -550,6 +581,7 @@ export async function registarPagamentoAuto(input: {
     metodo: input.metodo ?? null,
     referencia: input.referencia ?? null,
     recebido_por: input.recebido_por,
+    comprovativo_url: input.comprovativo_url,
     alocacoes,
   });
   if (!r.success) return r;
