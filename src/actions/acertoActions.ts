@@ -10,7 +10,10 @@ import { rotuloSemanaMes, mesDaSemana, semanasDoMes } from "@/lib/datas";
 import type { ManutencaoNaSemana, SemanaEstado, SemanaMoto } from "@/types/db";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import { assinarAcerto } from "@/lib/reciboToken";
-import type { AcertoLinhaTipo } from "@/types/db";
+import type { AcertoLinhaTipo, Database } from "@/types/db";
+
+/** O que se grava em acerto_linha: uma coluna que a tabela não tem não compila. */
+type AcertoLinhaInsert = Database["public"]["Tables"]["acerto_linha"]["Insert"];
 
 /**
  * Acerto mensal por parceiro.
@@ -634,7 +637,7 @@ export async function fecharAcerto(
         matricula_snapshot: l.matricula,
         descricao: l.descricao,
         valor: String(l.valor),
-      })),
+      }) satisfies AcertoLinhaInsert),
       // Perdas: congeladas SÓ para o extrato explicar a receita que não veio.
       // Ficam fora de `p.linhas` de propósito — o líquido é calculado à parte e
       // não as pode apanhar por engano.
@@ -643,12 +646,11 @@ export async function fecharAcerto(
         tipo: "perda" as const,
         cobranca_id: null,
         despesa_id: null,
-        documento_url: null,
         veiculo_id: null,
         matricula_snapshot: x.matricula,
         descricao: [x.semana, x.motorista, x.motivo].filter(Boolean).join(" · "),
         valor: String(x.valor),
-      })),
+      }) satisfies AcertoLinhaInsert),
     ]);
     if (e2) {
       console.error("fecharAcerto linhas error:", e2);
