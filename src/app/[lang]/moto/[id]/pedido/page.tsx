@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getDicionario } from "@/lib/dictionaries";
 import { isLocale, type Locale } from "@/lib/i18n";
-import type { Moto } from "@/types/db";
+import { COLUNAS_PEDIDO, type MotoPedido } from "@/lib/motoPublica";
 import PedidoForm from "./PedidoForm";
 
 interface PageProps {
@@ -17,10 +17,12 @@ interface PageProps {
  * visita a página e reenviado no email de notificação, o que permitia forjar o
  * conteúdo do aviso. Passando pela base de dados, isso deixa de ser possível.
  */
-async function getMoto(id: string): Promise<Moto | null> {
+async function getMoto(id: string): Promise<MotoPedido | null> {
+  // Só id, modelo e preços: é o que o formulário usa, e tudo o que se lhe passa
+  // segue para o browser.
   const { data, error } = await supabaseServer
     .from("moto")
-    .select("*")
+    .select(COLUNAS_PEDIDO)
     .eq("id", id)
     .eq("ativo", true)
     .neq("estado", "manutencao")

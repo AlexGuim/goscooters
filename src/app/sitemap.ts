@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { LOCALES, TAGS_HTML } from "@/lib/i18n";
+import { COLUNAS_SITEMAP } from "@/lib/motoPublica";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
@@ -16,7 +17,7 @@ function alternativas(caminho: string) {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: motas } = await supabaseServer
     .from("moto")
-    .select("id, created_at")
+    .select(COLUNAS_SITEMAP)
     .eq("ativo", true)
     .neq("estado", "manutencao");
 

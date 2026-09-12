@@ -12,17 +12,20 @@ import FiltrosCatalogo, { type FiltrosAtivos } from "@/components/FiltrosCatalog
 import { getHeroImagem } from "@/lib/heroImagem";
 import { getDicionario } from "@/lib/dictionaries";
 import { isLocale, type Dicionario, type Locale } from "@/lib/i18n";
-import type { Moto, Periodo } from "@/types/db";
+import { COLUNAS_CATALOGO, type MotoCatalogo } from "@/lib/motoPublica";
+import type { Periodo } from "@/types/db";
 
 interface PageProps {
   params: Promise<{ lang: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-async function getMotas(): Promise<Moto[]> {
+async function getMotas(): Promise<MotoCatalogo[]> {
+  // Só as colunas dos cartões e dos filtros: a chave anónima não lê mais nada
+  // da mota (ver src/lib/motoPublica.ts).
   const { data, error } = await supabaseServer
     .from("moto")
-    .select("*")
+    .select(COLUNAS_CATALOGO)
     .eq("ativo", true)
     .neq("estado", "manutencao")
     .order("created_at", { ascending: false });
@@ -45,7 +48,7 @@ function param(
   return texto?.trim() || undefined;
 }
 
-function cilindradaBate(moto: Moto, filtro: string): boolean {
+function cilindradaBate(moto: MotoCatalogo, filtro: string): boolean {
   const cc = moto.cilindrada;
   if (cc === null) return false;
 
@@ -61,10 +64,10 @@ function cilindradaBate(moto: Moto, filtro: string): boolean {
  * legível, em vez de espalhada por condições SQL.
  */
 function filtrar(
-  motas: Moto[],
+  motas: MotoCatalogo[],
   filtros: FiltrosAtivos,
   rotulos: RotulosPorPeriodo,
-): Moto[] {
+): MotoCatalogo[] {
   const precoMax = filtros.precoMax ? Number(filtros.precoMax) : null;
   const periodo = PERIODOS.includes(filtros.periodo as Periodo)
     ? (filtros.periodo as Periodo)
@@ -91,7 +94,7 @@ function filtrar(
   });
 }
 
-function formatEstado(moto: Moto, dic: Dicionario) {
+function formatEstado(moto: MotoCatalogo, dic: Dicionario) {
   if (moto.estado === "disponivel") {
     return { label: dic.detalhe.disponivel, color: "bg-emerald-100 text-emerald-700" };
   }

@@ -29,7 +29,14 @@ export interface PrecoDisponivel {
   rotulos: RotulosPeriodo;
 }
 
-const COLUNAS: Record<Periodo, keyof Moto> = {
+/**
+ * As três colunas de preço: é tudo o que o cálculo precisa de uma mota. Assim
+ * servem tanto a linha completa do admin como as leituras públicas, que só
+ * trazem as colunas que mostram.
+ */
+export type PrecosMoto = Pick<Moto, "preco_dia" | "preco_semana" | "preco_mes">;
+
+const COLUNAS: Record<Periodo, keyof PrecosMoto> = {
   dia: "preco_dia",
   semana: "preco_semana",
   mes: "preco_mes",
@@ -45,7 +52,7 @@ export function rotulosDe(dic: Dicionario): RotulosPorPeriodo {
  * para o catálogo não trocar a apresentação de mota para mota.
  */
 export function precosDisponiveis(
-  moto: Moto,
+  moto: PrecosMoto,
   rotulos: RotulosPorPeriodo,
 ): PrecoDisponivel[] {
   return PERIODOS.flatMap((periodo) => {

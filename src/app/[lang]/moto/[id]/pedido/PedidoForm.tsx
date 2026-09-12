@@ -6,10 +6,12 @@ import { createPedido } from "@/actions/createPedido";
 import { precosDisponiveis, formatarPreco, rotulosDe } from "@/lib/precos";
 import { Botao, classesBotao, campo } from "@/components/ui";
 import type { Dicionario, Locale } from "@/lib/i18n";
-import type { Moto, Periodo } from "@/types/db";
+import type { MotoPedido } from "@/lib/motoPublica";
+import type { Periodo } from "@/types/db";
 
 interface PedidoFormProps {
-  moto: Moto;
+  /** Só id, modelo e preços: tudo o que chega a um Client Component vai no HTML. */
+  moto: MotoPedido;
   locale: Locale;
   dic: Dicionario;
 }

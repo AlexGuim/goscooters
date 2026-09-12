@@ -12,16 +12,18 @@ import {
   TAGS_HTML,
   type Locale,
 } from "@/lib/i18n";
-import type { Moto } from "@/types/db";
+import { COLUNAS_DETALHE, type MotoDetalhe } from "@/lib/motoPublica";
 
 interface PageProps {
   params: Promise<{ id: string; lang: string }>;
 }
 
-async function getMoto(id: string): Promise<Moto | null> {
+async function getMoto(id: string): Promise<MotoDetalhe | null> {
+  // Só as colunas que a página e a metadata mostram: a chave anónima não lê
+  // mais nada da mota (ver src/lib/motoPublica.ts).
   const { data, error } = await supabaseServer
     .from("moto")
-    .select("*")
+    .select(COLUNAS_DETALHE)
     .eq("id", id)
     .eq("ativo", true)
     .neq("estado", "manutencao")
