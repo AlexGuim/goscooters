@@ -27,6 +27,14 @@ import { hrefJornada } from "@/lib/jornada";
 import type { CamposDocumento } from "@/lib/gemini";
 import { enviarDocumento } from "@/lib/uploads";
 import { documentoDoDetalhe, lerRefDocumento, textoFalhaAoCarregar } from "@/lib/documentoDespesa";
+import {
+  aDescartar,
+  aguardarGravacao,
+  caminhosDe,
+  type Carregado,
+  type EstadoDoCarregamento,
+  type SaidaDoEcra,
+} from "@/lib/limpezaCarregamentos";
 import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
 import { criarSeguro, criarManutencao, garantirManutencaoDeDespesa } from "@/actions/frotaSaudeActions";
@@ -107,6 +115,37 @@ type Analisado = { nome: string; path: string; url: string; res: IntakeResultado
  */
 const soPrivados = (guardados: (string | null | undefined)[]): string[] =>
   guardados.filter((v): v is string => lerRefDocumento(v)?.onde === "privado");
+
+/** O que a limpeza precisa de um documento do lote: o carregamento e o que a leitura devolveu. */
+const carregado = (d: Analisado): Carregado => ({ path: d.path, documento: d.res.documento_url });
+
+/** O estado do ecrã como a limpeza o vê (aDescartar decide o que sai em cada saída). */
+const estadoDoEcra = (
+  fase: Fase,
+  docPath: string | null,
+  docUrl: string | null,
+  docGravado: boolean,
+  fila: Analisado[],
+): EstadoDoCarregamento => ({
+  fase,
+  emRevisao: docPath ? { path: docPath, documento: docUrl } : null,
+  emRevisaoGravado: docGravado,
+  fila: fila.map(carregado),
+  emLeitura: [],
+});
+
+/**
+ * Tira do storage documentos que não chegaram a ser gravados — do público e, os
+ * que a leitura já passou para privado (coimas/portagens), do privado.
+ */
+const apagarCaminhos = ({ publicos, privados }: { publicos: string[]; privados: string[] }) =>
+  Promise.all([
+    ...publicos.map((p) => apagarDocumentoPublico(p)),
+    ...(privados.length ? [apagarDocumentosPrivados(privados)] : []),
+  ]);
+
+/** Documentos de um lote que ficou por rever: saem todos. */
+const descartar = (docs: Analisado[]) => apagarCaminhos(caminhosDe(docs.map(carregado)));
 
 export default function IntakeDocumento({
   motos,
@@ -198,50 +237,53 @@ export default function IntakeDocumento({
   const [proximaKm, setProximaKm] = useState("");
   const [proximaData, setProximaData] = useState("");
 
-  // Ficheiros que ainda não são de ninguém: os que esperam na fila e o que está
-  // em revisão. Se o gestor fechar o separador ou navegar para outro ecrã, saem
-  // do bucket público — em vez de lá ficarem legíveis por URL para sempre.
-  // (Um em gravação, "a-gravar", fica de fora: passa a ser referenciado pela
-  // despesa que está a ser criada.)
+  /**
+   * O documento em revisão já é — ou, na dúvida, pode já ser — o documento de uma
+   * linha: uma gravação que ficou a meio (a despesa gravou, o seguro falhou) volta
+   * à revisão com ele referido. Daí em diante nenhuma saída do ecrã o apaga.
+   */
+  const [docGravado, setDocGravado] = useState(false);
+
+  // Ficheiros que ainda não são de ninguém: os que esperam na fila, o que está em
+  // revisão e os de um lote a meio da leitura. Se o gestor navegar para outro
+  // ecrã, saem do storage (aDescartar decide quais) — em vez de ficarem legíveis
+  // por URL até alguém correr a auditoria. Ficam o que está "a gravar" (passa a
+  // ser referenciado pela linha que está a ser criada) e o que já foi gravado.
   // As coimas/portagens já não estão no público: a leitura passou-as para
   // `privado/infracoes/` — é essa cópia que sai (o servidor recusa apagar um
-  // caminho que alguma despesa já use).
-  const porLimparRef = useRef<{ publicos: string[]; privados: string[] }>({ publicos: [], privados: [] });
+  // caminho que alguma linha já use). Fechar o separador não desmonta o ecrã: aí
+  // não há limpeza garantida.
+  const estadoRef = useRef<EstadoDoCarregamento>(estadoDoEcra("inicio", null, null, false, []));
+  /**
+   * Os do lote que já subiram mas ainda não chegaram à fila nem à revisão. Só
+   * existiam numa variável local do `aoEscolher`: um lote de 4 demora minutos, e
+   * quem mudasse de ecrã a meio deixava-os no bucket público.
+   */
+  const emLeituraRef = useRef<Analisado[]>([]);
+  /** Falso depois de o ecrã desmontar: um lote a meio pára e deita fora o que ainda subir. */
+  const montadoRef = useRef(false);
   useEffect(() => {
-    const emRevisao = fase === "rever";
-    porLimparRef.current = {
-      publicos: [...(docPath && emRevisao ? [docPath] : []), ...fila.map((d) => d.path)],
-      privados: soPrivados([...(emRevisao ? [docUrl] : []), ...fila.map((d) => d.res.documento_url)]),
+    estadoRef.current = estadoDoEcra(fase, docPath, docUrl, docGravado, fila);
+  }, [docPath, docUrl, docGravado, fase, fila]);
+  useEffect(() => {
+    montadoRef.current = true;
+    return () => {
+      montadoRef.current = false;
+      const estado = { ...estadoRef.current, emLeitura: emLeituraRef.current.map(carregado) };
+      void apagarCaminhos(aDescartar(estado, "sair"));
     };
-  }, [docPath, docUrl, fase, fila]);
-  useEffect(
-    () => () => {
-      const { publicos, privados } = porLimparRef.current;
-      for (const p of publicos) void apagarDocumentoPublico(p);
-      if (privados.length) void apagarDocumentosPrivados(privados);
-    },
-    [],
-  );
+  }, []);
 
-  /** Tira do storage documentos que não chegaram a ser gravados — do público e do privado. */
-  const descartarCaminhos = (publicos: string[], guardados: (string | null | undefined)[]) => {
-    const privados = soPrivados(guardados);
-    return Promise.all([
-      ...publicos.map((p) => apagarDocumentoPublico(p)),
-      ...(privados.length ? [apagarDocumentosPrivados(privados)] : []),
-    ]);
-  };
-  const descartar = (docs: Analisado[]) =>
-    descartarCaminhos(
-      docs.map((d) => d.path),
-      docs.map((d) => d.res.documento_url),
-    );
+  /** Tira do storage o que esta saída do ecrã deixa sem dono (aDescartar decide o quê). */
+  const descartarAoSair = (saida: SaidaDoEcra) =>
+    apagarCaminhos(aDescartar(estadoDoEcra(fase, docPath, docUrl, docGravado, fila), saida));
 
   const reset = () => {
     setFase("inicio");
     setRes(null);
     setDocUrl(null);
     setDocPath(null);
+    setDocGravado(false);
     setErro(null);
     setMotoristaId(null);
     setMotoristaNome(null);
@@ -327,13 +369,16 @@ export default function IntakeDocumento({
    */
   const encaminhar = async (a: Analisado, seguintes: Analisado[] = fila) => {
     setDocPath(a.path);
+    setDocGravado(false);
     if (a.res.doc.tipo === "comprovativo_pagamento" && motoristas) {
       setFase("a-processar");
-      const pg = await lerComprovativoPagamento(a.path);
+      // A análise já o passou para `privado/comprovativos/`: é esse o caminho que
+      // se lê e que o pagamento guarda.
+      const pg = await lerComprovativoPagamento(a.res.documento_url);
       if (!pg.success || !pg.dados) {
         // Um comprovativo ilegível não pode parar o lote: diz-se qual falhou e
         // segue-se para o próximo. O ficheiro já não está no bucket público — a
-        // leitura tira-o de lá antes de tudo; o pagamento regista-se à mão.
+        // análise tirou-o de lá antes de tudo; o pagamento regista-se à mão.
         setErro(`${a.nome}: ${pg.error ?? "não consegui ler o comprovativo."}`);
         await seguirLote(seguintes);
         return;
@@ -444,11 +489,20 @@ export default function IntakeDocumento({
     setFase("a-processar");
     setProgresso(escolhidos.length > 1 ? `A ler ${escolhidos.length} documentos…` : null);
 
+    // Até chegarem à fila, à revisão ou ao painel de identidade, os lidos só
+    // existem aqui — ficam também no ref, para a limpeza ao sair os ver.
     const lidos: Analisado[] = [];
+    emLeituraRef.current = lidos;
     try {
       for (const [i, f] of escolhidos.entries()) {
         if (escolhidos.length > 1) setProgresso(`A ler documento ${i + 1} de ${escolhidos.length}…`);
         const r = await carregarEClassificar(f);
+        if (!montadoRef.current) {
+          // O gestor saiu do ecrã a meio do lote: os já lidos saíram com a limpeza
+          // ao sair, mas este ainda não estava no ref. Sai agora — e não sobe mais nenhum.
+          if (r.ok) await descartar([r.doc]);
+          return;
+        }
         if (!r.ok) {
           // Um ficheiro ilegível não deita fora o lote: se já houver leituras
           // boas, seguimos com elas e dizemos qual falhou.
@@ -467,6 +521,7 @@ export default function IntakeDocumento({
       // Uma server action que rebenta (rede, timeout) não pode deixar o que
       // já subiu no bucket público — pode ser um documento de identidade.
       await descartar(lidos);
+      emLeituraRef.current = [];
       setErro(e instanceof Error ? e.message : "Falha ao carregar os documentos. Tenta outra vez.");
       setProgresso(null);
       setFase("inicio");
@@ -510,6 +565,10 @@ export default function IntakeDocumento({
       await Promise.all(kycs.map((d) => apagarDocumentoPublico(d.path)));
       setErro(e instanceof Error ? e.message : "Falha ao ler os documentos. Tenta outra vez.");
       setFase("inicio");
+    } finally {
+      // Daqui em diante estão na fila, na revisão ou no painel de identidade — ou já
+      // saíram. Ficarem no ref era apagá-los ao sair do ecrã mesmo depois de gravados.
+      emLeituraRef.current = [];
     }
   };
 
@@ -565,9 +624,15 @@ export default function IntakeDocumento({
     // depois de um erro não pode pedir o ficheiro pelo caminho antigo.
     let docFinal = docUrl;
     let msgOk = "";
+    // O documento passa a ser de uma linha logo que uma gravação fica feita — e, na
+    // dúvida, também quando o pedido rebenta (aguardarGravacao). Daí em diante
+    // nenhuma saída do ecrã o apaga; só uma recusa explícita do servidor o deixa
+    // sem dono.
+    const gravacao = <T extends { success: boolean }>(pedido: Promise<T>) =>
+      aguardarGravacao(pedido, () => setDocGravado(true));
     try {
       if (destino === "despesa") {
-        const r = await gravarDespesaDeFatura({
+        const r = await gravacao(gravarDespesaDeFatura({
           veiculo_id: veiculoId || null,
           categoria,
           descricao: descricao || null,
@@ -582,7 +647,7 @@ export default function IntakeDocumento({
           km: km ? Number(km) : null,
           documento_url: docUrl,
           detalhe: detalheDoc,
-        });
+        }));
         if (!r.success) throw new Error(r.error);
         if (r.aviso) setAvisoGravado(r.aviso);
         docFinal = r.documento_url ?? null;
@@ -596,22 +661,22 @@ export default function IntakeDocumento({
       } else if (destino === "seguro") {
         let despesaId: string | null = null;
         if (valor) {
-          const rd = await gravarDespesaDeFatura({
+          const rd = await gravacao(gravarDespesaDeFatura({
             veiculo_id: veiculoId, categoria: "seguro", descricao: descricao || "Prémio de seguro",
             valor, data_despesa: data || dataFim, data_vencimento: dataVencimento || null,
             imputar_a: quemPaga, proprietario_id: null, fornecedor: seguradora || null,
             referencia_externa: apolice || referencia || null, km: null, documento_url: docUrl, detalhe: detalheDoc,
-          });
+          }));
           if (!rd.success) throw new Error(rd.error);
           despesaId = rd.id ?? null;
           docFinal = rd.documento_url ?? null;
           setDocUrl(docFinal);
         }
-        const rs = await criarSeguro({
+        const rs = await gravacao(criarSeguro({
           veiculo_id: veiculoId, data_fim: dataFim, seguradora: seguradora || null, apolice: apolice || null,
           tipo: seguroTipo, data_inicio: dataInicio || null, premio: valor || null, quem_paga: quemPaga,
           despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docFinal },
-        });
+        }));
         if (!rs.success) throw new Error(rs.error);
         docFinal = documentoDoDetalhe(rs.seguro?.detalhe) ?? docFinal;
         setDocUrl(docFinal);
@@ -619,23 +684,23 @@ export default function IntakeDocumento({
       } else if (destino === "manutencao") {
         let despesaId: string | null = null;
         if (valor) {
-          const rd = await gravarDespesaDeFatura({
+          const rd = await gravacao(gravarDespesaDeFatura({
             veiculo_id: veiculoId, categoria: "manutencao", descricao: descricao || null, valor,
             data_despesa: data || new Date().toISOString().slice(0, 10), data_vencimento: dataVencimento || null, imputar_a: imputarA,
             proprietario_id: null, fornecedor: fornecedor || null, referencia_externa: referencia || null,
             km: km ? Number(km) : null, documento_url: docUrl, detalhe: detalheDoc,
-          });
+          }));
           if (!rd.success) throw new Error(rd.error);
           despesaId = rd.id ?? null;
           docFinal = rd.documento_url ?? null;
           setDocUrl(docFinal);
         }
-        const rm = await criarManutencao({
+        const rm = await gravacao(criarManutencao({
           veiculo_id: veiculoId, tipo: manutTipo, data: data || new Date().toISOString().slice(0, 10),
           km: km ? Number(km) : null, oficina: oficina || null, custo: valor || null,
           proxima_km: proximaKm ? Number(proximaKm) : null, proxima_data: proximaData || null,
           despesa_id: despesaId, origem: "ingestao", detalhe: { documento_url: docFinal },
-        });
+        }));
         if (!rm.success) throw new Error(rm.error);
         docFinal = documentoDoDetalhe(rm.manutencao?.detalhe) ?? docFinal;
         setDocUrl(docFinal);
@@ -769,6 +834,10 @@ export default function IntakeDocumento({
               continuarOuFechar();
             }}
             onCancelar={() => {
+              // O lote cai: os que esperavam na fila nunca foram referenciados por
+              // nada — saem do storage, em vez de ficarem órfãos no público. (O
+              // comprovativo já está em privado: a análise tirou-o de lá.)
+              void descartarAoSair("descartar_lote");
               setPagamentoLido(null);
               setFila([]);
               setLote({ total: 0, feitos: 0 });
@@ -800,8 +869,9 @@ export default function IntakeDocumento({
             onCancelar={() => {
               // Ficheiros já no privado sem ficha que os reclame: saem.
               if (kycPaths.length) void apagarDocumentosPrivados(kycPaths);
-              // O resto do lote também cai: sem revisão, sai do bucket.
-              if (fila.length) void descartar(fila);
+              // O resto do lote também cai: sem revisão, sai do storage — com o
+              // documento que se mandou ler como KYC, se ainda estiver no público.
+              void descartarAoSair("descartar_lote");
               setKycLido(null);
               setKycTipos([]);
               setKycPaths([]);
@@ -827,14 +897,18 @@ export default function IntakeDocumento({
                 <button
                   onClick={() => {
                     // Abandonar o resto do lote sem perder o que já foi gravado.
-                    // Os que ficavam por rever nunca foram referenciados por
-                    // nada — saem do bucket, em vez de ficarem lá órfãos.
-                    if (fila.length) void descartar(fila);
+                    // Os que ficavam por rever — e o que está em revisão, se ainda
+                    // não é de nenhuma linha — saem do storage, em vez de ficarem
+                    // lá órfãos.
+                    void descartarAoSair("descartar_lote");
                     setFila([]);
                     setLote({ total: 0, feitos: 0 });
                     reset();
                   }}
-                  className="text-xs font-medium text-slate-500 transition hover:text-slate-800"
+                  // A gravar ou a ler, o que está em curso ainda vai buscar o
+                  // seguinte à fila que isto apagava.
+                  disabled={fase === "a-gravar" || fase === "a-processar"}
+                  className="text-xs font-medium text-slate-500 transition hover:text-slate-800 disabled:opacity-50"
                 >
                   Descartar os restantes
                 </button>
@@ -925,7 +999,9 @@ export default function IntakeDocumento({
                     {/* Lido como coima/portagem, o ficheiro já saiu do público (está em
                         privado/infracoes): não há cópia pública para ler como KYC —
                         apaga-se e carrega-se outra vez. */}
-                    {motoristas && res && docPath && !soPrivados([docUrl]).length && (
+                    {/* Nem um documento já gravado numa linha: passá-lo para kyc/ tirava-o
+                        do público e partia o documento dessa despesa. */}
+                    {motoristas && res && docPath && !docGravado && !soPrivados([docUrl]).length && (
                       <button
                         className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
                         onClick={() => {
@@ -950,9 +1026,12 @@ export default function IntakeDocumento({
                         // "só porque" veio parar ao ecrã errado. E o lote segue.
                         // (Bloqueia-se durante o apagar: um duplo clique contava
                         // o mesmo documento duas vezes no lote.) Se a leitura o
-                        // tinha passado para privado, essa cópia sai também.
+                        // tinha passado para privado, essa cópia sai também. O que
+                        // sai decide-se ANTES de bloquear — e um documento já gravado
+                        // numa linha fica.
+                        const apagar = descartarAoSair("cancelar");
                         setFase("a-gravar");
-                        await descartarCaminhos(docPath ? [docPath] : [], [docUrl]);
+                        await apagar;
                         continuarOuFechar();
                       }}
                       disabled={fase === "a-gravar"}
@@ -1066,7 +1145,17 @@ export default function IntakeDocumento({
                     <button onClick={confirmar} disabled={fase === "a-gravar"} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
                       {fase === "a-gravar" ? "A gravar…" : "Confirmar e registar"}
                     </button>
-                    <button onClick={reset} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white">
+                    <button
+                      onClick={() => {
+                        // O documento em revisão sai do storage antes de o reset()
+                        // esquecer o caminho — era o único sítio onde ele estava.
+                        void descartarAoSair("cancelar");
+                        reset();
+                      }}
+                      // A gravar, o documento está a entrar numa linha: não se apaga.
+                      disabled={fase === "a-gravar"}
+                      className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white disabled:opacity-50"
+                    >
                       Cancelar
                     </button>
                   </div>

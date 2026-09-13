@@ -1,11 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DespesaCategoria, ImputarA, Moto } from "@/types/db";
 import { enviarDocumento } from "@/lib/uploads";
 import { ocrFicheiro } from "@/lib/ocr";
-import { apagarDocumentoPublico } from "@/actions/fotoActions";
+import { apagarDocumentoPublico, apagarDocumentosPrivados } from "@/actions/fotoActions";
 import { textoFalhaAoCarregar } from "@/lib/documentoDespesa";
+import {
+  aDescartar,
+  caminhosDe,
+  type Carregado,
+  type EstadoDoCarregamento,
+} from "@/lib/limpezaCarregamentos";
 import {
   lerFatura,
   interpretarTextoFatura,
@@ -33,6 +39,27 @@ const IMPUTAR: { valor: ImputarA; rotulo: string }[] = [
 ];
 
 type Fase = "inicio" | "a-processar" | "rever" | "a-gravar";
+
+/** O estado do ecrã como a limpeza o vê: um carregamento de cada vez, sem fila. */
+const estadoDoEcra = (fase: Fase, docPath: string | null, docUrl: string | null): EstadoDoCarregamento => ({
+  fase,
+  emRevisao: docPath ? { path: docPath, documento: docUrl } : null,
+  // Não há gravação a meio: gravarDespesaDeFatura grava a despesa ou não deixa
+  // nada (e se a resposta se perder, o ecrã fica "a gravar", que também protege).
+  emRevisaoGravado: false,
+  fila: [],
+  emLeitura: [],
+});
+
+/**
+ * Tira do storage um carregamento que não chegou a ser gravado — do público e,
+ * numa coima/portagem que a leitura já passou para privado, do privado.
+ */
+const apagarCaminhos = ({ publicos, privados }: { publicos: string[]; privados: string[] }) =>
+  Promise.all([
+    ...publicos.map((p) => apagarDocumentoPublico(p)),
+    ...(privados.length ? [apagarDocumentosPrivados(privados)] : []),
+  ]);
 
 export default function ImportarFatura({
   motos,
@@ -64,11 +91,38 @@ export default function ImportarFatura({
   const [km, setKm] = useState("");
   const [fornecedor, setFornecedor] = useState("");
   const [referencia, setReferencia] = useState("");
+  /** O carregamento no bucket público (`faturas/…`) — para o poder apagar se não for gravado. */
+  const [docPath, setDocPath] = useState<string | null>(null);
+
+  // O carregamento que não chegou a ser gravado sai do storage quando o gestor
+  // cancela ou vai para outro ecrã (aDescartar decide o quê) — em vez de ficar
+  // legível por URL até alguém correr a auditoria. "A gravar" fica: o servidor
+  // pode estar a pô-lo na despesa. Fechar o separador não desmonta o ecrã: aí não
+  // há limpeza garantida.
+  const estadoRef = useRef<EstadoDoCarregamento>(estadoDoEcra("inicio", null, null));
+  /**
+   * O carregamento enquanto se lê (no servidor e, sem texto, por OCR no browser —
+   * pode demorar): até à revisão só existe no handler, e a limpeza ao sair tem de o ver.
+   */
+  const emLeituraRef = useRef<Carregado[]>([]);
+  /** Falso depois de o ecrã desmontar: uma leitura a meio pára e deita fora o carregamento. */
+  const montadoRef = useRef(false);
+  useEffect(() => {
+    estadoRef.current = estadoDoEcra(fase, docPath, docUrl);
+  }, [fase, docPath, docUrl]);
+  useEffect(() => {
+    montadoRef.current = true;
+    return () => {
+      montadoRef.current = false;
+      void apagarCaminhos(aDescartar({ ...estadoRef.current, emLeitura: emLeituraRef.current }, "sair"));
+    };
+  }, []);
 
   const reset = () => {
     setFase("inicio");
     setCampos(null);
     setDocUrl(null);
+    setDocPath(null);
     setDocVer(null);
     setMatriculaLida(null);
     setVeiculoId("");
@@ -78,8 +132,16 @@ export default function ImportarFatura({
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const preencher = (res: LerFaturaResultado) => {
+  const cancelar = () => {
+    // O carregamento sai do storage antes de o reset() esquecer o caminho — era o
+    // único sítio onde ele estava.
+    void apagarCaminhos(aDescartar(estadoDoEcra(fase, docPath, docUrl), "cancelar"));
+    reset();
+  };
+
+  const preencher = (res: LerFaturaResultado, caminho: string) => {
     const { campos: c, veiculo, imputar_a_sugerido, documento_url, documento_ver } = res;
+    setDocPath(caminho);
     setAvisoMatch(res.aviso);
     setVeiculoAssociadoId(veiculo?.id ?? null);
     setCampos(c);
@@ -113,8 +175,36 @@ export default function ImportarFatura({
       setFase("inicio");
       return;
     }
-    const caminho = env.path;
-    const url = env.url;
+    // Até à revisão, o carregamento só existe aqui — e a leitura pode demorar (o OCR
+    // corre no browser). Fica no ref para a limpeza ao sair o ver; depois está na
+    // revisão (no estado) ou já saiu.
+    emLeituraRef.current = [{ path: env.path, documento: null }];
+    try {
+      await lerCarregado(ficheiro, env.path, env.url);
+    } catch (e) {
+      // Uma server action que rebenta (rede, timeout) não pode deixar o carregamento
+      // no bucket público sem nada que aponte para ele — nem o ecrã preso a ler.
+      const apagado = await apagarDocumentoPublico(env.path);
+      setProgresso(null);
+      setErro(textoFalhaAoCarregar(e instanceof Error ? e.message : "Falha ao ler a fatura. Tenta outra vez.", apagado.ok));
+      setFase("inicio");
+    } finally {
+      emLeituraRef.current = [];
+    }
+  };
+
+  /** Lê o que acabou de ser carregado e abre a revisão — ou apaga-o, se a leitura falhar ou o ecrã fechar. */
+  const lerCarregado = async (ficheiro: File, caminho: string, url: string) => {
+    // O gestor saiu do ecrã a meio: a leitura pára e o carregamento sai, com a cópia
+    // em privado que a leitura de uma coima/portagem entretanto tenha feito. (A
+    // limpeza ao sair já o tentou; isto apanha o que ela ainda não via — o que
+    // acabou de subir, e essa cópia.)
+    const saiuDoEcra = (documento?: string | null) => {
+      if (montadoRef.current) return false;
+      void apagarCaminhos(caminhosDe([{ path: caminho, documento }]));
+      return true;
+    };
+    if (saiuDoEcra()) return;
 
     // Uma leitura falhada deixa o ficheiro sem dono no bucket público: sai de lá
     // (uma coima/portagem que o servidor não conseguiu tirar tem aqui outra
@@ -127,8 +217,9 @@ export default function ImportarFatura({
 
     // 1) Tenta ler o texto do PDF no servidor (instantâneo, se houver camada de texto).
     const r = await lerFatura(caminho, url);
+    if (saiuDoEcra(r.resultado?.documento_url)) return;
     if (r.success && r.resultado) {
-      preencher(r.resultado);
+      preencher(r.resultado, caminho);
       return;
     }
     if (!r.semTexto) {
@@ -141,6 +232,7 @@ export default function ImportarFatura({
     try {
       setProgresso({ fase: "A preparar", pct: 0 });
       const texto = await ocrFicheiro(ficheiro, (fase, pct) => setProgresso({ fase, pct }));
+      if (saiuDoEcra()) return;
       r2 = await interpretarTextoFatura(texto, url);
     } catch (err) {
       console.error("OCR error:", err);
@@ -148,12 +240,13 @@ export default function ImportarFatura({
       await falhou("Erro no OCR. Tenta uma imagem mais nítida ou preenche à mão.");
       return;
     }
+    if (saiuDoEcra(r2.resultado?.documento_url)) return;
     setProgresso(null);
     if (!r2.success || !r2.resultado) {
       await falhou(r2.error ?? "O OCR não reconheceu texto suficiente. Tenta uma imagem mais nítida.");
       return;
     }
-    preencher(r2.resultado);
+    preencher(r2.resultado, caminho);
   };
 
   const gravar = async () => {
@@ -365,8 +458,10 @@ export default function ImportarFatura({
                   {fase === "a-gravar" ? "A gravar…" : "Gravar despesa"}
                 </button>
                 <button
-                  onClick={reset}
-                  className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white"
+                  onClick={cancelar}
+                  // A gravar, o documento está a entrar na despesa: não se apaga.
+                  disabled={fase === "a-gravar"}
+                  className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white disabled:opacity-50"
                 >
                   Cancelar
                 </button>

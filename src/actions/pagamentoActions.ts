@@ -366,10 +366,11 @@ export async function lerComprovativoPagamento(
   if (!auth.ok) return { success: false, error: auth.error };
 
   // Um comprovativo traz nomes, IBAN e valores de terceiros: não fica no bucket
-  // público. Cobranças já o carrega para o privado; o intake de Documentos só
-  // sabe o que é depois de o classificar a partir do público — e tira-o de lá
-  // aqui, ANTES de qualquer verificação ou leitura que possa falhar. Sem isto,
-  // cada pagamento registado deixava o print legível por URL, sem dono na BD.
+  // público. Cobranças já o carrega para o privado, e a análise do intake passa-o
+  // para lá mal o classifica (analisarDocumento). Um caminho `faturas/…` que ainda
+  // chegue aqui sai do público já, ANTES de qualquer verificação ou leitura que
+  // possa falhar. Sem isto, cada pagamento registado deixava o print legível por
+  // URL, sem dono na BD.
   let caminho = path;
   if (path.startsWith("faturas/")) {
     const m = await moverDocumentoParaPrivado(path, "comprovativos");

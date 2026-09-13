@@ -9,8 +9,10 @@ import {
   type DocClassificado,
 } from "@/lib/gemini";
 import { encontrarMatricula } from "@/lib/matriculas";
-import { ehInfracao } from "@/lib/documentoDespesa";
+import { AVISO_FICOU_NO_PUBLICO } from "@/lib/documentoDespesa";
 import { guardarInfracaoEmPrivado, urlDocumentoParaAdmin } from "@/lib/documentoDespesaServidor";
+import { tirarDoPublicoNaAnalise } from "@/lib/limpezaCarregamentos";
+import { moverDocumentoParaPrivado } from "@/actions/fotoActions";
 import type { ImputarA } from "@/types/db";
 
 /**
@@ -36,7 +38,9 @@ export interface IntakeResultado {
   doc: DocClassificado;
   /**
    * O que a despesa guarda em `detalhe.documento_url`: o URL público (faturas)
-   * ou, numa coima/portagem, o CAMINHO no bucket privado (`infracoes/…`).
+   * ou, numa coima/portagem, o CAMINHO no bucket privado (`infracoes/…`). Num
+   * comprovativo de pagamento é o caminho `comprovativos/…` — segue para
+   * lerComprovativoPagamento e `pagamento.comprovativo_url`, não para uma despesa.
    */
   documento_url: string;
   /** Para abrir o ficheiro na revisão: o URL público, ou um URL assinado (expira). */
@@ -113,18 +117,23 @@ export async function analisarDocumento(
   if (!doc) return { success: false, error: "Não consegui ler o documento. Tenta outra foto/ficheiro." };
 
   // Coima ou portagem: o aviso/auto traz matrícula, local, hora e a quem foi
-  // notificado (nome, NIF, morada). Sai do bucket público JÁ — antes da revisão
-  // e de um lote inteiro ficar à espera na fila —, como os documentos de
-  // identidade e os comprovativos. A despesa guarda o caminho privado; a revisão
-  // abre-o por URL assinado. Falha fechado: se a cópia falhar, o público sai na
-  // mesma e o gestor volta a carregar (o ficheiro está-lhe na mão); se o público
-  // não sair, não segue — erro com o aviso, e o ecrã tenta tirá-lo outra vez.
-  let documento = documentoUrl;
-  if (ehInfracao(doc.tipo)) {
-    const g = await guardarInfracaoEmPrivado(path);
-    if (!g.ok) return { success: false, error: g.error };
-    documento = g.caminho;
+  // notificado (nome, NIF, morada). Comprovativo de pagamento: nomes, IBAN e
+  // valores de terceiros. Saem do bucket público JÁ — antes da revisão e de um
+  // lote inteiro ficar à espera na fila; o comprovativo, antes, só saía quando
+  // chegava a vez dele (lerComprovativoPagamento), sem prazo. Qual sai e como
+  // decide-o tirarDoPublicoNaAnalise. Falha fechado: se a cópia falhar, o público
+  // sai na mesma e o gestor volta a carregar (o ficheiro está-lhe na mão); se o
+  // público não sair, não segue — erro com o aviso, e o ecrã tenta tirá-lo outra
+  // vez. A despesa guarda o caminho privado da infração (a revisão abre-o por URL
+  // assinado); o do comprovativo segue para o painel de pagamento, que o guarda.
+  const fora = await tirarDoPublicoNaAnalise(doc.tipo, { path, url: documentoUrl }, {
+    guardarInfracao: guardarInfracaoEmPrivado,
+    moverComprovativo: (p) => moverDocumentoParaPrivado(p, "comprovativos"),
+  });
+  if (!fora.ok) {
+    return { success: false, error: fora.ficouNoPublico ? `${fora.error} ${AVISO_FICOU_NO_PUBLICO}` : fora.error };
   }
+  const documento = fora.documento;
   const documentoVer = await urlDocumentoParaAdmin(documento);
 
   return { success: true, resultado: await enriquecer(doc, documento, documentoVer) };
