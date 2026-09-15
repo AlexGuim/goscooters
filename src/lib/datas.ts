@@ -43,6 +43,24 @@ export function saudacaoLisboa(agora: Date = new Date()): { saudacao: string; da
 }
 
 /**
+ * O mês de hoje em Lisboa, "AAAA-MM" — é ele que decide qual é o mês «em curso».
+ *
+ * O servidor corre em UTC: no dia 1 à meia-noite e meia de Lisboa, em UTC ainda
+ * é o mês anterior, e o ecrã punha a etiqueta no mês errado. Vai buscar as
+ * partes da data ao próprio Intl (`formatToParts`) em vez de partir uma string
+ * formatada, cujo formato ninguém garante de versão para versão.
+ */
+export function mesDeHojeEmLisboa(agora: Date = new Date()): string {
+  const partes = new Intl.DateTimeFormat("pt-PT", {
+    timeZone: "Europe/Lisbon",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(agora);
+  const parte = (tipo: "year" | "month") => partes.find((p) => p.type === tipo)?.value ?? "";
+  return `${parte("year")}-${parte("month")}`;
+}
+
+/**
  * Rótulo "Semana N de <mês>" da semana de calendário (domingo→sábado) que contém
  * `iso`. A semana pertence ao mês onde está a MAIORIA dos seus dias — que, numa
  * semana domingo→sábado, é sempre o mês da quarta-feira (o 4.º dia). N é a posição

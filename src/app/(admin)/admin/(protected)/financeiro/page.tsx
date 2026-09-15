@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/dal";
 import { financeiroAno } from "@/lib/financeiro";
 import { formatarPreco } from "@/lib/precos";
+import { mesDeHojeEmLisboa } from "@/lib/datas";
 import { Badge } from "@/components/ui";
 
 const MESES = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -14,14 +15,7 @@ export default async function FinanceiroPage({
   await requireAdmin();
   const sp = await searchParams;
   // O mês de hoje em Lisboa (o servidor corre em UTC): é o que leva «em curso».
-  const [anoAtual, mesAtual] = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Lisbon",
-    year: "numeric",
-    month: "2-digit",
-  })
-    .format(new Date())
-    .split("-")
-    .map(Number);
+  const [anoAtual, mesAtual] = mesDeHojeEmLisboa().split("-").map(Number);
   const ano = Number(sp.ano) || anoAtual;
 
   const { meses, total } = await financeiroAno(ano);
