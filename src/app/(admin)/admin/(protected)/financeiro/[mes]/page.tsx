@@ -227,8 +227,8 @@ export default async function MesFinanceiroPage({
         ))}
       </Seccao>
 
-      {/* Despesas próprias, com a fatura */}
-      <Seccao titulo="Despesas próprias" total={-d.despesas_gs} negativo vazio="Nenhuma despesa própria neste mês.">
+      {/* Os custos da casa (da frota e da empresa), com a fatura */}
+      <Seccao titulo="Custos da casa" total={-d.despesas_gs} negativo vazio="Nenhum custo da casa neste mês.">
         {d.despesas.map((x) => (
           <Linha
             key={x.id}
