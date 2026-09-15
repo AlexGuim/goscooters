@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { Moto, MotoEstado, Proprietario } from "@/types/db";
 import { updateMoto, deleteMoto, definirEstadoMoto, reconciliarEstadosMotas } from "@/actions/motoActions";
 import { historicoAtivo } from "@/actions/ativoActions";
@@ -201,9 +202,13 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
                       </div>
                       <div>
                         <p className="font-medium text-slate-950">{moto.modelo}</p>
-                        {moto.matricula && (
-                          <p className="text-xs text-slate-500">{moto.matricula}</p>
-                        )}
+                        {/* A matrícula abre a página da mota: km, óleo e histórico. */}
+                        <Link
+                          href={`/admin/motas/${moto.id}`}
+                          className="text-xs text-slate-500 underline-offset-2 hover:text-emerald-700 hover:underline"
+                        >
+                          {moto.matricula ?? "ver mota"}
+                        </Link>
                       </div>
                     </div>
                   </td>
@@ -271,7 +276,7 @@ export default function MotosList({ initialMotas, proprietarios }: MotosListProp
                       <AcoesMenu
                         acoes={[
                           { rotulo: "Ver P&L", onClick: () => setPnl(moto) },
-                          { rotulo: "Seguro / Manutenção", onClick: () => setSaude(moto) },
+                          { rotulo: "Seguro", onClick: () => setSaude(moto) },
                           { rotulo: "Eliminar", onClick: () => handleEliminar(moto), perigo: true },
                         ]}
                       />

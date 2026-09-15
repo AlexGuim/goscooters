@@ -16,7 +16,8 @@
  *  3. que manutenções são trocas de óleo (pelo tipo ou pelo texto);
  *  4. o estado da mota e a próxima troca prevista;
  *  5. o histórico, com os selos «fora do intervalo» e «repetida?»;
- *  6. se um km escrito à mão entra sem confirmação.
+ *  6. se um km escrito à mão entra sem confirmação;
+ *  7. os textos do ecrã («vencida há 9 dias», «aos 43.430 km ou a 07/10»).
  */
 
 import type { EstadoOperacional, ManutencaoTipo } from "@/types/db";
@@ -587,4 +588,103 @@ export function validarKmManual(
     };
   }
   return { resultado: "aceite" };
+}
+
+/**
+ * O km como se escreve num campo: «41230», «41.230» ou «41 230» dão 41230. Campo
+ * vazio: null (fica sem km). Outra coisa qualquer («41,5», «abc»): NaN, que o
+ * `validarKmManual` recusa com a mesma mensagem de sempre.
+ */
+export function lerKmEscrito(texto: string | null | undefined): number | null {
+  const limpo = (texto ?? "").replace(/[\s.]/g, "");
+  if (limpo === "") return null;
+  return /^\d+$/.test(limpo) ? Number(limpo) : Number.NaN;
+}
+
+/**
+ * Já existe uma leitura desta mota neste dia com este km. Gravar outra igual não
+ * acrescenta nada — é o mesmo conta-km lido duas vezes (a fatura e o «Óleo trocado»).
+ */
+export function leituraJaRegistada(
+  leituras: readonly Pick<LeituraKm, "km" | "data">[],
+  km: number,
+  data: string,
+): boolean {
+  const dia = data.slice(0, 10);
+  return leituras.some((l) => l.km === km && ehDataIso(l.data) && l.data.slice(0, 10) === dia);
+}
+
+// ── 7. Textos para o ecrã ───────────────────────────────────────────────────
+
+/** DD/MM: a próxima troca é sempre perto, e o ano só ocupava espaço. */
+const dataCurtaPt = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+const unidadeDias = (n: number) => (Math.abs(n) === 1 ? "dia" : "dias");
+
+/** «vencida há 9 dias», «passou há 2 dias», «é hoje», «faltam 5 dias». */
+function textoDias(dias: number, vencida: boolean): string {
+  const n = Math.abs(dias);
+  if (dias < 0) return `${vencida ? "vencida" : "passou"} há ${n} ${unidadeDias(n)}`;
+  if (dias === 0) return "é hoje";
+  return `${n === 1 ? "falta" : "faltam"} ${n} ${unidadeDias(n)}`;
+}
+
+/** «+640 km» quando já passou do km da troca; «faltam 180 km» quando ainda falta. */
+function textoKm(km: number): string {
+  return km <= 0 ? `+${formatarKm(-km)} km` : `${km === 1 ? "falta" : "faltam"} ${formatarKm(km)} km`;
+}
+
+/** A próxima troca: «aos 43.430 km ou a 07/10», ou só «a 07/10» sem km fiável. */
+export function textoProximaTroca(proxima: ProximaTroca | null): string | null {
+  if (!proxima || !ehDataIso(proxima.data)) return null;
+  const data = `a ${dataCurtaPt(proxima.data)}`;
+  return kmValido(proxima.km) ? `aos ${formatarKm(proxima.km)} km ou ${data}` : data;
+}
+
+/**
+ * O estado em poucas palavras, para a coluna Estado da lista e a página da mota:
+ *  - vencida: o que já passou — «vencida há 9 dias», «+640 km», ou os dois;
+ *  - a aproximar: só o que aperta — «faltam 180 km», «falta 1 dia», «é hoje»;
+ *  - OK: «faltam 1.200 km ou 12 dias»; numa mota parada, que nunca fica vencida,
+ *    a data já passada aparece como «passou há 5 dias»;
+ *  - sem contas: «sem troca registada», «não se avalia enquanto inativa», «sem
+ *    regra para o modelo».
+ * Com a última leitura suspeita, junta «km por confirmar» — o km não conta.
+ */
+export function textoEstadoOleo(
+  a: Pick<AvaliacaoOleo, "estado" | "km" | "ultimaTroca" | "proxima" | "faltaKm" | "faltaDias">,
+): string {
+  const partes: string[] = [];
+  const dias = a.faltaDias;
+  const km = a.faltaKm;
+
+  if (a.estado === "sem_regra") {
+    partes.push("sem regra para o modelo");
+  } else if (!a.proxima || dias == null) {
+    partes.push(a.ultimaTroca ? "não se avalia enquanto inativa" : "sem troca registada");
+  } else if (a.estado === "a_aproximar") {
+    if (km != null && km <= A_APROXIMAR_KM) partes.push(textoKm(km));
+    if (dias <= A_APROXIMAR_DIAS) partes.push(textoDias(dias, false));
+  } else {
+    const passou = [
+      ...(dias < 0 ? [textoDias(dias, a.estado === "vencida")] : []),
+      ...(km != null && km <= 0 ? [textoKm(km)] : []),
+    ];
+    if (passou.length > 0) partes.push(...passou);
+    else if (km == null) partes.push(textoDias(dias, false));
+    else if (dias > 0) partes.push(`${textoKm(km)} ou ${dias} ${unidadeDias(dias)}`);
+    else partes.push(textoKm(km), textoDias(dias, false));
+  }
+
+  if (a.km.porConfirmar) partes.push(TEXTO_KM_POR_CONFIRMAR);
+  return partes.join(" · ");
+}
+
+/** A frase que fecha o «Óleo trocado»: «Próxima troca aos 43.430 km ou a 07/10». */
+export function textoAposOleoTrocado(a: Pick<AvaliacaoOleo, "estado" | "proxima" | "ultimaTroca">): string {
+  const proxima = textoProximaTroca(a.proxima);
+  if (proxima) return `Próxima troca ${proxima}`;
+  if (a.estado === "sem_regra") return "Sem próxima troca prevista: o modelo não tem regra do óleo";
+  if (a.estado === "sem_dados" && a.ultimaTroca) return "Sem próxima troca prevista enquanto a mota estiver inativa";
+  return "Sem próxima troca prevista";
 }
