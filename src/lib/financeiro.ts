@@ -6,6 +6,7 @@ import { documentoDoDetalhe } from "@/lib/documentoDespesa";
 import { partirEmLotes, intervaloDaPagina } from "@/lib/lotes";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import { rubricaDoDetalhe } from "@/lib/custos";
+import { catalogoDeMotas, parteDaCasa, receitaDaCasa, type CatalogoDeMotas } from "@/lib/receitaCasa";
 import {
   despesasDoMes,
   despesasDoNegocio,
@@ -140,7 +141,7 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   const de = `${ano - 1}-12-01`;
   const ate = `${ano + 1}-01-31`;
 
-  const { taxaDe, ehPropria } = await mapasDeTaxa();
+  const catalogo = await lerCatalogoDeMotas();
 
   // MESMA regra do acerto do parceiro: a semana pertence ao mês da sua
   // quarta-feira, e conta-se o que foi PAGO dessa semana — não o dinheiro que
@@ -168,20 +169,21 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   for (const c of doAno) {
     const mes = Number((mesDaSemana(c.data_vencimento) ?? "").slice(5, 7));
     if (!mes) continue;
-    const pago = Number(c.valor_pago);
-    const taxa = c.veiculo_id ? taxaDe.get(c.veiculo_id) ?? 0 : 0;
-    const r = pago * taxa;
-    turnover[mes] += pago;
-    receita[mes] += r;
-    if (ehPropria.get(c.veiculo_id)) {
-      emCaixa[mes] += r; // frota própria: a renda entra sempre na conta da casa
+    // A mesma regra do mês, do mesmo módulo: a renda inteira na frota própria, a
+    // comissão numa mota de parceiro, nada numa mota sem dono ou sem mota.
+    const p = parteDaCasa(c, catalogo);
+    if (!p) continue;
+    turnover[mes] += p.pago;
+    receita[mes] += p.receita;
+    if (p.eh_propria) {
+      emCaixa[mes] += p.receita; // frota própria: a renda entra sempre na conta da casa
     } else {
       // Numa moto de parceiro, a comissão só está em caixa na proporção do que
       // foi a GoScooters a cobrar; o resto vem pelo acerto.
-      const gs = Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
-      const fracao = pago > 0 ? gs / pago : 0;
-      emCaixa[mes] += r * fracao;
-      viaAcerto[mes] += r * (1 - fracao);
+      const gs = Math.min(gsPorCobranca.get(c.id) ?? 0, p.pago);
+      const fracao = p.pago > 0 ? gs / p.pago : 0;
+      emCaixa[mes] += p.receita * fracao;
+      viaAcerto[mes] += p.receita * (1 - fracao);
     }
   }
 
@@ -244,8 +246,8 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   return { ano, meses, total: tot };
 }
 
-/** Taxa efetiva por veículo (frota própria = 1) e se é frota própria. */
-async function mapasDeTaxa() {
+/** Quem é o dono de cada mota e a que taxa a renda dela entra na receita. */
+async function lerCatalogoDeMotas(): Promise<CatalogoDeMotas> {
   const [motos, donos] = await Promise.all([
     lerTudo("as motas", (de, ate) =>
       supabaseAdmin.from("moto").select("id, proprietario_id, comissao_valor_override").order("id").range(de, ate),
@@ -254,22 +256,7 @@ async function mapasDeTaxa() {
       supabaseAdmin.from("proprietario").select("id, comissao_valor, eh_goscooters").order("id").range(de, ate),
     ),
   ]);
-  const donoDe = new Map(donos.map((d) => [d.id, d]));
-  const taxaDe = new Map<string, number>();
-  const ehPropria = new Map<string, boolean>();
-  for (const m of motos) {
-    const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
-    ehPropria.set(m.id, !!dono?.eh_goscooters);
-    taxaDe.set(
-      m.id,
-      dono?.eh_goscooters
-        ? 1
-        : (m.comissao_valor_override != null
-            ? Number(m.comissao_valor_override)
-            : Number(dono?.comissao_valor ?? 0)) / 100,
-    );
-  }
-  return { taxaDe, ehPropria };
+  return catalogoDeMotas(motos, donos);
 }
 
 /** Quanto de cada cobrança foi cobrado PELA GoScooters (o resto foi ao parceiro). */
@@ -443,31 +430,9 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   ]);
   const donoDe = new Map(donos.map((d) => [d.id, d]));
   const motoDe = new Map(motos.map((m) => [m.id, m]));
-  const taxaDe = new Map<string, number>();
-  for (const m of motos) {
-    const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
-    taxaDe.set(
-      m.id,
-      dono?.eh_goscooters
-        ? 1
-        : (m.comissao_valor_override != null
-            ? Number(m.comissao_valor_override)
-            : Number(dono?.comissao_valor ?? 0)) / 100,
-    );
-  }
-
-  // Uma renda paga e a parte dela que é receita da casa: a renda inteira na
-  // frota própria, a comissão numa mota de parceiro, nada numa mota sem dono.
-  // A mesma regra serve este mês e o anterior.
-  const parteDaCasa = (c: { veiculo_id: string | null; valor_pago: number | string }) => {
-    if (!c.veiculo_id) return null;
-    const pago = Number(c.valor_pago);
-    const taxa = taxaDe.get(c.veiculo_id) ?? 0;
-    const moto = motoDe.get(c.veiculo_id);
-    const dono = moto?.proprietario_id ? donoDe.get(moto.proprietario_id) : undefined;
-    const receita = !dono ? 0 : dono.eh_goscooters ? pago : pago * taxa;
-    return { veiculo_id: c.veiculo_id, pago, dono, receita };
-  };
+  // A regra do dinheiro — quanto de cada renda é da casa — é a mesma do ano e
+  // vive num módulo puro testado (receitaCasa.ts). Serve este mês e o anterior.
+  const catalogo = catalogoDeMotas(motos, donos);
 
   // Semanas QUE PERTENCEM a este mês (regra da quarta-feira), e pagas.
   const cobs = await lerTudo(`as cobranças de ${competencia}`, (dePagina, atePagina) =>
@@ -496,38 +461,37 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   let viaAcerto = 0;
 
   for (const c of doMes) {
-    const p = parteDaCasa(c);
+    const p = parteDaCasa(c, catalogo);
     if (!p) continue;
-    const { veiculo_id, pago, dono } = p;
-    turnover += pago;
+    turnover += p.pago;
 
-    if (dono) {
-      const at = porDono.get(dono.id) ?? { renda: 0, comissao: 0, motos: new Set<string>() };
-      at.renda += pago;
-      at.comissao += dono.eh_goscooters ? 0 : p.receita; // a frota própria não se cobra a si
-      at.motos.add(veiculo_id);
-      porDono.set(dono.id, at);
+    if (p.dono_id) {
+      const at = porDono.get(p.dono_id) ?? { renda: 0, comissao: 0, motos: new Set<string>() };
+      at.renda += p.pago;
+      at.comissao += p.eh_propria ? 0 : p.receita; // a frota própria não se cobra a si
+      at.motos.add(p.veiculo_id);
+      porDono.set(p.dono_id, at);
     }
 
-    if (dono?.eh_goscooters) {
-      frota.set(veiculo_id, (frota.get(veiculo_id) ?? 0) + p.receita);
+    if (p.eh_propria) {
+      frota.set(p.veiculo_id, (frota.get(p.veiculo_id) ?? 0) + p.receita);
       receitaFrota += p.receita;
       emCaixa += p.receita;
-    } else if (dono) {
+    } else if (p.dono_id) {
       const com = p.receita;
-      const at = porParceiro.get(dono.id) ?? { base: 0, comissao: 0 };
-      at.base += pago;
+      const at = porParceiro.get(p.dono_id) ?? { base: 0, comissao: 0 };
+      at.base += p.pago;
       at.comissao += com;
-      porParceiro.set(dono.id, at);
+      porParceiro.set(p.dono_id, at);
       receitaComissao += com;
-      const gs = Math.min(gsPorCobranca.get(c.id) ?? 0, pago);
-      const fracao = pago > 0 ? gs / pago : 0;
+      const gs = Math.min(gsPorCobranca.get(c.id) ?? 0, p.pago);
+      const fracao = p.pago > 0 ? gs / p.pago : 0;
       emCaixa += com * fracao;
       viaAcerto += com * (1 - fracao);
     }
   }
 
-  const receitaAnterior = doMesAnterior.reduce((s, c) => s + (parteDaCasa(c)?.receita ?? 0), 0);
+  const receitaAnterior = receitaDaCasa(doMesAnterior, catalogo);
 
   // As despesas deste mês e do anterior, pela data da fatura.
   const ultimo = String(new Date(ano, mes, 0).getDate()).padStart(2, "0");
