@@ -3,6 +3,24 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mesDaSemana } from "@/lib/datas";
 import { documentoDoDetalhe } from "@/lib/documentoDespesa";
+import { partirEmLotes } from "@/lib/lotes";
+
+/**
+ * Quantos ids de cobrança vão em cada pedido `.in()`. Os ids viajam no URL, e o
+ * gateway da Supabase recusa-o perto dos 250 UUIDs; 100 deixa folga. Um ano
+ * inteiro de rendas já passa dos 100 (124 em setembro de 2026).
+ */
+const LOTE_IDS = 100;
+
+/**
+ * Uma consulta que falha NÃO pode virar zeros. O supabase-js não lança: devolve
+ * `{ data: null, error }`, e com `data ?? []` o Resultado mostrava 0 € de receita
+ * como se fosse verdade. Cada consulta daqui verifica o `error` e lança com
+ * contexto — melhor uma página de erro do que um número errado com ar de certo.
+ */
+function erroDeLeitura(oQue: string, error: { message: string }): Error {
+  return new Error(`Resultado: não foi possível ler ${oQue}: ${error.message}`);
+}
 
 /**
  * Consolidação financeira da GoScooters.
@@ -63,13 +81,14 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   // MESMA regra do acerto do parceiro: a semana pertence ao mês da sua
   // quarta-feira, e conta-se o que foi PAGO dessa semana — não o dinheiro que
   // entrou no mês. Assim "agosto" quer dizer o mesmo em todo o sistema.
-  const { data: cobs } = await supabaseAdmin
+  const { data: cobs, error: erroCobs } = await supabaseAdmin
     .from("cobranca")
     .select("id, veiculo_id, valor_pago, data_vencimento")
     .eq("tipo", "renda")
     .gt("valor_pago", 0)
     .gte("data_vencimento", de)
     .lte("data_vencimento", ate);
+  if (erroCobs) throw erroDeLeitura(`as cobranças de ${ano}`, erroCobs);
 
   const doAno = (cobs ?? []).filter((c) => (mesDaSemana(c.data_vencimento) ?? "").startsWith(`${ano}-`));
   const gsPorCobranca = await parteRecebidaPelaGoScooters(doAno.map((c) => c.id));
@@ -101,12 +120,13 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   }
 
   // As despesas são eventos pontuais: pertencem ao seu mês de calendário.
-  const { data: desps } = await supabaseAdmin
+  const { data: desps, error: erroDesps } = await supabaseAdmin
     .from("despesa")
     .select("valor_total, data_despesa")
     .eq("imputar_a", "goscooters")
     .gte("data_despesa", `${ano}-01-01`)
     .lte("data_despesa", `${ano}-12-31`);
+  if (erroDesps) throw erroDeLeitura(`as despesas de ${ano}`, erroDesps);
   for (const d of desps ?? []) {
     despesas[Number(d.data_despesa.slice(5, 7))] += Number(d.valor_total);
   }
@@ -143,10 +163,12 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
 
 /** Taxa efetiva por veículo (frota própria = 1) e se é frota própria. */
 async function mapasDeTaxa() {
-  const [{ data: motos }, { data: donos }] = await Promise.all([
+  const [{ data: motos, error: erroMotos }, { data: donos, error: erroDonos }] = await Promise.all([
     supabaseAdmin.from("moto").select("id, proprietario_id, comissao_valor_override"),
     supabaseAdmin.from("proprietario").select("id, comissao_valor, eh_goscooters"),
   ]);
+  if (erroMotos) throw erroDeLeitura("as motas", erroMotos);
+  if (erroDonos) throw erroDeLeitura("os proprietários", erroDonos);
   const donoDe = new Map((donos ?? []).map((d) => [d.id, d]));
   const taxaDe = new Map<string, number>();
   const ehPropria = new Map<string, boolean>();
@@ -169,16 +191,26 @@ async function mapasDeTaxa() {
 async function parteRecebidaPelaGoScooters(cobIds: string[]): Promise<Map<string, number>> {
   const mapa = new Map<string, number>();
   if (!cobIds.length) return mapa;
-  const { data: alocs } = await supabaseAdmin
-    .from("pagamento_cobranca")
-    .select("cobranca_id, valor_alocado, pagamento:pagamento_id(recebido_por)")
-    .in("cobranca_id", cobIds);
-  for (const a of alocs ?? []) {
-    const pj = Array.isArray(a.pagamento) ? a.pagamento[0] : a.pagamento;
-    const rp = (pj as { recebido_por?: string } | null)?.recebido_por ?? "goscooters";
-    if (rp !== "goscooters") continue;
-    const k = a.cobranca_id as string;
-    mapa.set(k, (mapa.get(k) ?? 0) + Number(a.valor_alocado));
+  // Aos bocados: com a lista inteira no URL, o gateway recusava o pedido a partir
+  // de ~250 ids e a receita "em caixa" passava a 0 sem aviso. Cada lote verifica
+  // o seu erro — um lote perdido também era dinheiro a desaparecer.
+  const respostas = await Promise.all(
+    partirEmLotes(cobIds, LOTE_IDS).map((lote) =>
+      supabaseAdmin
+        .from("pagamento_cobranca")
+        .select("cobranca_id, valor_alocado, pagamento:pagamento_id(recebido_por)")
+        .in("cobranca_id", lote),
+    ),
+  );
+  for (const { data: alocs, error } of respostas) {
+    if (error) throw erroDeLeitura("os pagamentos das cobranças", error);
+    for (const a of alocs ?? []) {
+      const pj = Array.isArray(a.pagamento) ? a.pagamento[0] : a.pagamento;
+      const rp = (pj as { recebido_por?: string } | null)?.recebido_por ?? "goscooters";
+      if (rp !== "goscooters") continue;
+      const k = a.cobranca_id as string;
+      mapa.set(k, (mapa.get(k) ?? 0) + Number(a.valor_alocado));
+    }
   }
   return mapa;
 }
@@ -287,10 +319,12 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   janelaAte.setUTCDate(janelaAte.getUTCDate() + 8);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-  const [{ data: motos }, { data: donos }] = await Promise.all([
+  const [{ data: motos, error: erroMotos }, { data: donos, error: erroDonos }] = await Promise.all([
     supabaseAdmin.from("moto").select("id, matricula, proprietario_id, comissao_valor_override"),
     supabaseAdmin.from("proprietario").select("id, nome, comissao_valor, eh_goscooters"),
   ]);
+  if (erroMotos) throw erroDeLeitura("as motas", erroMotos);
+  if (erroDonos) throw erroDeLeitura("os proprietários", erroDonos);
   const donoDe = new Map((donos ?? []).map((d) => [d.id, d]));
   const motoDe = new Map((motos ?? []).map((m) => [m.id, m]));
   const taxaDe = new Map<string, number>();
@@ -307,13 +341,14 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   }
 
   // Semanas QUE PERTENCEM a este mês (regra da quarta-feira), e pagas.
-  const { data: cobs } = await supabaseAdmin
+  const { data: cobs, error: erroCobs } = await supabaseAdmin
     .from("cobranca")
     .select("id, veiculo_id, valor_pago, data_vencimento")
     .eq("tipo", "renda")
     .gt("valor_pago", 0)
     .gte("data_vencimento", iso(janelaDe))
     .lte("data_vencimento", iso(janelaAte));
+  if (erroCobs) throw erroDeLeitura(`as cobranças de ${competencia}`, erroCobs);
   const doMes = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competencia);
   const gsPorCobranca = await parteRecebidaPelaGoScooters(doMes.map((c) => c.id));
 
@@ -362,12 +397,13 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   }
 
   const ultimo = String(new Date(ano, mes, 0).getDate()).padStart(2, "0");
-  const { data: todasDesps } = await supabaseAdmin
+  const { data: todasDesps, error: erroDesps } = await supabaseAdmin
     .from("despesa")
     .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe, imputar_a, proprietario_id")
     .gte("data_despesa", de)
     .lte("data_despesa", `${ano}-${mm}-${ultimo}`)
     .order("data_despesa");
+  if (erroDesps) throw erroDeLeitura(`as despesas de ${competencia}`, erroDesps);
 
   const desps = (todasDesps ?? []).filter((d) => d.imputar_a === "goscooters");
   const despesas: LinhaDespesaPropria[] = (desps ?? []).map((d) => ({
