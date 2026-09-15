@@ -4,6 +4,19 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mesDaSemana } from "@/lib/datas";
 import { documentoDoDetalhe } from "@/lib/documentoDespesa";
 import { partirEmLotes } from "@/lib/lotes";
+import { CAT_ROTULO } from "@/lib/despesasMeta";
+import { rubricaDoDetalhe } from "@/lib/custos";
+import {
+  despesasDoMes,
+  despesasDoNegocio,
+  despesasPorDono,
+  fechoGestao,
+  type CatalogoDoFecho,
+  type FechoGestao,
+} from "@/lib/fechoGestao";
+
+/** Como o fecho arruma os custos: os rótulos das categorias e a lista única das rubricas. */
+const CATALOGO: CatalogoDoFecho = { rotuloCategoria: CAT_ROTULO, rubricaDe: rubricaDoDetalhe };
 
 /**
  * Quantos ids de cobrança vão em cada pedido `.in()`. Os ids viajam no URL, e o
@@ -40,7 +53,9 @@ function erroDeLeitura(oQue: string, error: { message: string }): Error {
  *   - a comissão sobre as motos de parceiro, e
  *   - a renda integral da frota própria (taxa efetiva 100%).
  * Fórmula: Receita_GS = Σ (renda paga × taxa efetiva). Só conta tipo='renda'.
- * Resultado = Receita_GS − Despesas próprias (imputar_a='goscooters').
+ * Resultado = Receita_GS − Custos da frota − Custos da empresa: as despesas da casa
+ * (imputar_a='goscooters') com mota e sem mota, pela data da fatura — o fecho de
+ * gestão, em fechoGestao.ts.
  */
 export interface MesFinanceiro {
   mes: number; // 1..12
@@ -56,7 +71,15 @@ export interface MesFinanceiro {
    * Separada porque juntá-las diz "regime de caixa" e não é verdade.
    */
   receita_via_acerto: number;
+  /** Despesas da casa COM mota, pela data da fatura. */
+  custos_frota: number;
+  /** Receita − custos da frota. */
+  margem_frota: number;
+  /** Despesas da casa SEM mota: não são de nenhuma mota nem de nenhum dono. */
+  custos_empresa: number;
+  /** Todas as despesas da casa: custos da frota + custos da empresa. */
   despesas_gs: number;
+  /** Margem da frota − custos da empresa (= receita − despesas da casa). */
   resultado: number;
   turnover: number; // renda bruta cobrada (memorando)
 }
@@ -97,7 +120,6 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   const emCaixa = new Array(13).fill(0);
   const viaAcerto = new Array(13).fill(0);
   const turnover = new Array(13).fill(0);
-  const despesas = new Array(13).fill(0);
 
   for (const c of doAno) {
     const mes = Number((mesDaSemana(c.data_vencimento) ?? "").slice(5, 7));
@@ -119,44 +141,58 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
     }
   }
 
-  // As despesas são eventos pontuais: pertencem ao seu mês de calendário.
+  // As despesas são eventos pontuais: pertencem ao mês da fatura, pagas ou não.
+  // Só as da casa; a rubrica dos custos da empresa vem no detalhe.
   const { data: desps, error: erroDesps } = await supabaseAdmin
     .from("despesa")
-    .select("valor_total, data_despesa")
+    .select("data_despesa, categoria, imputar_a, veiculo_id, valor_total, detalhe")
     .eq("imputar_a", "goscooters")
     .gte("data_despesa", `${ano}-01-01`)
     .lte("data_despesa", `${ano}-12-31`);
   if (erroDesps) throw erroDeLeitura(`as despesas de ${ano}`, erroDesps);
-  for (const d of desps ?? []) {
-    despesas[Number(d.data_despesa.slice(5, 7))] += Number(d.valor_total);
-  }
 
   const meses: MesFinanceiro[] = [];
-  const tot = { receita_gs: 0, receita_em_caixa: 0, receita_via_acerto: 0, despesas_gs: 0, resultado: 0, turnover: 0 };
+  const tot = {
+    receita_gs: 0,
+    receita_em_caixa: 0,
+    receita_via_acerto: 0,
+    custos_frota: 0,
+    margem_frota: 0,
+    custos_empresa: 0,
+    despesas_gs: 0,
+    resultado: 0,
+    turnover: 0,
+  };
   for (let m = 1; m <= 12; m++) {
-    const rg = r2(receita[m]);
-    const dg = r2(despesas[m]);
+    const f = fechoGestao(receita[m], despesasDoMes(desps ?? [], `${ano}-${String(m).padStart(2, "0")}`), CATALOGO);
     meses.push({
       mes: m,
-      receita_gs: rg,
+      receita_gs: f.receita,
       receita_em_caixa: r2(emCaixa[m]),
       receita_via_acerto: r2(viaAcerto[m]),
-      despesas_gs: dg,
-      resultado: r2(rg - dg),
+      custos_frota: f.custos_frota,
+      margem_frota: f.margem_frota,
+      custos_empresa: f.custos_empresa,
+      despesas_gs: r2(f.custos_frota + f.custos_empresa),
+      resultado: f.resultado,
       turnover: r2(turnover[m]),
     });
-    tot.receita_gs += rg;
+    tot.receita_gs += f.receita;
     tot.receita_em_caixa += emCaixa[m];
     tot.receita_via_acerto += viaAcerto[m];
-    tot.despesas_gs += dg;
+    tot.custos_frota += f.custos_frota;
+    tot.custos_empresa += f.custos_empresa;
     tot.turnover += turnover[m];
   }
   tot.receita_gs = r2(tot.receita_gs);
   tot.receita_em_caixa = r2(tot.receita_em_caixa);
   tot.receita_via_acerto = r2(tot.receita_via_acerto);
-  tot.despesas_gs = r2(tot.despesas_gs);
+  tot.custos_frota = r2(tot.custos_frota);
+  tot.custos_empresa = r2(tot.custos_empresa);
+  tot.despesas_gs = r2(tot.custos_frota + tot.custos_empresa);
+  tot.margem_frota = r2(tot.receita_gs - tot.custos_frota);
+  tot.resultado = r2(tot.margem_frota - tot.custos_empresa);
   tot.turnover = r2(tot.turnover);
-  tot.resultado = r2(tot.receita_gs - tot.despesas_gs);
 
   return { ano, meses, total: tot };
 }
@@ -274,12 +310,17 @@ export interface LinhaPorDono {
 export interface NegocioTotal {
   /** Toda a renda paga nas semanas do mês. */
   renda: number;
-  /** TODAS as despesas do mês, seja quem for a suportá-las. */
+  /** As despesas do mês da casa e dos parceiros. As imputadas a motoristas não. */
   despesas: number;
   /** Renda − despesas: o que a operação gerou, antes de se repartir. */
   resultado: number;
   /** Despesas abertas por quem as suporta. */
   despesas_por_imputacao: { imputar_a: string; valor: number }[];
+  /**
+   * Coimas e portagens imputadas a motoristas: dinheiro que se adianta por conta
+   * deles, não despesa do negócio. Só aparece à parte, numa linha discreta.
+   */
+  adiantado_motoristas: number;
 }
 
 export interface MesDetalhado extends MesFinanceiro {
@@ -295,6 +336,15 @@ export interface MesDetalhado extends MesFinanceiro {
   negocio: NegocioTotal;
   /** Consolidação por dono — os acertos todos lado a lado. */
   por_dono: LinhaPorDono[];
+  /** O fecho de gestão do mês: receita − custos da frota − custos da empresa. */
+  fecho: FechoGestao;
+  /** O mesmo fecho no mês anterior, para comparar. */
+  fecho_anterior: FechoGestao;
+  /**
+   * Despesas da casa que não são de nenhum dono. Vão à parte no «Rendimento por
+   * dono», para a soma continuar a bater com o negócio todo.
+   */
+  sem_dono: { custos_empresa: number; casa_em_motas_de_parceiros: number };
 }
 
 /**
@@ -310,10 +360,13 @@ export interface MesDetalhado extends MesFinanceiro {
 export async function financeiroMes(ano: number, mes: number): Promise<MesDetalhado> {
   const competencia = `${ano}-${String(mes).padStart(2, "0")}`;
   const mm = String(mes).padStart(2, "0");
+  // O mês anterior só entra na coluna de comparação da cascata.
+  const anoAnterior = mes === 1 ? ano - 1 : ano;
+  const mesAnterior = mes === 1 ? 12 : mes - 1;
+  const competenciaAnterior = `${anoAnterior}-${String(mesAnterior).padStart(2, "0")}`;
   // Janela larga: a semana da virada do mês vence fora dele. Filtra-se depois
-  // pela quarta-feira.
-  const de = `${ano}-${mm}-01`;
-  const janelaDe = new Date(Date.UTC(ano, mes - 1, 1));
+  // pela quarta-feira. Começa no mês anterior, que também se calcula.
+  const janelaDe = new Date(Date.UTC(anoAnterior, mesAnterior - 1, 1));
   janelaDe.setUTCDate(janelaDe.getUTCDate() - 8);
   const janelaAte = new Date(Date.UTC(ano, mes, 0));
   janelaAte.setUTCDate(janelaAte.getUTCDate() + 8);
@@ -340,6 +393,19 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     );
   }
 
+  // Uma renda paga e a parte dela que é receita da casa: a renda inteira na
+  // frota própria, a comissão numa mota de parceiro, nada numa mota sem dono.
+  // A mesma regra serve este mês e o anterior.
+  const parteDaCasa = (c: { veiculo_id: string | null; valor_pago: number | string }) => {
+    if (!c.veiculo_id) return null;
+    const pago = Number(c.valor_pago);
+    const taxa = taxaDe.get(c.veiculo_id) ?? 0;
+    const moto = motoDe.get(c.veiculo_id);
+    const dono = moto?.proprietario_id ? donoDe.get(moto.proprietario_id) : undefined;
+    const receita = !dono ? 0 : dono.eh_goscooters ? pago : pago * taxa;
+    return { veiculo_id: c.veiculo_id, pago, dono, receita };
+  };
+
   // Semanas QUE PERTENCEM a este mês (regra da quarta-feira), e pagas.
   const { data: cobs, error: erroCobs } = await supabaseAdmin
     .from("cobranca")
@@ -350,6 +416,7 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     .lte("data_vencimento", iso(janelaAte));
   if (erroCobs) throw erroDeLeitura(`as cobranças de ${competencia}`, erroCobs);
   const doMes = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competencia);
+  const doMesAnterior = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competenciaAnterior);
   const gsPorCobranca = await parteRecebidaPelaGoScooters(doMes.map((c) => c.id));
 
   const frota = new Map<string, number>();
@@ -363,27 +430,25 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   let viaAcerto = 0;
 
   for (const c of doMes) {
-    if (!c.veiculo_id) continue;
-    const pago = Number(c.valor_pago);
-    const taxa = taxaDe.get(c.veiculo_id) ?? 0;
+    const p = parteDaCasa(c);
+    if (!p) continue;
+    const { veiculo_id, pago, dono } = p;
     turnover += pago;
-    const moto = motoDe.get(c.veiculo_id);
-    const dono = moto?.proprietario_id ? donoDe.get(moto.proprietario_id) : undefined;
 
     if (dono) {
       const at = porDono.get(dono.id) ?? { renda: 0, comissao: 0, motos: new Set<string>() };
       at.renda += pago;
-      at.comissao += dono.eh_goscooters ? 0 : pago * taxa; // a frota própria não se cobra a si
-      at.motos.add(c.veiculo_id);
+      at.comissao += dono.eh_goscooters ? 0 : p.receita; // a frota própria não se cobra a si
+      at.motos.add(veiculo_id);
       porDono.set(dono.id, at);
     }
 
     if (dono?.eh_goscooters) {
-      frota.set(c.veiculo_id, (frota.get(c.veiculo_id) ?? 0) + pago);
-      receitaFrota += pago;
-      emCaixa += pago;
+      frota.set(veiculo_id, (frota.get(veiculo_id) ?? 0) + p.receita);
+      receitaFrota += p.receita;
+      emCaixa += p.receita;
     } else if (dono) {
-      const com = pago * taxa;
+      const com = p.receita;
       const at = porParceiro.get(dono.id) ?? { base: 0, comissao: 0 };
       at.base += pago;
       at.comissao += com;
@@ -396,16 +461,21 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     }
   }
 
+  const receitaAnterior = doMesAnterior.reduce((s, c) => s + (parteDaCasa(c)?.receita ?? 0), 0);
+
+  // As despesas deste mês e do anterior, pela data da fatura.
   const ultimo = String(new Date(ano, mes, 0).getDate()).padStart(2, "0");
-  const { data: todasDesps, error: erroDesps } = await supabaseAdmin
+  const { data: despsDosDoisMeses, error: erroDesps } = await supabaseAdmin
     .from("despesa")
     .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe, imputar_a, proprietario_id")
-    .gte("data_despesa", de)
+    .gte("data_despesa", `${competenciaAnterior}-01`)
     .lte("data_despesa", `${ano}-${mm}-${ultimo}`)
     .order("data_despesa");
-  if (erroDesps) throw erroDeLeitura(`as despesas de ${competencia}`, erroDesps);
+  if (erroDesps) throw erroDeLeitura(`as despesas de ${competenciaAnterior} e ${competencia}`, erroDesps);
+  const todasDesps = despesasDoMes(despsDosDoisMeses ?? [], competencia);
+  const despsAnterior = despesasDoMes(despsDosDoisMeses ?? [], competenciaAnterior);
 
-  const desps = (todasDesps ?? []).filter((d) => d.imputar_a === "goscooters");
+  const desps = todasDesps.filter((d) => d.imputar_a === "goscooters");
   const despesas: LinhaDespesaPropria[] = (desps ?? []).map((d) => ({
     id: d.id,
     data: d.data_despesa as string,
@@ -419,34 +489,32 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   const despesasTotal = despesas.reduce((s, d) => s + d.valor, 0);
   const receita = receitaFrota + receitaComissao;
 
-  // ── O negócio inteiro: toda a renda, todas as despesas ──────────────────
-  const porImput = new Map<string, number>();
-  for (const d of todasDesps ?? []) {
-    porImput.set(d.imputar_a as string, (porImput.get(d.imputar_a as string) ?? 0) + Number(d.valor_total));
-  }
-  const despesasTodas = [...porImput.values()].reduce((a, b) => a + b, 0);
+  // ── O fecho de gestão: a cascata deste mês e a do anterior ────────────
+  const fecho = fechoGestao(receita, todasDesps, CATALOGO);
+  const fecho_anterior = fechoGestao(receitaAnterior, despsAnterior, CATALOGO);
+
+  // ── O negócio inteiro: toda a renda, as despesas da casa e dos parceiros ─
+  // As dos motoristas são adiantamentos por conta deles: só à parte.
+  const doNegocio = despesasDoNegocio(todasDesps);
   const negocio: NegocioTotal = {
     renda: r2(turnover),
-    despesas: r2(despesasTodas),
-    resultado: r2(turnover - despesasTodas),
-    despesas_por_imputacao: [...porImput.entries()]
-      .map(([imputar_a, valor]) => ({ imputar_a, valor: r2(valor) }))
-      .sort((a, b) => b.valor - a.valor),
+    despesas: doNegocio.total,
+    resultado: r2(turnover - doNegocio.total),
+    despesas_por_imputacao: doNegocio.por_imputacao,
+    adiantado_motoristas: doNegocio.adiantado_motoristas,
   };
 
   // ── Por dono: a mesma conta do acerto, com todos lado a lado ────────────
-  // As despesas de cada dono são as imputadas a ELE (a frota própria fica com
-  // as da casa) — a mesma regra que o acerto usa.
-  const despDoDono = new Map<string, number>();
-  for (const d of todasDesps ?? []) {
-    const v = Number(d.valor_total);
-    if (d.imputar_a === "proprietario" && d.proprietario_id) {
-      despDoDono.set(d.proprietario_id as string, (despDoDono.get(d.proprietario_id as string) ?? 0) + v);
-    } else if (d.imputar_a === "goscooters") {
-      const propria = (donos ?? []).find((x) => x.eh_goscooters);
-      if (propria) despDoDono.set(propria.id, (despDoDono.get(propria.id) ?? 0) + v);
-    }
+  // As despesas de cada dono são as imputadas a ELE — a mesma regra que o acerto
+  // usa. A frota própria só fica com as da casa nas motas próprias; as da casa
+  // sem mota (custos da empresa) não são de nenhum dono e vão à parte.
+  const donoProprioDaMota = new Map<string, string>();
+  for (const m of motos ?? []) {
+    const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
+    if (dono?.eh_goscooters) donoProprioDaMota.set(m.id, dono.id);
   }
+  const reparto = despesasPorDono(todasDesps, donoProprioDaMota);
+  const despDoDono = reparto.por_dono;
   // A união dos dois: um dono pode ter tido despesas sem ter tido renda no mês
   // (uma mota parada que foi à oficina). Se só olhássemos à renda, essa despesa
   // aparecia no total do negócio e desaparecia da linha de quem a suporta.
@@ -475,8 +543,11 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     receita_gs: r2(receita),
     receita_em_caixa: r2(emCaixa),
     receita_via_acerto: r2(viaAcerto),
+    custos_frota: fecho.custos_frota,
+    margem_frota: fecho.margem_frota,
+    custos_empresa: fecho.custos_empresa,
     despesas_gs: r2(despesasTotal),
-    resultado: r2(receita - despesasTotal),
+    resultado: fecho.resultado,
     turnover: r2(turnover),
     receita_frota: r2(receitaFrota),
     receita_comissao: r2(receitaComissao),
@@ -495,5 +566,11 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     despesas,
     negocio,
     por_dono,
+    fecho,
+    fecho_anterior,
+    sem_dono: {
+      custos_empresa: reparto.custos_empresa,
+      casa_em_motas_de_parceiros: reparto.casa_em_motas_de_parceiros,
+    },
   };
 }

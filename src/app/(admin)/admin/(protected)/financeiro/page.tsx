@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/dal";
 import { financeiroAno } from "@/lib/financeiro";
 import { formatarPreco } from "@/lib/precos";
+import { Badge } from "@/components/ui";
 
 const MESES = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
@@ -12,7 +13,15 @@ export default async function FinanceiroPage({
 }) {
   await requireAdmin();
   const sp = await searchParams;
-  const anoAtual = new Date().getFullYear();
+  // O mês de hoje em Lisboa (o servidor corre em UTC): é o que leva «em curso».
+  const [anoAtual, mesAtual] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Lisbon",
+    year: "numeric",
+    month: "2-digit",
+  })
+    .format(new Date())
+    .split("-")
+    .map(Number);
   const ano = Number(sp.ano) || anoAtual;
 
   const { meses, total } = await financeiroAno(ano);
@@ -24,8 +33,9 @@ export default async function FinanceiroPage({
         <div>
           <h1 className="text-3xl font-semibold text-slate-950">Resultado</h1>
           <p className="mt-1 text-slate-600">
-              A receita real da GoScooters (comissão + frota própria) − despesas próprias. Regime de
-            caixa. <strong>Clica num mês</strong> para ver de onde veio cada euro.
+            A receita real da GoScooters (comissão + frota própria) − custos da frota − custos da
+            empresa. Fecho de gestão: receita das semanas do mês e custos pela data da fatura.{" "}
+            <strong>Clica num mês</strong> para ver de onde veio cada euro.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -50,7 +60,7 @@ export default async function FinanceiroPage({
       <div className="grid gap-4 sm:grid-cols-5">
         <Kpi rotulo="Receita GoScooters" valor={total.receita_gs} cor="text-emerald-700" forte />
         <Kpi rotulo="Entrou em caixa" valor={total.receita_em_caixa} cor="text-slate-900" />
-        <Kpi rotulo="Despesas próprias" valor={-total.despesas_gs} cor="text-red-600" />
+        <Kpi rotulo="Custos da frota e da empresa" valor={-total.despesas_gs} cor="text-red-600" />
         <Kpi rotulo="Resultado" valor={total.resultado} cor={total.resultado >= 0 ? "text-emerald-700" : "text-red-600"} forte />
         <Kpi rotulo="Turnover (renda cobrada)" valor={total.turnover} cor="text-slate-500" />
       </div>
@@ -59,16 +69,16 @@ export default async function FinanceiroPage({
         receita da casa. A <strong>Receita GoScooters</strong> é só a comissão + a renda da frota própria.
       </p>
 
-      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-5 py-3 font-semibold">Mês</th>
-              <th className="px-5 py-3 text-right font-semibold">Receita GS</th>
-              <th className="px-5 py-3 text-right font-semibold text-slate-400">Em caixa</th>
-              <th className="px-5 py-3 text-right font-semibold">Despesas</th>
+              <th className="px-5 py-3 text-right font-semibold">Receita</th>
+              <th className="px-5 py-3 text-right font-semibold">Custos da frota</th>
+              <th className="px-5 py-3 text-right font-semibold">Margem da frota</th>
+              <th className="px-5 py-3 text-right font-semibold">Custos da empresa</th>
               <th className="px-5 py-3 text-right font-semibold">Resultado</th>
-              <th className="px-5 py-3 text-right font-semibold text-slate-400">Turnover</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -89,18 +99,25 @@ export default async function FinanceiroPage({
                     >
                       {MESES[m.mes]}
                     </Link>
+                    {ano === anoAtual && m.mes === mesAtual && (
+                      <Badge tom="warning" className="ml-2">
+                        em curso
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(m.receita_gs)}</td>
-                  <td className="px-5 py-3 text-right text-slate-400" title="O resto é comissão sobre renda que o parceiro cobrou — chega pelo acerto.">
-                    {formatarPreco(m.receita_em_caixa)}
+                  <td className="px-5 py-3 text-right text-red-600">
+                    {m.custos_frota > 0 ? `−${formatarPreco(m.custos_frota)}` : "—"}
+                  </td>
+                  <td className={`px-5 py-3 text-right ${m.margem_frota >= 0 ? "text-slate-700" : "text-red-600"}`}>
+                    {formatarPreco(m.margem_frota)}
                   </td>
                   <td className="px-5 py-3 text-right text-red-600">
-                    {m.despesas_gs > 0 ? `−${formatarPreco(m.despesas_gs)}` : "—"}
+                    {m.custos_empresa > 0 ? `−${formatarPreco(m.custos_empresa)}` : "—"}
                   </td>
                   <td className={`px-5 py-3 text-right font-semibold ${m.resultado >= 0 ? "text-slate-900" : "text-red-600"}`}>
                     {formatarPreco(m.resultado)}
                   </td>
-                  <td className="px-5 py-3 text-right text-slate-400">{formatarPreco(m.turnover)}</td>
                 </tr>
               ))
             )}
@@ -110,10 +127,10 @@ export default async function FinanceiroPage({
               <tr>
                 <td className="px-5 py-3 text-slate-900">Total {ano}</td>
                 <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(total.receita_gs)}</td>
-                <td className="px-5 py-3 text-right text-slate-400">{formatarPreco(total.receita_em_caixa)}</td>
-                <td className="px-5 py-3 text-right text-red-600">−{formatarPreco(total.despesas_gs)}</td>
+                <td className="px-5 py-3 text-right text-red-600">−{formatarPreco(total.custos_frota)}</td>
+                <td className="px-5 py-3 text-right text-slate-700">{formatarPreco(total.margem_frota)}</td>
+                <td className="px-5 py-3 text-right text-red-600">−{formatarPreco(total.custos_empresa)}</td>
                 <td className="px-5 py-3 text-right text-slate-900">{formatarPreco(total.resultado)}</td>
-                <td className="px-5 py-3 text-right text-slate-400">{formatarPreco(total.turnover)}</td>
               </tr>
             </tfoot>
           )}

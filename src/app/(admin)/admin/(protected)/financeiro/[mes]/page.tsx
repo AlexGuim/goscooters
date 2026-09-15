@@ -7,11 +7,13 @@ import { dataBR } from "@/lib/datas";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import type { DespesaCategoria } from "@/types/db";
+import Cascata from "./Cascata";
 
+// As despesas do negócio todo são da casa ou dos parceiros. As imputadas a
+// motoristas são adiantamentos por conta deles e aparecem à parte.
 const IMPUTACAO: Record<string, string> = {
   goscooters: "GoScooters",
   proprietario: "parceiros",
-  motorista: "motoristas",
 };
 
 const MESES = [
@@ -63,7 +65,7 @@ export default async function MesFinanceiroPage({
             {MESES[mes]} de {ano}
           </h1>
           <p className="mt-1 text-slate-600">
-            De onde veio cada euro. Regime de caixa — conta o que foi recebido no mês.
+            De onde veio cada euro. Fecho de gestão: receita das semanas do mês e custos pela data da fatura.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -76,31 +78,11 @@ export default async function MesFinanceiroPage({
         </div>
       </div>
 
-      {/* O resultado, e as duas metades da receita */}
-      <div className="grid gap-4 sm:grid-cols-5">
-        <Kpi rotulo="Receita GoScooters" valor={d.receita_gs} cor="text-emerald-700" forte
-          parcelas={[
-            { rotulo: "frota própria", valor: d.receita_frota },
-            { rotulo: "comissões", valor: d.receita_comissao },
-          ]}
-        />
-        <Kpi
-          rotulo="Entrou em caixa"
-          valor={d.receita_em_caixa}
-          cor="text-slate-950"
-          parcelas={
-            d.receita_via_acerto > 0.005
-              ? [{ rotulo: "falta, vem pelo acerto", valor: d.receita_via_acerto }]
-              : undefined
-          }
-        />
-        <Kpi rotulo="Despesas próprias" valor={-d.despesas_gs} cor="text-red-600" />
-        <Kpi rotulo="Resultado" valor={d.resultado} cor={d.resultado >= 0 ? "text-emerald-700" : "text-red-600"} forte />
-        <Kpi rotulo="Turnover" valor={d.turnover} cor="text-slate-500" />
-      </div>
+      {/* O fecho do mês em cascata, com o mês anterior ao lado */}
+      <Cascata este={d.fecho} anterior={d.fecho_anterior} />
       <p className="text-xs text-slate-500">
-        <strong>Turnover</strong> é a renda bruta que passou pela operação — dinheiro de passagem,
-        não receita da casa. Só a comissão e a renda da frota própria são receita.{" "}
+        A receita é só a comissão e a renda da frota própria: a renda dos parceiros é dinheiro de
+        passagem.{" "}
         {d.receita_via_acerto > 0.005 && (
           <>
             Dessa receita, <strong>{formatarPreco(d.receita_via_acerto)}</strong> é comissão sobre
@@ -117,7 +99,7 @@ export default async function MesFinanceiroPage({
             O negócio todo
           </h2>
           <span className="text-xs text-slate-400">
-            toda a frota · todas as despesas, seja quem for a suportá-las
+            toda a frota · as despesas da casa e dos parceiros
           </span>
         </div>
         <div className="mt-3 grid gap-4 sm:grid-cols-3">
@@ -140,6 +122,12 @@ export default async function MesFinanceiroPage({
                 </li>
               ))}
             </ul>
+            {d.negocio.adiantado_motoristas > 0.005 && (
+              <p className="mt-1 flex justify-between gap-2 text-xs text-slate-400">
+                <span>Adiantado por conta de motoristas</span>
+                <span className="tabular-nums">{formatarPreco(d.negocio.adiantado_motoristas)}</span>
+              </p>
+            )}
           </div>
           <div>
             <p className="text-xs text-slate-500">Resultado do negócio</p>
@@ -192,6 +180,12 @@ export default async function MesFinanceiroPage({
                   </td>
                 </tr>
               ))}
+              {d.sem_dono.custos_empresa > 0.005 && (
+                <LinhaSemDono rotulo="Custos da empresa (não são de nenhum dono)" valor={d.sem_dono.custos_empresa} />
+              )}
+              {d.sem_dono.casa_em_motas_de_parceiros > 0.005 && (
+                <LinhaSemDono rotulo="Custos da casa em motas de parceiros" valor={d.sem_dono.casa_em_motas_de_parceiros} />
+              )}
             </tbody>
           </table>
         </div>
@@ -296,33 +290,18 @@ function Linha({ esquerda, valor, negativo = false }: { esquerda: React.ReactNod
   );
 }
 
-function Kpi({
-  rotulo,
-  valor,
-  cor,
-  forte,
-  parcelas,
-}: {
-  rotulo: string;
-  valor: number;
-  cor: string;
-  forte?: boolean;
-  parcelas?: { rotulo: string; valor: number }[];
-}) {
+/**
+ * Despesas da casa que não são de nenhum dono, numa linha à parte do «Rendimento
+ * por dono» — sem elas, a soma da tabela deixava de bater com o negócio todo.
+ */
+function LinhaSemDono({ rotulo, valor }: { rotulo: string; valor: number }) {
   return (
-    <div className={`rounded-3xl bg-white p-5 shadow-sm ${forte ? "ring-1 ring-emerald-200" : ""}`}>
-      <p className="text-sm text-slate-500">{rotulo}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${cor}`}>{formatarPreco(valor)}</p>
-      {parcelas && parcelas.length > 0 && (
-        <ul className="mt-2 space-y-0.5 border-t border-slate-100 pt-2">
-          {parcelas.map((p) => (
-            <li key={p.rotulo} className="flex items-baseline justify-between gap-2 text-xs">
-              <span className="text-slate-500">{p.rotulo}</span>
-              <span className="tabular-nums font-medium text-slate-700">{formatarPreco(p.valor)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <tr>
+      <td className="px-4 py-3 text-slate-600">{rotulo}</td>
+      <td className="px-4 py-3 text-right text-slate-400">—</td>
+      <td className="px-4 py-3 text-right text-slate-400">—</td>
+      <td className="px-4 py-3 text-right text-red-600">−{formatarPreco(valor)}</td>
+      <td className="px-4 py-3 text-right font-semibold text-slate-950">{formatarPreco(-valor)}</td>
+    </tr>
   );
 }
