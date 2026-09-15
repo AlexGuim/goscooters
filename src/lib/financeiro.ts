@@ -3,7 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mesDaSemana } from "@/lib/datas";
 import { documentoDoDetalhe } from "@/lib/documentoDespesa";
-import { partirEmLotes } from "@/lib/lotes";
+import { partirEmLotes, intervaloDaPagina } from "@/lib/lotes";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import { rubricaDoDetalhe } from "@/lib/custos";
 import {
@@ -25,6 +25,19 @@ const CATALOGO: CatalogoDoFecho = { rotuloCategoria: CAT_ROTULO, rubricaDe: rubr
  */
 const LOTE_IDS = 100;
 
+/** Quantos desses pedidos vão ao mesmo tempo, para não atropelar o gateway. */
+const PEDIDOS_EM_PARALELO = 4;
+
+/** Linhas por pedido: é o máximo que o PostgREST devolve de uma vez. */
+const PAGINA = 1000;
+
+/**
+ * Travão de segurança: 100 páginas são 100 000 linhas. Uma leitura maior do que
+ * isto não é um mês grande, é um filtro que se perdeu pelo caminho — mais vale
+ * dar erro do que ficar a ler para sempre.
+ */
+const PAGINAS_MAX = 100;
+
 /**
  * Uma consulta que falha NÃO pode virar zeros. O supabase-js não lança: devolve
  * `{ data: null, error }`, e com `data ?? []` o Resultado mostrava 0 € de receita
@@ -33,6 +46,34 @@ const LOTE_IDS = 100;
  */
 function erroDeLeitura(oQue: string, error: { message: string }): Error {
   return new Error(`Resultado: não foi possível ler ${oQue}: ${error.message}`);
+}
+
+/**
+ * Lê uma tabela inteira, página a página.
+ *
+ * O outro caminho para um número errado com ar de certo: o PostgREST devolve no
+ * máximo 1000 linhas por pedido e deita o resto fora SEM erro. Com a frota de
+ * hoje não chega lá; numa instância com ~60 motas, um ano de rendas passa das
+ * 3000 e a receita do ano aparecia a menos, calada. Aqui pede-se página a
+ * página até vir uma página incompleta — e cada página verifica o seu erro.
+ *
+ * Cada consulta tem de trazer uma ordem FIXA (o `id` chega), senão a base pode
+ * devolver a mesma linha em duas páginas e saltar outra.
+ */
+async function lerTudo<T>(
+  oQue: string,
+  pedir: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const linhas: T[] = [];
+  for (let pagina = 0; pagina < PAGINAS_MAX; pagina++) {
+    const { de, ate } = intervaloDaPagina(pagina, PAGINA);
+    const { data, error } = await pedir(de, ate);
+    if (error) throw erroDeLeitura(oQue, error);
+    const desta = data ?? [];
+    linhas.push(...desta);
+    if (desta.length < PAGINA) return linhas;
+  }
+  throw new Error(`Resultado: ${oQue} deu mais de ${PAGINAS_MAX * PAGINA} linhas — a leitura foi interrompida.`);
 }
 
 /**
@@ -104,16 +145,19 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   // MESMA regra do acerto do parceiro: a semana pertence ao mês da sua
   // quarta-feira, e conta-se o que foi PAGO dessa semana — não o dinheiro que
   // entrou no mês. Assim "agosto" quer dizer o mesmo em todo o sistema.
-  const { data: cobs, error: erroCobs } = await supabaseAdmin
-    .from("cobranca")
-    .select("id, veiculo_id, valor_pago, data_vencimento")
-    .eq("tipo", "renda")
-    .gt("valor_pago", 0)
-    .gte("data_vencimento", de)
-    .lte("data_vencimento", ate);
-  if (erroCobs) throw erroDeLeitura(`as cobranças de ${ano}`, erroCobs);
+  const cobs = await lerTudo(`as cobranças de ${ano}`, (dePagina, atePagina) =>
+    supabaseAdmin
+      .from("cobranca")
+      .select("id, veiculo_id, valor_pago, data_vencimento")
+      .eq("tipo", "renda")
+      .gt("valor_pago", 0)
+      .gte("data_vencimento", de)
+      .lte("data_vencimento", ate)
+      .order("id")
+      .range(dePagina, atePagina),
+  );
 
-  const doAno = (cobs ?? []).filter((c) => (mesDaSemana(c.data_vencimento) ?? "").startsWith(`${ano}-`));
+  const doAno = cobs.filter((c) => (mesDaSemana(c.data_vencimento) ?? "").startsWith(`${ano}-`));
   const gsPorCobranca = await parteRecebidaPelaGoScooters(doAno.map((c) => c.id));
 
   const receita = new Array(13).fill(0);
@@ -143,13 +187,16 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
 
   // As despesas são eventos pontuais: pertencem ao mês da fatura, pagas ou não.
   // Só as da casa; a rubrica dos custos da empresa vem no detalhe.
-  const { data: desps, error: erroDesps } = await supabaseAdmin
-    .from("despesa")
-    .select("data_despesa, categoria, imputar_a, veiculo_id, valor_total, detalhe")
-    .eq("imputar_a", "goscooters")
-    .gte("data_despesa", `${ano}-01-01`)
-    .lte("data_despesa", `${ano}-12-31`);
-  if (erroDesps) throw erroDeLeitura(`as despesas de ${ano}`, erroDesps);
+  const desps = await lerTudo(`as despesas de ${ano}`, (dePagina, atePagina) =>
+    supabaseAdmin
+      .from("despesa")
+      .select("data_despesa, categoria, imputar_a, veiculo_id, valor_total, detalhe")
+      .eq("imputar_a", "goscooters")
+      .gte("data_despesa", `${ano}-01-01`)
+      .lte("data_despesa", `${ano}-12-31`)
+      .order("id")
+      .range(dePagina, atePagina),
+  );
 
   const meses: MesFinanceiro[] = [];
   const tot = {
@@ -164,7 +211,7 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
     turnover: 0,
   };
   for (let m = 1; m <= 12; m++) {
-    const f = fechoGestao(receita[m], despesasDoMes(desps ?? [], `${ano}-${String(m).padStart(2, "0")}`), CATALOGO);
+    const f = fechoGestao(receita[m], despesasDoMes(desps, `${ano}-${String(m).padStart(2, "0")}`), CATALOGO);
     meses.push({
       mes: m,
       receita_gs: f.receita,
@@ -199,16 +246,18 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
 
 /** Taxa efetiva por veículo (frota própria = 1) e se é frota própria. */
 async function mapasDeTaxa() {
-  const [{ data: motos, error: erroMotos }, { data: donos, error: erroDonos }] = await Promise.all([
-    supabaseAdmin.from("moto").select("id, proprietario_id, comissao_valor_override"),
-    supabaseAdmin.from("proprietario").select("id, comissao_valor, eh_goscooters"),
+  const [motos, donos] = await Promise.all([
+    lerTudo("as motas", (de, ate) =>
+      supabaseAdmin.from("moto").select("id, proprietario_id, comissao_valor_override").order("id").range(de, ate),
+    ),
+    lerTudo("os proprietários", (de, ate) =>
+      supabaseAdmin.from("proprietario").select("id, comissao_valor, eh_goscooters").order("id").range(de, ate),
+    ),
   ]);
-  if (erroMotos) throw erroDeLeitura("as motas", erroMotos);
-  if (erroDonos) throw erroDeLeitura("os proprietários", erroDonos);
-  const donoDe = new Map((donos ?? []).map((d) => [d.id, d]));
+  const donoDe = new Map(donos.map((d) => [d.id, d]));
   const taxaDe = new Map<string, number>();
   const ehPropria = new Map<string, boolean>();
-  for (const m of motos ?? []) {
+  for (const m of motos) {
     const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
     ehPropria.set(m.id, !!dono?.eh_goscooters);
     taxaDe.set(
@@ -230,22 +279,30 @@ async function parteRecebidaPelaGoScooters(cobIds: string[]): Promise<Map<string
   // Aos bocados: com a lista inteira no URL, o gateway recusava o pedido a partir
   // de ~250 ids e a receita "em caixa" passava a 0 sem aviso. Cada lote verifica
   // o seu erro — um lote perdido também era dinheiro a desaparecer.
-  const respostas = await Promise.all(
-    partirEmLotes(cobIds, LOTE_IDS).map((lote) =>
-      supabaseAdmin
-        .from("pagamento_cobranca")
-        .select("cobranca_id, valor_alocado, pagamento:pagamento_id(recebido_por)")
-        .in("cobranca_id", lote),
-    ),
-  );
-  for (const { data: alocs, error } of respostas) {
-    if (error) throw erroDeLeitura("os pagamentos das cobranças", error);
-    for (const a of alocs ?? []) {
-      const pj = Array.isArray(a.pagamento) ? a.pagamento[0] : a.pagamento;
-      const rp = (pj as { recebido_por?: string } | null)?.recebido_por ?? "goscooters";
-      if (rp !== "goscooters") continue;
-      const k = a.cobranca_id as string;
-      mapa.set(k, (mapa.get(k) ?? 0) + Number(a.valor_alocado));
+  // Os lotes também não vão todos ao mesmo tempo: com um ano inteiro de rendas
+  // seriam dezenas de pedidos em simultâneo, e é assim que se deita um gateway
+  // abaixo. Vão poucos de cada vez, e cada um lê-se até ao fim (página a página).
+  for (const grupo of partirEmLotes(partirEmLotes(cobIds, LOTE_IDS), PEDIDOS_EM_PARALELO)) {
+    const respostas = await Promise.all(
+      grupo.map((lote) =>
+        lerTudo("os pagamentos das cobranças", (de, ate) =>
+          supabaseAdmin
+            .from("pagamento_cobranca")
+            .select("cobranca_id, valor_alocado, pagamento:pagamento_id(recebido_por)")
+            .in("cobranca_id", lote)
+            .order("id")
+            .range(de, ate),
+        ),
+      ),
+    );
+    for (const alocs of respostas) {
+      for (const a of alocs) {
+        const pj = Array.isArray(a.pagamento) ? a.pagamento[0] : a.pagamento;
+        const rp = (pj as { recebido_por?: string } | null)?.recebido_por ?? "goscooters";
+        if (rp !== "goscooters") continue;
+        const k = a.cobranca_id as string;
+        mapa.set(k, (mapa.get(k) ?? 0) + Number(a.valor_alocado));
+      }
     }
   }
   return mapa;
@@ -372,16 +429,22 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   janelaAte.setUTCDate(janelaAte.getUTCDate() + 8);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-  const [{ data: motos, error: erroMotos }, { data: donos, error: erroDonos }] = await Promise.all([
-    supabaseAdmin.from("moto").select("id, matricula, proprietario_id, comissao_valor_override"),
-    supabaseAdmin.from("proprietario").select("id, nome, comissao_valor, eh_goscooters"),
+  const [motos, donos] = await Promise.all([
+    lerTudo("as motas", (de, ate) =>
+      supabaseAdmin
+        .from("moto")
+        .select("id, matricula, proprietario_id, comissao_valor_override")
+        .order("id")
+        .range(de, ate),
+    ),
+    lerTudo("os proprietários", (de, ate) =>
+      supabaseAdmin.from("proprietario").select("id, nome, comissao_valor, eh_goscooters").order("id").range(de, ate),
+    ),
   ]);
-  if (erroMotos) throw erroDeLeitura("as motas", erroMotos);
-  if (erroDonos) throw erroDeLeitura("os proprietários", erroDonos);
-  const donoDe = new Map((donos ?? []).map((d) => [d.id, d]));
-  const motoDe = new Map((motos ?? []).map((m) => [m.id, m]));
+  const donoDe = new Map(donos.map((d) => [d.id, d]));
+  const motoDe = new Map(motos.map((m) => [m.id, m]));
   const taxaDe = new Map<string, number>();
-  for (const m of motos ?? []) {
+  for (const m of motos) {
     const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
     taxaDe.set(
       m.id,
@@ -407,16 +470,19 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   };
 
   // Semanas QUE PERTENCEM a este mês (regra da quarta-feira), e pagas.
-  const { data: cobs, error: erroCobs } = await supabaseAdmin
-    .from("cobranca")
-    .select("id, veiculo_id, valor_pago, data_vencimento")
-    .eq("tipo", "renda")
-    .gt("valor_pago", 0)
-    .gte("data_vencimento", iso(janelaDe))
-    .lte("data_vencimento", iso(janelaAte));
-  if (erroCobs) throw erroDeLeitura(`as cobranças de ${competencia}`, erroCobs);
-  const doMes = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competencia);
-  const doMesAnterior = (cobs ?? []).filter((c) => mesDaSemana(c.data_vencimento) === competenciaAnterior);
+  const cobs = await lerTudo(`as cobranças de ${competencia}`, (dePagina, atePagina) =>
+    supabaseAdmin
+      .from("cobranca")
+      .select("id, veiculo_id, valor_pago, data_vencimento")
+      .eq("tipo", "renda")
+      .gt("valor_pago", 0)
+      .gte("data_vencimento", iso(janelaDe))
+      .lte("data_vencimento", iso(janelaAte))
+      .order("id")
+      .range(dePagina, atePagina),
+  );
+  const doMes = cobs.filter((c) => mesDaSemana(c.data_vencimento) === competencia);
+  const doMesAnterior = cobs.filter((c) => mesDaSemana(c.data_vencimento) === competenciaAnterior);
   const gsPorCobranca = await parteRecebidaPelaGoScooters(doMes.map((c) => c.id));
 
   const frota = new Map<string, number>();
@@ -465,18 +531,23 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
 
   // As despesas deste mês e do anterior, pela data da fatura.
   const ultimo = String(new Date(ano, mes, 0).getDate()).padStart(2, "0");
-  const { data: despsDosDoisMeses, error: erroDesps } = await supabaseAdmin
-    .from("despesa")
-    .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe, imputar_a, proprietario_id")
-    .gte("data_despesa", `${competenciaAnterior}-01`)
-    .lte("data_despesa", `${ano}-${mm}-${ultimo}`)
-    .order("data_despesa");
-  if (erroDesps) throw erroDeLeitura(`as despesas de ${competenciaAnterior} e ${competencia}`, erroDesps);
-  const todasDesps = despesasDoMes(despsDosDoisMeses ?? [], competencia);
-  const despsAnterior = despesasDoMes(despsDosDoisMeses ?? [], competenciaAnterior);
+  const despsDosDoisMeses = await lerTudo(
+    `as despesas de ${competenciaAnterior} e ${competencia}`,
+    (dePagina, atePagina) =>
+      supabaseAdmin
+        .from("despesa")
+        .select("id, data_despesa, categoria, descricao, valor_total, veiculo_id, detalhe, imputar_a, proprietario_id")
+        .gte("data_despesa", `${competenciaAnterior}-01`)
+        .lte("data_despesa", `${ano}-${mm}-${ultimo}`)
+        .order("data_despesa")
+        .order("id")
+        .range(dePagina, atePagina),
+  );
+  const todasDesps = despesasDoMes(despsDosDoisMeses, competencia);
+  const despsAnterior = despesasDoMes(despsDosDoisMeses, competenciaAnterior);
 
   const desps = todasDesps.filter((d) => d.imputar_a === "goscooters");
-  const despesas: LinhaDespesaPropria[] = (desps ?? []).map((d) => ({
+  const despesas: LinhaDespesaPropria[] = desps.map((d) => ({
     id: d.id,
     data: d.data_despesa as string,
     categoria: d.categoria as string,
@@ -509,7 +580,7 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   // usa. A frota própria só fica com as da casa nas motas próprias; as da casa
   // sem mota (custos da empresa) não são de nenhum dono e vão à parte.
   const donoProprioDaMota = new Map<string, string>();
-  for (const m of motos ?? []) {
+  for (const m of motos) {
     const dono = m.proprietario_id ? donoDe.get(m.proprietario_id) : undefined;
     if (dono?.eh_goscooters) donoProprioDaMota.set(m.id, dono.id);
   }
