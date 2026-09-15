@@ -160,17 +160,19 @@ export interface DespesasPorDono {
   por_dono: Map<string, number>;
   /** Da casa e sem mota: os custos da empresa, que não são de nenhum dono. */
   custos_empresa: number;
-  /** Da casa, numa mota que não é da frota própria. */
-  casa_em_motas_de_parceiros: number;
+  /** Da casa, numa mota que não é da frota própria: de um parceiro, sem dono, ou já apagada. */
+  casa_noutras_motas: number;
+  /** De um proprietário, mas sem dizer qual: não há linha de dono onde as pôr. */
+  proprietario_sem_dono: number;
 }
 
 /**
  * As despesas do mês repartidas por quem as suporta, para o «Rendimento por dono».
  * `donoProprioDaMota` = id da mota → id do dono, só para as motas da frota própria.
  *
- * Nada se perde pelo caminho: Σ por_dono + custos_empresa + casa_em_motas_de_parceiros
- * dá as despesas da casa mais as dos proprietários — as mesmas do negócio todo.
- * As do motorista ficam de fora, como no negócio todo.
+ * Nada se perde pelo caminho: Σ por_dono + custos_empresa + casa_noutras_motas +
+ * proprietario_sem_dono dá as despesas da casa mais as dos proprietários — as
+ * mesmas do negócio todo. As do motorista ficam de fora, como no negócio todo.
  */
 export function despesasPorDono(
   despesas: readonly DespesaDoDono[],
@@ -179,19 +181,23 @@ export function despesasPorDono(
   const porDono = new Map<string, number>();
   const juntar = (id: string, v: number) => porDono.set(id, (porDono.get(id) ?? 0) + v);
   let empresa = 0;
-  let casaEmParceiros = 0;
+  let noutrasMotas = 0;
+  let proprietarioSemDono = 0;
 
   for (const d of despesas) {
     const v = Number(d.valor_total);
     if (d.imputar_a === "proprietario") {
+      // Sem dono dito não há linha onde a pôr — mas também não se deita fora,
+      // senão a tabela deixava de bater com o negócio todo.
       if (d.proprietario_id) juntar(d.proprietario_id, v);
+      else proprietarioSemDono += v;
     } else if (d.imputar_a === "goscooters") {
       if (!d.veiculo_id) {
         empresa += v;
       } else {
         const dono = donoProprioDaMota.get(d.veiculo_id);
         if (dono) juntar(dono, v);
-        else casaEmParceiros += v;
+        else noutrasMotas += v;
       }
     }
   }
@@ -199,7 +205,8 @@ export function despesasPorDono(
   return {
     por_dono: new Map([...porDono].map(([id, v]) => [id, r2(v)])),
     custos_empresa: r2(empresa),
-    casa_em_motas_de_parceiros: r2(casaEmParceiros),
+    casa_noutras_motas: r2(noutrasMotas),
+    proprietario_sem_dono: r2(proprietarioSemDono),
   };
 }
 

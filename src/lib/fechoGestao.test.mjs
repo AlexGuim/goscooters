@@ -206,7 +206,8 @@ test("por dono: a frota própria só leva os custos das motas próprias; os da e
     ],
   );
   assert.equal(r.custos_empresa, 123);
-  assert.equal(r.casa_em_motas_de_parceiros, 40);
+  assert.equal(r.casa_noutras_motas, 40);
+  assert.equal(r.proprietario_sem_dono, 0);
 });
 
 test("por dono: a soma bate com a cascata e com o negócio todo", () => {
@@ -216,10 +217,24 @@ test("por dono: a soma bate com a cascata e com o negócio todo", () => {
   const somaDonos = [...r.por_dono.values()].reduce((a, b) => a + b, 0);
   // A linha à parte é exatamente a dos «Custos da empresa» da cascata…
   assert.equal(r.custos_empresa, f.custos_empresa);
-  // …as motas próprias e as de parceiros a cargo da casa são os «Custos da frota»…
-  assert.equal(r.por_dono.get("dono-gs") + r.casa_em_motas_de_parceiros, f.custos_frota);
+  // …as motas próprias e as outras a cargo da casa são os «Custos da frota»…
+  assert.equal(r.por_dono.get("dono-gs") + r.casa_noutras_motas, f.custos_frota);
   // …e tudo junto dá as despesas do negócio todo.
-  assert.equal(somaDonos + r.custos_empresa + r.casa_em_motas_de_parceiros, n.total);
+  assert.equal(somaDonos + r.custos_empresa + r.casa_noutras_motas + r.proprietario_sem_dono, n.total);
+});
+
+test("despesa de proprietário sem dono atribuído aparece à parte, em vez de desaparecer", () => {
+  const lista = [
+    ...MISTO,
+    desp({ imputar_a: "proprietario", proprietario_id: null, veiculo_id: "mota-parceiro", valor_total: "12.50" }),
+    semMota({ imputar_a: "proprietario", proprietario_id: null, valor_total: "7.50" }),
+  ];
+  const r = despesasPorDono(lista, DONO_PROPRIO);
+  const n = despesasDoNegocio(lista);
+  const somaDonos = [...r.por_dono.values()].reduce((a, b) => a + b, 0);
+  assert.equal(r.proprietario_sem_dono, 20);
+  // Continua a bater com o negócio todo: é isso que a tabela promete ao gestor.
+  assert.equal(somaDonos + r.custos_empresa + r.casa_noutras_motas + r.proprietario_sem_dono, n.total);
 });
 
 test("o negócio todo: casa e parceiros; o do motorista é adiantado, não despesa", () => {

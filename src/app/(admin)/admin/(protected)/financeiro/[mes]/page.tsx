@@ -183,8 +183,14 @@ export default async function MesFinanceiroPage({
               {d.sem_dono.custos_empresa > 0.005 && (
                 <LinhaSemDono rotulo="Custos da empresa (não são de nenhum dono)" valor={d.sem_dono.custos_empresa} />
               )}
-              {d.sem_dono.casa_em_motas_de_parceiros > 0.005 && (
-                <LinhaSemDono rotulo="Custos da casa em motas de parceiros" valor={d.sem_dono.casa_em_motas_de_parceiros} />
+              {d.sem_dono.casa_noutras_motas > 0.005 && (
+                <LinhaSemDono rotulo="Custos da casa noutras motas" valor={d.sem_dono.casa_noutras_motas} />
+              )}
+              {d.sem_dono.proprietario_sem_dono > 0.005 && (
+                <LinhaSemDono
+                  rotulo="Despesas de proprietário sem dono atribuído"
+                  valor={d.sem_dono.proprietario_sem_dono}
+                />
               )}
             </tbody>
           </table>

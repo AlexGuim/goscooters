@@ -388,7 +388,7 @@ export interface MesDetalhado extends MesFinanceiro {
    * Despesas da casa que não são de nenhum dono. Vão à parte no «Rendimento por
    * dono», para a soma continuar a bater com o negócio todo.
    */
-  sem_dono: { custos_empresa: number; casa_em_motas_de_parceiros: number };
+  sem_dono: { custos_empresa: number; casa_noutras_motas: number; proprietario_sem_dono: number };
 }
 
 /**
@@ -605,7 +605,8 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     fecho_anterior,
     sem_dono: {
       custos_empresa: reparto.custos_empresa,
-      casa_em_motas_de_parceiros: reparto.casa_em_motas_de_parceiros,
+      casa_noutras_motas: reparto.casa_noutras_motas,
+      proprietario_sem_dono: reparto.proprietario_sem_dono,
     },
   };
 }
