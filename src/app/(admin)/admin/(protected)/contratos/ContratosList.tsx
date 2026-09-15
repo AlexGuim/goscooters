@@ -1,8 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Botao, classesBotao, AcoesMenu, type AcaoMenu } from "@/components/ui";
+import { Botao, classesBotao, AcoesMenu, Modal, type AcaoMenu } from "@/components/ui";
+import { dataBR, hojeEmLisboa } from "@/lib/datas";
+import {
+  dataDaLeituraDeRecolha,
+  formatarKm,
+  lerKmEscrito,
+  textoContratoTerminado,
+  validarKmManual,
+} from "@/lib/manutencao/oleo";
 import type {
   ContratoAluguer,
   ContratoEstado,
@@ -19,6 +27,7 @@ import {
   gerarCobrancas,
   terminarContrato,
   realinharCobrancasContrato,
+  ultimaLeituraDaMotaDoContrato,
 } from "@/actions/contratoActions";
 import { criarSessaoEntrega, criarSessaoRegisto } from "@/actions/entregaActions";
 import { criarLinkRecibo } from "@/actions/reciboActions";
@@ -83,6 +92,7 @@ export default function ContratosList({
   );
   const [modal, setModal] = useState<ContratoComNomes | "novo" | null>(null);
   const [registo, setRegisto] = useState(false);
+  const [terminar, setTerminar] = useState<ContratoComNomes | null>(null);
   const [aGerar, setAGerar] = useState<string | null>(null);
 
   const filtrados = contratos.filter((c) => {
@@ -207,26 +217,11 @@ export default function ContratosList({
     }
   };
 
-  const handleTerminar = async (c: ContratoComNomes) => {
-    const hoje = new Date().toISOString().slice(0, 10);
-    const dataFim = window.prompt(
-      `Terminar o contrato ${c.numero}? Para de faturar e anula as semanas futuras por pagar.\n\nData de fim (AAAA-MM-DD):`,
-      hoje,
+  /** O contrato acabou de ser terminado no diálogo: a linha passa a concluída. */
+  const handleTerminado = (c: ContratoComNomes, dataFim: string) => {
+    setContratos((atuais) =>
+      atuais.map((x) => (x.id === c.id ? { ...x, estado: "concluido", data_fim: dataFim } : x)),
     );
-    if (!dataFim) return;
-
-    setAGerar(c.id);
-    const r = await terminarContrato(c.id, dataFim);
-    setAGerar(null);
-
-    if (r.success) {
-      setContratos((atuais) =>
-        atuais.map((x) => (x.id === c.id ? { ...x, estado: "concluido", data_fim: dataFim } : x)),
-      );
-      alert(`Contrato terminado.${r.anuladas ? ` ${r.anuladas} cobrança(s) futura(s) anulada(s).` : ""}`);
-    } else {
-      alert(r.error);
-    }
   };
 
   const handleSuspender = async (c: ContratoComNomes, suspender: boolean) => {
@@ -348,7 +343,7 @@ export default function ContratosList({
                       { rotulo: "Editar", onClick: () => setModal(c) },
                       { rotulo: "Suspender", onClick: () => handleSuspender(c, true), oculta: c.estado !== "ativo" },
                       { rotulo: "Descartar", perigo: true, onClick: () => handleDescartar(c), oculta: c.estado !== "rascunho" },
-                      { rotulo: "Terminar", perigo: true, onClick: () => handleTerminar(c), oculta: !(aberto || c.estado === "suspenso") },
+                      { rotulo: "Terminar", perigo: true, onClick: () => setTerminar(c), oculta: !(aberto || c.estado === "suspenso") },
                     ];
                     return (
                       <div className="flex items-center gap-2">
@@ -387,7 +382,203 @@ export default function ContratosList({
       )}
 
       {registo && <RegistoLinkModal onClose={() => setRegisto(false)} />}
+
+      {terminar && (
+        <TerminarContratoModal
+          contrato={terminar}
+          onClose={() => setTerminar(null)}
+          onTerminado={(dataFim) => handleTerminado(terminar, dataFim)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * «Terminar contrato»: a data de fim e, se a mota já voltou, o km que trouxe.
+ *
+ * O km é opcional — sem ele o contrato termina como sempre — mas é a leitura que
+ * falta à manutenção: quase nenhum contrato concluído tem km final, e sem ela o
+ * intervalo da mota fica com um buraco. Fora dos limites pede «Confirmo este km»,
+ * porque passa a ser o km da mota.
+ */
+function TerminarContratoModal({
+  contrato,
+  onClose,
+  onTerminado,
+}: {
+  contrato: ContratoComNomes;
+  onClose: () => void;
+  onTerminado: (dataFim: string) => void;
+}) {
+  const [hoje] = useState(() => hojeEmLisboa());
+  const [dataFim, setDataFim] = useState(hoje);
+  const [kmEscrito, setKmEscrito] = useState("");
+  const [ultimaLeitura, setUltimaLeitura] = useState<{ km: number; data: string } | null>(null);
+  const [confirmo, setConfirmo] = useState(false);
+  const [motivoDoServidor, setMotivoDoServidor] = useState<string | null>(null);
+  const [aGravar, setAGravar] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [feito, setFeito] = useState<{ mensagem: string; aviso?: string } | null>(null);
+
+  // A dica do km: a última leitura da mota, a mesma que o «Óleo trocado» mostra.
+  useEffect(() => {
+    let vivo = true;
+    ultimaLeituraDaMotaDoContrato(contrato.id)
+      .then((leitura) => {
+        if (vivo) setUltimaLeitura(leitura);
+      })
+      .catch((e) => console.error(e));
+    return () => {
+      vivo = false;
+    };
+  }, [contrato.id]);
+
+  const km = lerKmEscrito(kmEscrito);
+  // A leitura fica na data do fim, nunca à frente de hoje — como no servidor.
+  const dataLeitura = dataDaLeituraDeRecolha(dataFim, hoje);
+  const validacao = km == null ? null : validarKmManual(km, dataLeitura, ultimaLeitura);
+  const invalido = validacao?.resultado === "invalido" ? validacao.motivo : null;
+  const motivoConfirmar =
+    validacao?.resultado === "precisa_confirmacao" ? validacao.motivo : motivoDoServidor;
+  const podeTerminar = !aGravar && !!dataFim && !invalido && (!motivoConfirmar || confirmo);
+
+  /** Mudar a data ou o km muda o aviso: a confirmação anterior deixa de valer. */
+  const aoMudar = (mudanca: () => void) => {
+    mudanca();
+    setConfirmo(false);
+    setMotivoDoServidor(null);
+    setErro(null);
+  };
+
+  const gravar = async () => {
+    setErro(null);
+    setAGravar(true);
+    try {
+      const r = await terminarContrato(contrato.id, dataFim, { km, confirmoKm: confirmo });
+      if (r.success) {
+        onTerminado(dataFim);
+        setFeito({
+          mensagem: textoContratoTerminado({ anuladas: r.anuladas, km: r.kmGravado }),
+          aviso: r.aviso,
+        });
+      } else if (r.confirmar) {
+        setMotivoDoServidor(r.error ?? null);
+        setConfirmo(false);
+      } else {
+        setErro(r.error ?? "Erro ao terminar o contrato.");
+      }
+    } catch (e) {
+      console.error(e);
+      setErro("Erro inesperado. Tenta novamente.");
+    } finally {
+      setAGravar(false);
+    }
+  };
+
+  return (
+    <Modal
+      onClose={onClose}
+      titulo="Terminar contrato"
+      subtitulo={`${contrato.numero} · ${contrato.motorista_nome} · ${contrato.veiculo_matricula}`}
+      maxWidth="max-w-md"
+    >
+      {feito ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+            <p className="text-sm text-slate-700">{feito.mensagem}</p>
+          </div>
+          {feito.aviso && <p className="text-sm text-amber-700">{feito.aviso}</p>}
+          <div className="flex justify-end">
+            <Botao variante="secondary" onClick={onClose}>
+              Fechar
+            </Botao>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Para de faturar e anula as semanas futuras por pagar.
+          </p>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={etiqueta}>
+              <span>Data de fim</span>
+              <input
+                className={campo}
+                type="date"
+                value={dataFim}
+                onChange={(e) => aoMudar(() => setDataFim(e.target.value))}
+              />
+            </label>
+            <label className={etiqueta}>
+              <span>Km na recolha (opcional)</span>
+              <input
+                className={campo}
+                inputMode="numeric"
+                placeholder={ultimaLeitura ? formatarKm(ultimaLeitura.km) : "ex.: 41.230"}
+                value={kmEscrito}
+                onChange={(e) => aoMudar(() => setKmEscrito(e.target.value))}
+              />
+              <span className="text-xs font-normal text-slate-500">
+                {ultimaLeitura
+                  ? `Última leitura: ${formatarKm(ultimaLeitura.km)} km a ${dataBR(ultimaLeitura.data)}`
+                  : "Sem leituras de km."}
+              </span>
+            </label>
+          </div>
+
+          <p className="text-xs text-slate-500">
+            Se a mota está cá, usa{" "}
+            <Link
+              href={`/admin/contratos/${contrato.id}/recolha`}
+              className="font-medium text-emerald-600 hover:text-emerald-700"
+            >
+              «Devolver»
+            </Link>{" "}
+            para a vistoria completa.
+          </p>
+
+          {invalido && <p className="text-sm text-red-700">{invalido}</p>}
+
+          {motivoConfirmar && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-emerald-500"
+                checked={confirmo}
+                onChange={(e) => setConfirmo(e.target.checked)}
+              />
+              <span className="text-sm text-slate-700">
+                <strong className="text-slate-950">Confirmo este km.</strong> {motivoConfirmar} Ao
+                gravar, passa a ser o km da mota.
+              </span>
+            </label>
+          )}
+
+          {erro && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
+              <p className="text-sm text-red-700">{erro}</p>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Botao type="button" variante="secondary" tamanho="lg" className="flex-1" onClick={onClose}>
+              Cancelar
+            </Botao>
+            <Botao
+              type="button"
+              tamanho="lg"
+              className="flex-1"
+              onClick={gravar}
+              disabled={!podeTerminar}
+            >
+              {aGravar ? "A terminar…" : "Terminar contrato"}
+            </Botao>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

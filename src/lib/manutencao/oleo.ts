@@ -739,3 +739,66 @@ export function compararUrgenciaOleo(
   // Sem subtrair: −Infinity menos −Infinity dava NaN, e o sort ignorava-o.
   return ua < ub ? -1 : ua > ub ? 1 : 0;
 }
+
+// ── 9. Km ao terminar o contrato ────────────────────────────────────────────
+// A mota volta e o contrato acaba: é a leitura mais fácil de apanhar e a que
+// mais falta faz (quase nenhum contrato concluído tem km final). Aqui só se
+// decide; quem chama é que grava.
+
+/**
+ * A data da leitura da recolha: a do fim do contrato, mas nunca à frente de
+ * hoje. O gatilho fn_km_atual grava esta data na mota, e uma data no futuro
+ * travava as leituras seguintes. Uma data que não é data fica como está — quem
+ * chama é que a recusa.
+ */
+export function dataDaLeituraDeRecolha(dataFim: string, hoje: string): string {
+  if (!ehDataIso(dataFim) || !ehDataIso(hoje)) return dataFim;
+  return dataFim > hoje ? hoje : dataFim;
+}
+
+/** O que fazer com o «Km na recolha» escrito à mão. */
+export type DecisaoKmRecolha =
+  | { acao: "sem_km" }
+  | { acao: "gravar"; km: number }
+  | { acao: "ja_registada"; km: number }
+  | { acao: "confirmar"; motivo: string }
+  | { acao: "invalido"; motivo: string };
+
+/**
+ * Campo vazio: o contrato termina como sempre. Um km fora dos limites do
+ * `validarKmManual` pede «Confirmo este km», porque passa a ser o km da mota. Uma
+ * leitura igual no mesmo dia não se repete — a vistoria de recolha ou a fatura da
+ * oficina podem já a ter gravado.
+ */
+export function decidirKmDaRecolha(e: {
+  /** Já lido com `lerKmEscrito`: null é campo vazio, NaN é o que não é número. */
+  km: number | null;
+  data: string;
+  ultimaValida: Pick<LeituraKm, "km" | "data"> | null;
+  leituras: readonly Pick<LeituraKm, "km" | "data">[];
+  /** O gestor viu o aviso e confirmou o km. */
+  confirmado?: boolean;
+}): DecisaoKmRecolha {
+  if (e.km == null) return { acao: "sem_km" };
+
+  const validacao = validarKmManual(e.km, e.data, e.ultimaValida);
+  if (validacao.resultado === "invalido") return { acao: "invalido", motivo: validacao.motivo };
+  if (validacao.resultado === "precisa_confirmacao" && !e.confirmado) {
+    return { acao: "confirmar", motivo: validacao.motivo };
+  }
+
+  if (leituraJaRegistada(e.leituras, e.km, e.data)) return { acao: "ja_registada", km: e.km };
+  return { acao: "gravar", km: e.km };
+}
+
+/**
+ * A frase que fecha o «Terminar contrato». Diz sempre como ficou o km: sem ele,
+ * o intervalo desta mota fica com um buraco até à próxima leitura.
+ */
+export function textoContratoTerminado(r: { anuladas?: number | null; km?: number | null }): string {
+  const partes = ["Contrato terminado."];
+  const anuladas = r.anuladas ?? 0;
+  if (anuladas > 0) partes.push(`${anuladas} cobrança(s) futura(s) anulada(s).`);
+  partes.push(kmValido(r.km) ? `Km na recolha: ${formatarKm(r.km)} km.` : "Sem km na recolha.");
+  return partes.join(" ");
+}

@@ -7,6 +7,14 @@ import { notificar } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 import { hrefJornada } from "@/lib/jornada";
 import { contratoAbertoDe, type ContratoAberto } from "@/lib/contratoAberto";
+import { hojeEmLisboa } from "@/lib/datas";
+import { entradaOleo, lerDadosOleo } from "@/lib/manutencao/dados";
+import {
+  avaliarOleo,
+  dataDaLeituraDeRecolha,
+  decidirKmDaRecolha,
+  type DecisaoKmRecolha,
+} from "@/lib/manutencao/oleo";
 import type { ContratoEstado, Database, Periodicidade } from "@/types/db";
 
 type ContratoUpdate = Database["public"]["Tables"]["contrato_aluguer"]["Update"];
@@ -395,15 +403,86 @@ export async function atualizarContrato(
 }
 
 /**
+ * O conta-km de uma mota como o resto da app o vê (a página da mota, o «Óleo
+ * trocado»): a última leitura VÁLIDA e as leituras todas, para não repetir uma
+ * do mesmo dia. Rebenta se a leitura falhar — quem chama decide o que fazer.
+ */
+async function contaKmDaMota(
+  veiculoId: string,
+  hoje: string,
+): Promise<{ ultimaValida: { km: number; data: string } | null; leituras: { km: number; data: string }[] } | null> {
+  const [motoRes, dadosDaFrota] = await Promise.all([
+    supabaseAdmin
+      .from("moto")
+      .select("id, matricula, modelo, estado_operacional")
+      .eq("id", veiculoId)
+      .maybeSingle(),
+    lerDadosOleo(veiculoId),
+  ]);
+  if (motoRes.error) throw new Error(motoRes.error.message);
+  if (!motoRes.data) return null;
+
+  const entrada = entradaOleo(motoRes.data, dadosDaFrota.get(veiculoId), hoje);
+  const ultima = avaliarOleo(entrada).km.ultimaValida;
+  return {
+    ultimaValida: ultima ? { km: ultima.km, data: ultima.data } : null,
+    leituras: entrada.leituras.map((l) => ({ km: l.km, data: l.data })),
+  };
+}
+
+/**
+ * A última leitura válida do conta-km da mota de um contrato: a dica do campo
+ * «Km na recolha». É só uma dica — sem leituras, ou se a leitura falhar, devolve
+ * null e o ecrã diz «Sem leituras de km».
+ */
+export async function ultimaLeituraDaMotaDoContrato(
+  contratoId: string,
+): Promise<{ km: number; data: string } | null> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return null;
+
+  const { data: c } = await supabaseAdmin
+    .from("contrato_aluguer")
+    .select("veiculo_id")
+    .eq("id", contratoId)
+    .maybeSingle();
+  if (!c?.veiculo_id) return null;
+
+  try {
+    const conta = await contaKmDaMota(c.veiculo_id, hojeEmLisboa());
+    return conta?.ultimaValida ?? null;
+  } catch (erro) {
+    console.error("ultimaLeituraDaMotaDoContrato:", erro);
+    return null;
+  }
+}
+
+export type TerminarContratoResultado = {
+  success: boolean;
+  anuladas?: number;
+  /** O km que ficou no histórico da mota: gravado agora ou já lá estava. */
+  kmGravado?: number | null;
+  /** O contrato terminou, mas o km não ficou gravado. */
+  aviso?: string;
+  error?: string;
+  /** O km está fora dos limites: o ecrã pede «Confirmo este km» e volta a enviar. */
+  confirmar?: boolean;
+};
+
+/**
  * Termina um contrato: marca-o como concluído na data de fim, ANULA as cobranças
  * futuras ainda por pagar (semanas que já não vão ser usadas — o modelo é
  * pré-pago) e liberta o veículo. As semanas já iniciadas/pagas mantêm-se (dívida
  * real). É o "evento de fim" que trava a geração rolante.
+ *
+ * Com `km`, grava também a leitura do conta-km da recolha (km_registo), ligada a
+ * este contrato. Sem ele, tudo funciona como antes.
  */
 export async function terminarContrato(
   id: string,
   dataFim: string,
-): Promise<{ success: boolean; anuladas?: number; error?: string }> {
+  opcoes?: { km?: number | null; confirmoKm?: boolean },
+): Promise<TerminarContratoResultado> {
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
   if (!dataFim) return { success: false, error: "Indica a data de fim do contrato." };
@@ -416,6 +495,41 @@ export async function terminarContrato(
     .select("veiculo_id")
     .eq("id", id)
     .maybeSingle();
+
+  // 0.º o km da recolha, ANTES de mexer no contrato: um km fora dos limites pede
+  // confirmação, e nessa volta nada pode ficar já terminado.
+  // Nota de segurança: uma Server Action é um endpoint HTTP público, por isso o
+  // km é validado aqui outra vez — o ecrã pode ser contornado.
+  const km = opcoes?.km == null ? null : Number(opcoes.km);
+  const dataLeitura = dataDaLeituraDeRecolha(dataFim, hojeEmLisboa());
+  let porGravar: number | null = null;
+  let kmGravado: number | null = null;
+  if (km != null) {
+    if (!c?.veiculo_id) {
+      return { success: false, error: "Este contrato não tem mota: termina-o sem km." };
+    }
+    let decisao: DecisaoKmRecolha;
+    try {
+      const conta = await contaKmDaMota(c.veiculo_id, hojeEmLisboa());
+      decisao = decidirKmDaRecolha({
+        km,
+        data: dataLeitura,
+        ultimaValida: conta?.ultimaValida ?? null,
+        leituras: conta?.leituras ?? [],
+        confirmado: opcoes?.confirmoKm === true,
+      });
+    } catch (erro) {
+      console.error("terminarContrato km error:", erro);
+      return {
+        success: false,
+        error: "Não consegui ler as leituras de km desta mota. Tenta outra vez, ou termina sem km.",
+      };
+    }
+    if (decisao.acao === "invalido") return { success: false, error: decisao.motivo };
+    if (decisao.acao === "confirmar") return { success: false, error: decisao.motivo, confirmar: true };
+    if (decisao.acao === "gravar") porGravar = decisao.km;
+    if (decisao.acao === "ja_registada") kmGravado = decisao.km;
+  }
 
   // 1.º concluir: fecha já a janela de geração rolante (fn_gerar_cobrancas só
   // gera para ativo/pendente_fecho), evitando corridas com o cron. A guarda de
@@ -453,10 +567,31 @@ export async function terminarContrato(
     await libertarMota(c.veiculo_id);
   }
 
+  // 3.º a leitura do conta-km. O gatilho fn_km_atual põe este km na mota se for o
+  // mais recente — é por isso que um km fora dos limites pede confirmação. O
+  // contrato_id deixa a leitura presa ao aluguer que acabou.
+  let aviso: string | undefined;
+  if (porGravar != null && c?.veiculo_id) {
+    const { error: kmErr } = await supabaseAdmin.from("km_registo").insert({
+      veiculo_id: c.veiculo_id,
+      km: porGravar,
+      data: dataLeitura,
+      fonte: "recolha",
+      contrato_id: id,
+    });
+    if (kmErr) {
+      console.error("terminarContrato km_registo error:", kmErr);
+      aviso = "O contrato ficou terminado, mas não consegui gravar o km da recolha.";
+    } else {
+      kmGravado = porGravar;
+    }
+  }
+
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/motas");
+  if (c?.veiculo_id) revalidatePath(`/admin/motas/${c.veiculo_id}`);
   revalidatePath("/admin/cobrancas");
-  return { success: true, anuladas: anuladasData?.length ?? 0 };
+  return { success: true, anuladas: anuladasData?.length ?? 0, kmGravado, aviso };
 }
 
 /**
