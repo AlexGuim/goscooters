@@ -1,7 +1,9 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdmin } from "@/lib/dal";
+import { hojeEmLisboa } from "@/lib/datas";
+import { linhasOleoDaFrota, type LinhaOleoFrota } from "@/lib/manutencao/dados";
 import type { Moto, Proprietario } from "@/types/db";
-import MotosList from "./MotosList";
+import MotasAbas from "./MotasAbas";
 
 async function getDados(): Promise<{
   motas: Moto[];
@@ -18,10 +20,28 @@ async function getDados(): Promise<{
   return { motas: motosRes.data ?? [], proprietarios: donosRes.data ?? [] };
 }
 
-export default async function MotosAdminPage() {
+/**
+ * O estado do óleo de cada mota, para a sub-aba Manutenção. Se não conseguir ler,
+ * devolve null: a lista dos veículos abre na mesma e só a manutenção avisa.
+ */
+async function getOleo(motas: Moto[]): Promise<LinhaOleoFrota[] | null> {
+  try {
+    return await linhasOleoDaFrota(motas, hojeEmLisboa());
+  } catch (erro) {
+    console.error("getOleo:", erro);
+    return null;
+  }
+}
+
+export default async function MotosAdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ aba?: string }>;
+}) {
   await requireAdmin();
 
-  const { motas, proprietarios } = await getDados();
+  const [{ aba }, { motas, proprietarios }] = await Promise.all([searchParams, getDados()]);
+  const oleo = await getOleo(motas);
 
   return (
     <div className="space-y-6">
@@ -32,7 +52,12 @@ export default async function MotosAdminPage() {
         </p>
       </div>
 
-      <MotosList initialMotas={motas} proprietarios={proprietarios} />
+      <MotasAbas
+        abaInicial={aba === "manutencao" ? "manutencao" : "motas"}
+        motas={motas}
+        proprietarios={proprietarios}
+        oleo={oleo}
+      />
     </div>
   );
 }

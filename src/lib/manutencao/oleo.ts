@@ -688,3 +688,54 @@ export function textoAposOleoTrocado(a: Pick<AvaliacaoOleo, "estado" | "proxima"
   if (a.estado === "sem_dados" && a.ultimaTroca) return "Sem próxima troca prevista enquanto a mota estiver inativa";
   return "Sem próxima troca prevista";
 }
+
+// ── 8. Lista da frota ───────────────────────────────────────────────────────
+
+export type FiltroOleo = "vencidas" | "a_aproximar" | "todas";
+
+export const ROTULO_FILTRO_OLEO: Record<FiltroOleo, string> = {
+  vencidas: "Vencidas",
+  a_aproximar: "A aproximar",
+  todas: "Todas",
+};
+
+export function passaFiltroOleo(estado: EstadoOleo, filtro: FiltroOleo): boolean {
+  if (filtro === "vencidas") return estado === "vencida";
+  if (filtro === "a_aproximar") return estado === "a_aproximar";
+  return true;
+}
+
+/** Vencidas primeiro, depois as que estão a chegar, as OK e, no fim, as que não se avaliam. */
+const ORDEM_ESTADO: Record<EstadoOleo, number> = {
+  vencida: 0,
+  a_aproximar: 1,
+  ok: 2,
+  sem_dados: 3,
+  sem_regra: 4,
+};
+
+/**
+ * Quanto aperta, em partes do intervalo da regra, pelo lado que aperta mais: 1 é
+ * «falta o intervalo inteiro», 0 é «é agora» e −0,43 é «passou 43% do intervalo».
+ * Assim uma vencida há 9 dias (de 21) vem à frente de uma com 640 km a mais (de
+ * 2.200), sem comparar km com dias. Uma vencida sem troca registada vai à frente
+ * de todas; sem contas para fazer, fica no fim.
+ */
+export function urgenciaOleo(a: Pick<AvaliacaoOleo, "estado" | "regra" | "faltaKm" | "faltaDias">): number {
+  if (!a.regra || a.faltaDias == null) return a.estado === "vencida" ? -Infinity : Infinity;
+  const porDias = a.faltaDias / a.regra.dias;
+  return a.faltaKm == null ? porDias : Math.min(porDias, a.faltaKm / a.regra.km);
+}
+
+/** Para ordenar a lista da frota. Em caso de empate, quem chama desempata (pela matrícula). */
+export function compararUrgenciaOleo(
+  a: Pick<AvaliacaoOleo, "estado" | "regra" | "faltaKm" | "faltaDias">,
+  b: Pick<AvaliacaoOleo, "estado" | "regra" | "faltaKm" | "faltaDias">,
+): number {
+  const porEstado = ORDEM_ESTADO[a.estado] - ORDEM_ESTADO[b.estado];
+  if (porEstado !== 0) return porEstado;
+  const ua = urgenciaOleo(a);
+  const ub = urgenciaOleo(b);
+  // Sem subtrair: −Infinity menos −Infinity dava NaN, e o sort ignorava-o.
+  return ua < ub ? -1 : ua > ub ? 1 : 0;
+}

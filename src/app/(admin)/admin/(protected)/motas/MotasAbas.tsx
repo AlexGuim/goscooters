@@ -1,0 +1,68 @@
+"use client";
+
+import { useState } from "react";
+import type { Moto, Proprietario } from "@/types/db";
+import type { LinhaOleoFrota } from "@/lib/manutencao/dados";
+import MotosList from "./MotosList";
+import ManutencaoFrota from "./ManutencaoFrota";
+
+/**
+ * As sub-abas da Frota, como as da Cobrança: a lista das motas de sempre e a
+ * manutenção. O URL acompanha a sub-aba (?aba=manutencao), para se poder mandar
+ * o link e para o «voltar» do browser trazer de volta a lista certa.
+ */
+
+type Aba = "motas" | "manutencao";
+
+const ABAS: [Aba, string][] = [
+  ["motas", "Motas"],
+  ["manutencao", "Manutenção"],
+];
+
+export default function MotasAbas({
+  abaInicial,
+  motas,
+  proprietarios,
+  oleo,
+}: {
+  abaInicial: Aba;
+  motas: Moto[];
+  proprietarios: Proprietario[];
+  /** Null: a manutenção não pôde ser lida (a lista das motas continua a servir). */
+  oleo: LinhaOleoFrota[] | null;
+}) {
+  const [aba, setAba] = useState<Aba>(abaInicial);
+
+  const mudar = (nova: Aba) => {
+    setAba(nova);
+    window.history.replaceState(
+      null,
+      "",
+      nova === "manutencao" ? "?aba=manutencao" : window.location.pathname,
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
+        {ABAS.map(([v, rotulo]) => (
+          <button
+            key={v}
+            onClick={() => mudar(v)}
+            className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
+              aba === v ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+
+      {aba === "motas" ? (
+        <MotosList initialMotas={motas} proprietarios={proprietarios} />
+      ) : (
+        <ManutencaoFrota linhas={oleo} />
+      )}
+    </div>
+  );
+}

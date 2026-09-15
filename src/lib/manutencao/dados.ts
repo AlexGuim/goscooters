@@ -2,7 +2,13 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { EstadoOperacional, Manutencao } from "@/types/db";
-import type { EntradaOleo, LeituraKm, ManutencaoParaOleo } from "./oleo";
+import {
+  avaliarOleo,
+  compararUrgenciaOleo,
+  textoEstadoOleo,
+  textoProximaTroca,
+} from "./oleo";
+import type { EntradaOleo, EstadoOleo, LeituraKm, ManutencaoParaOleo } from "./oleo";
 
 /**
  * O que a base tem sobre a manutenção de cada mota, pronto para o cálculo do óleo
@@ -127,4 +133,48 @@ export function entradaOleo(moto: MotaOleo, dados: DadosOleoMota | undefined, ho
     manutencoes: dados?.manutencoes ?? [],
     hoje,
   };
+}
+
+/** Uma linha da sub-aba Manutenção, com as contas já feitas. */
+export type LinhaOleoFrota = {
+  motoId: string;
+  matricula: string | null;
+  modelo: string;
+  estado: EstadoOleo;
+  /** «vencida há 9 dias», «+640 km», «faltam 180 km». */
+  texto: string;
+  /** «aos 43.430 km ou a 07/10»; null quando não há próxima prevista. */
+  proxima: string | null;
+  /** A última leitura válida do conta-km, para a dica do «Óleo trocado». */
+  ultimaLeitura: { km: number; data: string } | null;
+};
+
+/**
+ * A frota toda avaliada de uma vez e já ordenada: primeiro o que está vencido e,
+ * dentro de cada grupo, o que mais aperta. Uma leitura falhada rebenta (vem de
+ * `lerDadosOleo`) — mais vale dizer que não carregou do que mostrar tudo «OK».
+ */
+export async function linhasOleoDaFrota(
+  motas: readonly MotaOleo[],
+  hoje: string,
+): Promise<LinhaOleoFrota[]> {
+  const dados = await lerDadosOleo();
+  return motas
+    .map((moto) => ({ moto, oleo: avaliarOleo(entradaOleo(moto, dados.get(moto.id), hoje)) }))
+    .sort(
+      (a, b) =>
+        compararUrgenciaOleo(a.oleo, b.oleo) ||
+        (a.moto.matricula ?? "").localeCompare(b.moto.matricula ?? "", "pt"),
+    )
+    .map(({ moto, oleo }) => ({
+      motoId: moto.id,
+      matricula: moto.matricula,
+      modelo: moto.modelo,
+      estado: oleo.estado,
+      texto: textoEstadoOleo(oleo),
+      proxima: textoProximaTroca(oleo.proxima),
+      ultimaLeitura: oleo.km.ultimaValida
+        ? { km: oleo.km.ultimaValida.km, data: oleo.km.ultimaValida.data }
+        : null,
+    }));
 }
