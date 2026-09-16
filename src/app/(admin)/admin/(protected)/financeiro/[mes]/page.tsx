@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/dal";
 import { financeiroMes } from "@/lib/financeiro";
 import { formatarPreco } from "@/lib/precos";
-import { dataBR } from "@/lib/datas";
+import { dataBR, mesDeHojeEmLisboa } from "@/lib/datas";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import type { DespesaCategoria } from "@/types/db";
@@ -53,6 +53,8 @@ export default async function MesFinanceiroPage({
   const d = { ...mesBruto, despesas: mesBruto.despesas.map((x, i) => ({ ...x, documento_url: docs[i] })) };
   const anterior = mes === 1 ? `${ano - 1}-12` : `${ano}-${String(mes - 1).padStart(2, "0")}`;
   const seguinte = mes === 12 ? `${ano + 1}-01` : `${ano}-${String(mes + 1).padStart(2, "0")}`;
+  // O mês de hoje é o de Lisboa (o servidor corre em UTC): é ele que leva «em curso».
+  const emCurso = chave === mesDeHojeEmLisboa();
 
   return (
     <div className="space-y-6">
@@ -79,7 +81,13 @@ export default async function MesFinanceiroPage({
       </div>
 
       {/* O fecho do mês em cascata, com o mês anterior ao lado */}
-      <Cascata este={d.fecho} anterior={d.fecho_anterior} />
+      <Cascata
+        este={d.fecho}
+        anterior={d.fecho_anterior}
+        rotuloEste={MESES[mes]}
+        rotuloAnterior={MESES[Number(anterior.slice(5))]}
+        emCurso={emCurso}
+      />
       <p className="text-xs text-slate-500">
         A receita é só a comissão e a renda da frota própria: a renda dos parceiros é dinheiro de
         passagem.{" "}

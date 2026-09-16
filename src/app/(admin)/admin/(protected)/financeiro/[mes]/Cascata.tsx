@@ -1,5 +1,6 @@
 import { formatarPreco } from "@/lib/precos";
 import { juntarParcelas, type FechoGestao, type ParcelaComparada } from "@/lib/fechoGestao";
+import { Badge } from "@/components/ui";
 
 /**
  * O fecho de gestão do mês em cascata, com o mês anterior ao lado:
@@ -11,6 +12,10 @@ import { juntarParcelas, type FechoGestao, type ParcelaComparada } from "@/lib/f
  *
  * Vive à parte para as páginas do Resultado poderem mudar os seus rótulos sem
  * mexer na cascata.
+ *
+ * As colunas dizem QUE meses são, e o mês de hoje leva «em curso»: um setembro
+ * com três dias ao lado de um agosto inteiro parece um colapso do negócio, e é
+ * só o mês ter começado.
  */
 
 /**
@@ -28,13 +33,35 @@ const VALOR = "whitespace-nowrap text-right text-sm tabular-nums sm:text-base";
 /** Um rótulo: pode partir em duas linhas num ecrã estreito, sem empurrar os valores. */
 const ROTULO = "text-sm sm:text-base";
 
-export default function Cascata({ este, anterior }: { este: FechoGestao; anterior: FechoGestao }) {
+export default function Cascata({
+  este,
+  anterior,
+  rotuloEste,
+  rotuloAnterior,
+  emCurso = false,
+}: {
+  este: FechoGestao;
+  anterior: FechoGestao;
+  /** O nome deste mês ("Setembro") — a coluna da esquerda dos valores. */
+  rotuloEste: string;
+  /** O nome do mês anterior ("Agosto") — a coluna de comparação. */
+  rotuloAnterior: string;
+  /** Este mês ainda vai a meio: os números dele não se comparam de igual para igual. */
+  emCurso?: boolean;
+}) {
   return (
     <section className="print-junto rounded-3xl bg-white p-4 shadow-sm sm:p-5">
       <div className={`${GRELHA} pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500`}>
         <span />
-        <span className="text-right">Este mês</span>
-        <span className="text-right text-slate-400">Mês anterior</span>
+        <span className="text-right">
+          <span className="block">{rotuloEste}</span>
+          {emCurso && (
+            <Badge tom="warning" className="mt-1 tracking-normal normal-case">
+              em curso
+            </Badge>
+          )}
+        </span>
+        <span className="text-right">{rotuloAnterior}</span>
       </div>
       <ul className="divide-y divide-slate-100 border-t border-slate-100">
         <li>
@@ -97,7 +124,7 @@ function Linha({
       <span className={`${VALOR} ${forte ? "font-bold sm:text-xl" : "font-semibold"} ${cor}`}>
         {formatarPreco(este)}
       </span>
-      <span className={`${VALOR} text-slate-400`}>{formatarPreco(anterior)}</span>
+      <span className={`${VALOR} text-slate-500`}>{formatarPreco(anterior)}</span>
     </div>
   );
 }
@@ -117,7 +144,7 @@ function Custo({
   const valores = (
     <>
       <span className={`${VALOR} font-semibold text-red-600`}>{formatarPreco(este)}</span>
-      <span className={`${VALOR} text-slate-400`}>{formatarPreco(anterior)}</span>
+      <span className={`${VALOR} text-slate-500`}>{formatarPreco(anterior)}</span>
     </>
   );
 
@@ -146,11 +173,11 @@ function Custo({
       <ul className="pb-3">
         {parcelas.map((p) => (
           <li key={p.chave} className={`${GRELHA} py-1 pl-4 text-sm`}>
-            <span className="truncate text-slate-500">{p.rotulo}</span>
+            <span className="min-w-0 break-words text-slate-600">{p.rotulo}</span>
             <span className="whitespace-nowrap text-right tabular-nums text-slate-700">
               {p.este ? formatarPreco(p.este) : "—"}
             </span>
-            <span className="whitespace-nowrap text-right tabular-nums text-slate-400">
+            <span className="whitespace-nowrap text-right tabular-nums text-slate-500">
               {p.anterior ? formatarPreco(p.anterior) : "—"}
             </span>
           </li>
