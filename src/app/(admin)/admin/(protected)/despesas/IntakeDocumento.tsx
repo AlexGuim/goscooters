@@ -35,13 +35,14 @@ import {
   type EstadoDoCarregamento,
   type SaidaDoEcra,
 } from "@/lib/limpezaCarregamentos";
-import { analisarDocumento, type IntakeResultado } from "@/actions/intakeActions";
+import { analisarDocumento, quemTinhaAMoto, type IntakeResultado } from "@/actions/intakeActions";
 import { gravarDespesaDeFatura } from "@/actions/faturaActions";
 import { criarSeguro, criarManutencao, garantirManutencaoDeDespesa } from "@/actions/frotaSaudeActions";
 import { prepararComunicacao, type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
 import { executarProcedimentos } from "@/actions/procedimentoActions";
 import type { ProcedimentoGatilho } from "@/types/db";
 import { dataBR } from "@/lib/datas";
+import { hojeEmLisboa } from "@/lib/diasUteis";
 import { IDIOMAS } from "@/lib/lembretes";
 
 const campo =
@@ -219,11 +220,16 @@ export default function IntakeDocumento({
   const [imputarA, setImputarA] = useState<ImputarA>("goscooters");
   const [motoristaId, setMotoristaId] = useState<string | null>(null);
   const [motoristaNome, setMotoristaNome] = useState<string | null>(null);
+  const [aProcurarMotorista, setAProcurarMotorista] = useState(false);
+  /** Só a última procura conta: datas escolhidas depressa não trocam o motorista pela ordem das respostas. */
+  const procuraMotoristaRef = useRef(0);
   const [km, setKm] = useState("");
   const [fornecedor, setFornecedor] = useState("");
   const [referencia, setReferencia] = useState("");
   /** Coima/portagem: onde foi — vai na mensagem ao motorista, por isso é editável. */
   const [local, setLocal] = useState("");
+  /** Coima: data da notificação ao titular — dela conta o prazo para identificar o condutor (F306). */
+  const [dataNotificacao, setDataNotificacao] = useState("");
   // Seguro
   const [seguradora, setSeguradora] = useState("");
   const [apolice, setApolice] = useState("");
@@ -278,6 +284,33 @@ export default function IntakeDocumento({
   const descartarAoSair = (saida: SaidaDoEcra) =>
     apagarCaminhos(aDescartar(estadoDoEcra(fase, docPath, docUrl, docGravado, fila), saida));
 
+  /**
+   * Coima/portagem: com outra data ou outra mota, o motorista da leitura deixa de
+   * valer e procura-se o dessa data — senão a coima gravava a data corrigida com o
+   * motorista da data que a IA leu, e o F306 identificava a pessoa errada.
+   */
+  const procurarMotorista = async (veiculo: string, dia: string) => {
+    if (tipo !== "coima" && tipo !== "portagem") return;
+    const pedido = ++procuraMotoristaRef.current;
+    setMotoristaId(null);
+    setMotoristaNome(null);
+    if (!veiculo || !/^\d{4}-\d{2}-\d{2}$/.test(dia)) {
+      setAProcurarMotorista(false);
+      return;
+    }
+    setAProcurarMotorista(true);
+    try {
+      const m = await quemTinhaAMoto(veiculo, dia);
+      if (pedido !== procuraMotoristaRef.current) return;
+      setMotoristaId(m?.id ?? null);
+      setMotoristaNome(m?.nome ?? null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (pedido === procuraMotoristaRef.current) setAProcurarMotorista(false);
+    }
+  };
+
   const reset = () => {
     setFase("inicio");
     setRes(null);
@@ -308,7 +341,9 @@ export default function IntakeDocumento({
     setMotoristaNome(r.motorista?.nome ?? null);
     setKm(d.km != null ? String(d.km) : "");
     setFornecedor(d.fornecedor ?? "");
-    setReferencia(d.referencia ?? "");
+    // Numa coima, a referência é o n.º do auto — é com ele que se identifica o condutor.
+    setReferencia((d.tipo === "coima" ? d.numero_auto : null) ?? d.referencia ?? "");
+    setDataNotificacao(d.data_notificacao ?? "");
     setLocal(d.local ?? "");
     setSeguradora(d.fornecedor ?? "");
     setApolice(d.seguro_apolice ?? "");
@@ -615,6 +650,10 @@ export default function IntakeDocumento({
     const detalheDoc = {
       ...(res?.doc ?? {}),
       ...(ehPortagemCoima ? { local: localAuto } : {}),
+      // Coima: o que o gestor confirmou abre o processo do F306 com o prazo a contar.
+      ...(tipo === "coima"
+        ? { numero_auto: referencia.trim() || null, data_notificacao: dataNotificacao || null }
+        : {}),
       documento_url: docUrl,
     };
     // O documento como ficou gravado. O servidor põe-no no bucket que a categoria
@@ -638,6 +677,8 @@ export default function IntakeDocumento({
           descricao: descricao || null,
           valor: valor || "0",
           data_despesa: data,
+          // Numa coima, a data lida é a da infração: é por ela que se encontra o condutor.
+          data_infracao: tipo === "coima" ? data || null : null,
           data_vencimento: dataVencimento || null,
           imputar_a: imputarA,
           proprietario_id: null,
@@ -1046,7 +1087,14 @@ export default function IntakeDocumento({
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className={etiqueta}>
                       <span>Veículo{destino !== "despesa" ? " *" : ""}</span>
-                      <select className={campo} value={veiculoId} onChange={(e) => setVeiculoId(e.target.value)}>
+                      <select
+                        className={campo}
+                        value={veiculoId}
+                        onChange={(e) => {
+                          setVeiculoId(e.target.value);
+                          void procurarMotorista(e.target.value, data);
+                        }}
+                      >
                         <option value="">— sem veículo —</option>
                         {motos.map((m) => (
                           <option key={m.id} value={m.id}>{m.matricula ?? "?"} · {m.modelo}</option>
@@ -1058,13 +1106,34 @@ export default function IntakeDocumento({
                       <input className={campo} inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} />
                     </label>
                     <label className={etiqueta}>
-                      <span>Data</span>
-                      <input className={campo} type="date" value={data} onChange={(e) => setData(e.target.value)} />
+                      <span>{tipo === "coima" ? "Data da infração" : "Data"}</span>
+                      <input
+                        className={campo}
+                        type="date"
+                        value={data}
+                        onChange={(e) => {
+                          setData(e.target.value);
+                          void procurarMotorista(veiculoId, e.target.value);
+                        }}
+                      />
                     </label>
                     <label className={etiqueta}>
                       <span>Fornecedor / entidade</span>
                       <input className={campo} value={fornecedor} onChange={(e) => { setFornecedor(e.target.value); if (destino === "seguro") setSeguradora(e.target.value); }} />
                     </label>
+                    {tipo === "coima" && (
+                      <label className={etiqueta}>
+                        <span>Data da notificação</span>
+                        <input
+                          className={campo}
+                          type="date"
+                          min={data || undefined}
+                          max={hojeEmLisboa()}
+                          value={dataNotificacao}
+                          onChange={(e) => setDataNotificacao(e.target.value)}
+                        />
+                      </label>
+                    )}
                     {ehPortagemCoima && (
                       <label className={`${etiqueta} sm:col-span-2`}>
                         <span>Local</span>
@@ -1080,10 +1149,12 @@ export default function IntakeDocumento({
 
                   {ehPortagemCoima && (
                     <div className="rounded-xl bg-white px-3 py-2 text-sm text-slate-700">
-                      {motoristaNome ? (
+                      {aProcurarMotorista ? (
+                        <span className="text-slate-500">A procurar quem tinha a mota nesta data…</span>
+                      ) : motoristaNome ? (
                         <>Motorista com a moto nesta data: <strong>{motoristaNome}</strong> — custo imputado ao motorista.</>
                       ) : (
-                        <span className="text-amber-700">Não identifiquei o motorista desta data no histórico. Confere o veículo/data.</span>
+                        <span className="text-amber-700">Não identifiquei o motorista desta data no histórico. Confere o veículo/data.{tipo === "coima" ? " Depois de gravar, escolhe ou regista o condutor em Coimas → Identificar condutor." : ""}</span>
                       )}
                     </div>
                   )}
@@ -1115,7 +1186,7 @@ export default function IntakeDocumento({
                         <input className={campo} inputMode="numeric" value={km} onChange={(e) => setKm(e.target.value)} />
                       </label>
                       <label className={`${etiqueta} sm:col-span-2`}>
-                        <span>Referência</span>
+                        <span>{tipo === "coima" ? "N.º do auto" : "Referência"}</span>
                         <input className={campo} value={referencia} onChange={(e) => setReferencia(e.target.value)} />
                       </label>
                     </div>
@@ -1142,8 +1213,9 @@ export default function IntakeDocumento({
                   )}
 
                   <div className="flex gap-3">
-                    <button onClick={confirmar} disabled={fase === "a-gravar"} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
-                      {fase === "a-gravar" ? "A gravar…" : "Confirmar e registar"}
+                    {/* À espera do motorista da data corrigida: gravar agora levava a coima sem ele. */}
+                    <button onClick={confirmar} disabled={fase === "a-gravar" || aProcurarMotorista} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                      {fase === "a-gravar" ? "A gravar…" : aProcurarMotorista ? "A procurar o motorista…" : "Confirmar e registar"}
                     </button>
                     <button
                       onClick={() => {

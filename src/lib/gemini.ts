@@ -15,6 +15,8 @@ export interface CamposDocumento {
   doc_id_tipo: "cc" | "passaporte" | "titulo_residencia" | "aima" | null;
   doc_id_numero: string | null;
   doc_id_validade: string | null; // ISO AAAA-MM-DD
+  doc_id_emissao?: string | null; // ISO — data de EMISSÃO do documento de identificação
+  doc_id_emissor?: string | null; // entidade (ou país) emissora do documento, como impressa
   data_nascimento: string | null; // ISO AAAA-MM-DD
   nacionalidade_iso2: string | null; // ISO-2 (ex.: PT)
   carta_numero: string | null;
@@ -57,6 +59,10 @@ export interface DocClassificado {
   referencia: string | null; // nº fatura/apólice/auto
   /** Só coima/portagem: onde foi a infração ou a passagem — nunca a morada de quem foi notificado. */
   local: string | null;
+  /** Só coima: n.º do auto de contraordenação, como está escrito. */
+  numero_auto?: string | null;
+  /** Só coima: data da notificação ao titular (sem ela, a de expedição ou emissão da carta) — nunca a da infração. */
+  data_notificacao?: string | null;
   descricao: string | null;
   km: number | null;
   /** Só comprovativo de pagamento: nome de quem enviou o dinheiro. */
@@ -139,6 +145,8 @@ Devolve um objeto JSON com EXATAMENTE estas chaves (null quando não conseguires
   "doc_id_tipo": "cc"|"passaporte"|"titulo_residencia"|"aima"|null,
   "doc_id_numero": string|null,
   "doc_id_validade": string|null,      // AAAA-MM-DD
+  "doc_id_emissao": string|null,       // AAAA-MM-DD — data de EMISSÃO do documento de identificação (nunca a validade)
+  "doc_id_emissor": string|null,       // entidade emissora do documento de identificação, como impressa
   "data_nascimento": string|null,      // AAAA-MM-DD
   "nacionalidade_iso2": string|null,   // ISO-2 (2 letras)
   "carta_numero": string|null,
@@ -169,6 +177,16 @@ não a posição na imagem):
 TÍTULO DE RESIDÊNCIA / AIMA: o número está em grande no topo e repetido à esquerda.
   "VALIDADE DO CARTÃO / CARD EXPIRY" → doc_id_validade. "DATA NASC." → data_nascimento.
   Apelidos e nomes vêm em duas linhas ("SURNAMES Forenames") — junta na ordem natural.
+
+EMISSÃO E EMISSOR DO DOCUMENTO DE IDENTIFICAÇÃO (não da carta):
+  Passaporte: "Date of issue / Data de emissão / Fecha de expedición" → doc_id_emissao;
+  "Authority / Autoridade / Autoridad" → doc_id_emissor (sem autoridade impressa, o país
+  emissor por extenso, ex.: "Brasil").
+  Título de residência / AIMA: a data de emissão, se estiver impressa → doc_id_emissao; a
+  entidade que o emitiu (AIMA ou SEF) → doc_id_emissor.
+  Cartão de Cidadão: doc_id_emissor = "República Portuguesa"; a data de emissão só se
+  estiver impressa, senão null.
+  Na carta de condução a emissão é o campo 4a e o emissor o 4c: NÃO os uses aqui.
 
 NIF (9 dígitos): está no VERSO do título de residência e do Cartão de Cidadão, sob o
   rótulo "Nº IDENT. FISCAL" ou "Nº de Identificação Fiscal".
@@ -209,13 +227,15 @@ Primeiro CLASSIFICA o tipo do documento, depois EXTRAI os campos. Devolve um obj
   "tipo": "fatura"|"apolice_seguro"|"manutencao"|"portagem"|"coima"|"documento_id"|"comprovativo_morada"|"comprovativo_pagamento"|"outro",
   "confianca": "alta"|"media"|"baixa",
   "matricula": string|null,          // matrícula do veículo como está escrita, ex.: "63-XV-18"
-  "data": string|null,               // data do documento/serviço/infração, AAAA-MM-DD
+  "data": string|null,               // data do documento/serviço, AAAA-MM-DD; numa coima, a data da INFRAÇÃO — nunca a da notificação, da expedição ou da emissão da carta
   "data_vencimento": string|null,    // data-limite de pagamento, AAAA-MM-DD
   "data_fim": string|null,           // SÓ seguro: fim da validade da cobertura, AAAA-MM-DD
   "valor": string|null,              // total a pagar, número com PONTO decimal e sem €, ex.: "123.45"
   "fornecedor": string|null,         // entidade emissora (seguradora, oficina, Via Verde, ANSR...)
   "referencia": string|null,         // nº do documento/fatura/apólice/auto de contraordenação
   "local": string|null,              // SÓ coima/portagem: onde foi a infração ou a passagem (estrada, pórtico, rua, localidade) — NUNCA a morada de quem foi notificado
+  "numero_auto": string|null,        // SÓ coima: nº do auto de contraordenação (na ANSR tem 9 dígitos), tal como está escrito
+  "data_notificacao": string|null,   // SÓ coima: data da notificação ao titular, AAAA-MM-DD; se não houver, a data de expedição da carta (ou, sem ela, a de emissão) — NUNCA a data da infração
   "descricao": string|null,          // resumo curto (serviços, cobertura...)
   "km": number|null,                 // quilómetros do veículo, se aparecer
   "pagador": string|null,            // SÓ comprovativo_pagamento: nome de QUEM ENVIOU o dinheiro
@@ -461,6 +481,42 @@ export async function lerComprovativoGemini(
 ): Promise<CamposComprovativo | null> {
   const r = await gerarJson(imagens, PROMPT_COMPROVATIVO);
   return r && typeof r === "object" ? (r as CamposComprovativo) : null;
+}
+
+/**
+ * N.º do auto e data da notificação de uma coima JÁ registada, para abrir o
+ * processo do F306 sem os escrever à mão. Prompt à parte do PROMPT_CLASSIFICAR:
+ * aqui já se sabe que é uma coima, e só interessam estas datas, que se confundem.
+ */
+const PROMPT_AUTO = `És um assistente de uma empresa de aluguer de scooters em Portugal. Lês uma NOTIFICAÇÃO DE CONTRAORDENAÇÃO rodoviária (auto da ANSR, PSP, GNR, polícia municipal ou câmara) dirigida ao titular do veículo.
+Devolve SÓ um objeto JSON com EXATAMENTE estas chaves (null quando não souberes — nunca inventes):
+{
+  "numero_auto": string|null,       // nº do auto de contraordenação, tal como está escrito (na ANSR tem 9 dígitos)
+  "data_notificacao": string|null,  // data da notificação ao titular, AAAA-MM-DD; se o documento não a indicar, a data de expedição da carta (ou, sem ela, a de emissão)
+  "data_infracao": string|null,     // data em que a infração foi cometida, AAAA-MM-DD
+  "entidade": string|null,          // quem levantou o auto ou instrui o processo (ANSR, PSP, GNR, câmara...)
+  "matricula": string|null
+}
+REGRAS:
+- A data da notificação NUNCA é a data da infração: se o documento só tiver a da infração, devolve data_notificacao a null.
+- Datas em formato português (DD-MM-AAAA ou DD/MM/AAAA) convertem-se para AAAA-MM-DD.
+- Se o documento não for uma notificação de contraordenação, devolve tudo a null.`;
+
+/** Campos lidos de uma notificação de coima (ver PROMPT_AUTO). */
+export interface CamposAuto {
+  numero_auto: string | null;
+  data_notificacao: string | null;
+  data_infracao: string | null;
+  entidade: string | null;
+  matricula: string | null;
+}
+
+/** Lê o n.º do auto e as datas de uma notificação de coima. */
+export async function lerAutoGemini(
+  imagens: { mime: string; base64: string }[],
+): Promise<CamposAuto | null> {
+  const r = await gerarJson(imagens, PROMPT_AUTO);
+  return r && typeof r === "object" ? (r as CamposAuto) : null;
 }
 
 export { mimeDoCaminho };

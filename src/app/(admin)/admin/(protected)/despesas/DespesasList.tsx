@@ -18,8 +18,12 @@ import {
   eliminarDespesa,
 } from "@/actions/despesaActions";
 import { registarCoima, resolverCondutor } from "@/actions/coimaActions";
+import { abrirIdentificacao, type IdentificacaoCondutor } from "@/actions/infracaoActions";
 import GrupoColapsavel from "@/components/GrupoColapsavel";
 import { CAT_ROTULO, CAT_COR, ESTADO_PAG_TOM, IMPUTAR_ROTULO } from "@/lib/despesasMeta";
+import { diasUteisAte, hojeEmLisboa, textoDiasUteis } from "@/lib/diasUteis";
+import { ESTADO_INFRACAO_ROTULO, type InfracaoEstado } from "@/types/infracao";
+import IdentificacaoCondutorModal, { corDoPrazo } from "@/app/(admin)/admin/(protected)/coimas/IdentificacaoCondutor";
 
 export interface DespesaComNomes extends Despesa {
   veiculo_matricula: string | null;
@@ -29,6 +33,8 @@ export interface DespesaComNomes extends Despesa {
    * URL assinado (expira) quando o documento é privado — coimas e portagens.
    */
   documento_ver?: string | null;
+  /** Coima: o processo do F306 (fase16), se já foi aberto. */
+  infracao?: { estado: InfracaoEstado; prazo_identificacao: string | null } | null;
 }
 
 const CATEGORIAS: { valor: DespesaCategoria; rotulo: string }[] = [
@@ -50,22 +56,28 @@ const IMPUTAR_PADRAO: Record<DespesaCategoria, ImputarA> = {
   outro: "goscooters",
 };
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+const hoje = () => hojeEmLisboa();
 
 export default function DespesasList({
   inicial,
   motos,
   proprietarios,
+  motoristas,
 }: {
   inicial: DespesaComNomes[];
   motos: Pick<Moto, "id" | "matricula" | "modelo" | "proprietario_id">[];
   proprietarios: Pick<Proprietario, "id" | "nome">[];
+  /** Para escolher o condutor de uma coima quando não se descobre sozinho. */
+  motoristas: { id: string; nome: string }[];
 }) {
   const [despesas, setDespesas] = useState(inicial);
   const [filtroCat, setFiltroCat] = useState<DespesaCategoria | "">("");
   const [filtroVeiculo, setFiltroVeiculo] = useState("");
   const [filtroDono, setFiltroDono] = useState("");
   const [modal, setModal] = useState<DespesaComNomes | "novo" | null>(null);
+  // Identificação do condutor (F306): os dados pessoais leem-se no servidor ao abrir.
+  const [f306, setF306] = useState<IdentificacaoCondutor | null>(null);
+  const [aAbrirF306, setAAbrirF306] = useState<string | null>(null);
 
   const filtradas = despesas.filter(
     (d) =>
@@ -105,6 +117,40 @@ export default function DespesasList({
     if (r.success) setDespesas((atuais) => atuais.filter((x) => x.id !== d.id));
     else alert(r.error);
   };
+
+  const abrirF306 = async (d: DespesaComNomes) => {
+    // Uma de cada vez: a abertura pode ler o auto com a IA e demorar uns segundos.
+    if (aAbrirF306) return;
+    setAAbrirF306(d.id);
+    try {
+      const r = await abrirIdentificacao(d.id);
+      if (r.ok) {
+        setF306(r.dados);
+        atualizarInfracao(r.dados);
+      } else {
+        alert(r.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro inesperado ao abrir a coima. Tenta novamente.");
+    } finally {
+      setAAbrirF306(null);
+    }
+  };
+
+  const atualizarInfracao = (x: IdentificacaoCondutor) =>
+    setDespesas((atuais) =>
+      atuais.map((d) =>
+        d.id === x.despesa_id
+          ? {
+              ...d,
+              infracao: x.infracao
+                ? { estado: x.infracao.estado, prazo_identificacao: x.infracao.prazo_identificacao }
+                : null,
+            }
+          : d,
+      ),
+    );
 
   return (
     <div className="space-y-6">
@@ -178,6 +224,7 @@ export default function DespesasList({
                     {d.estado_pagamento !== "paga" && (
                       <Badge tom={ESTADO_PAG_TOM[d.estado_pagamento]}>{d.estado_pagamento}</Badge>
                     )}
+                    {d.categoria === "coima" && d.infracao && <EstadoF306 infracao={d.infracao} />}
                   </div>
                   <p className="text-sm text-slate-500">
                     {dataBR(d.data_despesa)}
@@ -192,6 +239,11 @@ export default function DespesasList({
                   </Botao>
                   <AcoesMenu
                     acoes={[
+                      {
+                        rotulo: aAbrirF306 === d.id ? "A abrir…" : "Identificar condutor (F306)",
+                        onClick: () => abrirF306(d),
+                        oculta: d.categoria !== "coima",
+                      },
                       {
                         rotulo: "Ver documento",
                         // Resolvido no servidor: nunca o caminho cru de um documento privado.
@@ -221,7 +273,40 @@ export default function DespesasList({
           onSaved={handleSaved}
         />
       )}
+
+      {aAbrirF306 && (
+        <div
+          role="status"
+          className="fixed bottom-6 right-6 z-40 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-lg"
+        >
+          A preparar a identificação do condutor…
+        </div>
+      )}
+
+      {f306 && (
+        <IdentificacaoCondutorModal
+          key={f306.despesa_id}
+          inicial={f306}
+          motoristas={motoristas}
+          onClose={() => setF306(null)}
+          onMudou={atualizarInfracao}
+        />
+      )}
     </div>
+  );
+}
+
+/** Estado do F306 na linha da coima, com o prazo enquanto está em aberto. */
+function EstadoF306({ infracao }: { infracao: NonNullable<DespesaComNomes["infracao"]> }) {
+  const aberto =
+    infracao.estado === "por_identificar" || infracao.estado === "gerada" || infracao.estado === "assinada";
+  const dias =
+    aberto && infracao.prazo_identificacao ? diasUteisAte(hojeEmLisboa(), infracao.prazo_identificacao) : null;
+  return (
+    <span className={`text-xs font-medium ${dias == null ? "text-slate-500" : corDoPrazo(dias)}`}>
+      F306: {ESTADO_INFRACAO_ROTULO[infracao.estado]}
+      {dias != null ? ` · ${textoDiasUteis(dias)}` : ""}
+    </span>
   );
 }
 
@@ -291,6 +376,7 @@ function FormDespesa({
           descricao: String(dados.get("descricao") ?? "").trim() || null,
           data_despesa: String(dados.get("data_despesa") ?? ""),
           data_infracao: String(dados.get("data_infracao") ?? "") || null,
+          data_notificacao: String(dados.get("data_notificacao") ?? "") || null,
           pontos: dados.get("pontos") ? Number(dados.get("pontos")) : null,
           fornecedor: String(dados.get("fornecedor") ?? "").trim() || null,
           referencia_externa: String(dados.get("referencia_externa") ?? "").trim() || null,
@@ -326,6 +412,7 @@ function FormDespesa({
           proprietario_id: dono,
           veiculo_matricula: veiculoId ? motos.find((m) => m.id === veiculoId)?.matricula ?? "—" : null,
           proprietario_nome: proprietarios.find((p) => p.id === dono)?.nome ?? null,
+          infracao: r.infracao ?? null,
         } as DespesaComNomes);
       } catch (err) {
         console.error(err);
@@ -445,14 +532,24 @@ function FormDespesa({
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className={etiqueta}>
-                  <span>Data da infração</span>
-                  <input className={campo} name="data_infracao" type="date" />
+                  <span>
+                    Data da infração <span className="text-red-600">*</span>
+                  </span>
+                  <input className={campo} name="data_infracao" type="date" max={hoje()} required />
                 </label>
                 <label className={etiqueta}>
                   <span>Pontos (se aplicável)</span>
                   <input className={campo} name="pontos" type="number" min="0" step="1" />
                 </label>
+                <label className={etiqueta}>
+                  <span>Data da notificação</span>
+                  <input className={campo} name="data_notificacao" type="date" max={hoje()} />
+                </label>
               </div>
+              <p className="text-xs text-slate-500">
+                Com o n.º do auto (em Referência) e a data da notificação, o prazo para identificar o
+                condutor começa logo a contar.
+              </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Botao type="button" variante="secondary" tamanho="sm" onClick={sugerirCondutor} disabled={aResolver}>
                   {aResolver ? "A procurar…" : "Sugerir condutor"}

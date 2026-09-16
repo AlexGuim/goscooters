@@ -73,6 +73,8 @@ export async function quemTinhaAMoto(
     .select("motorista_id, valor_pago")
     .eq("veiculo_id", veiculoId)
     .eq("tipo", "renda")
+    // Uma semana anulada nunca foi devida: o contrato acabou antes, a mota já não estava com ele.
+    .neq("estado_liquidacao", "anulada")
     .lte("periodo_inicio", dataISO)
     .gte("periodo_fim", dataISO)
     .order("valor_pago", { ascending: false })

@@ -11,6 +11,7 @@ import {
   guardarInfracaoEmPrivado,
   urlDocumentoParaAdmin,
 } from "@/lib/documentoDespesaServidor";
+import { prepararInfracaoDaCoima } from "@/lib/infracaoServidor";
 import type { DespesaCategoria, ImputarA } from "@/types/db";
 
 // Quem costuma suportar cada custo (igual ao default do formulário de despesas).
@@ -183,6 +184,8 @@ export interface GravarFaturaInput {
   proprietario_id: string | null;
   /** Motorista a quem o custo é imputado (portagem/coima). */
   motorista_id?: string | null;
+  /** Só coima: a data da infração (acha o condutor e é o limite da data da notificação). */
+  data_infracao?: string | null;
   fornecedor: string | null;
   referencia_externa: string | null;
   km: number | null;
@@ -271,6 +274,7 @@ export async function gravarDespesaDeFatura(
       imputar_a: input.imputar_a,
       proprietario_id,
       motorista_id: input.motorista_id ?? null,
+      ...(input.categoria === "coima" && input.data_infracao ? { data_infracao: input.data_infracao } : {}),
       fornecedor,
       referencia_externa: referencia,
       origem: "ingestao",
@@ -289,6 +293,14 @@ export async function gravarDespesaDeFatura(
     return { success: false, error: "Erro ao gravar a despesa." };
   }
   const aviso = await doc.confirmar();
+
+  // Coima: abre o processo do F306 com o n.º do auto e a data da notificação que
+  // a leitura trouxe, para o prazo começar já a contar. Nunca falha a gravação.
+  let avisoProcesso: string | undefined;
+  if (input.categoria === "coima") {
+    avisoProcesso = (await prepararInfracaoDaCoima(despesa.id)).aviso;
+    revalidatePath("/admin/coimas");
+  }
 
   // Atualiza a KM da moto (só se for maior que a atual) e regista no histórico.
   let avisoKm: string | undefined;
@@ -317,5 +329,11 @@ export async function gravarDespesaDeFatura(
 
   revalidatePath("/admin/despesas");
   revalidatePath("/admin/frota");
-  return { success: true, id: despesa.id, avisoKm, documento_url: documento, aviso };
+  return {
+    success: true,
+    id: despesa.id,
+    avisoKm,
+    documento_url: documento,
+    aviso: [aviso, avisoProcesso].filter(Boolean).join(" ") || null,
+  };
 }

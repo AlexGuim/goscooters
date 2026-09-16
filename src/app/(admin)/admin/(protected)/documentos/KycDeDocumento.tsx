@@ -10,6 +10,7 @@ import {
 import type { CamposDocumento, DocTipo } from "@/lib/gemini";
 import type { DocIdTipo } from "@/types/db";
 import { nifValidoPT, prontoParaEntrega } from "@/lib/kyc";
+import { dataDeDocumentoValida } from "@/lib/documentoIdentidade";
 import { Botao, campo, etiqueta } from "@/components/ui";
 
 /**
@@ -35,6 +36,10 @@ type Campo = {
   rotulo: string;
   /** A coluna tem outro nome em `motorista` (só a nacionalidade). */
   coluna?: keyof MotoristaEditavel;
+  /** Não entra no "falta": só alguns documentos o trazem impresso. */
+  opcional?: boolean;
+  /** Input de data: só dá AAAA-MM-DD, o formato que a BD grava. */
+  data?: boolean;
 };
 
 type Grupo = {
@@ -54,6 +59,9 @@ const GRUPOS: Grupo[] = [
       { chave: "nacionalidade_iso2", rotulo: "Nacionalidade", coluna: "pais_iso" },
       { chave: "doc_id_numero", rotulo: "Nº do documento" },
       { chave: "doc_id_validade", rotulo: "Validade do documento" },
+      // Para o F306 das coimas (número, data e emissor do documento do condutor).
+      { chave: "doc_id_emissao", rotulo: "Data de emissão do documento", opcional: true, data: true },
+      { chave: "doc_id_emissor", rotulo: "Emissor do documento", opcional: true },
     ],
   },
   {
@@ -151,7 +159,12 @@ export default function KycDeDocumento({
   const criando = motoristaId === "__novo";
   const [campos, setCampos] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      GRUPOS.flatMap((g) => g.campos).map(({ chave }) => [chave, (lido[chave] as string | null) ?? ""]),
+      GRUPOS.flatMap((g) => g.campos).map(({ chave, data }) => {
+        const v = (lido[chave] as string | null) ?? "";
+        // Uma data noutra forma, ou que não existe (2021-06-31), ficava invisível no
+        // input de data e seguia na mesma.
+        return [chave, data && !dataDeDocumentoValida(v) ? "" : v];
+      }),
     ),
   );
   const [docTipo, setDocTipo] = useState<string>(lido.doc_id_tipo ?? "");
@@ -177,7 +190,7 @@ export default function KycDeDocumento({
   // têm. É esta a lista que diz que papel ainda falta pedir ao motorista.
   const emFalta = GRUPOS.map((g) => ({
     grupo: g,
-    faltam: g.campos.filter((c) => !campos[c.chave]?.trim() && !naFicha(c)),
+    faltam: g.campos.filter((c) => !c.opcional && !campos[c.chave]?.trim() && !naFicha(c)),
   })).filter((x) => x.faltam.length > 0);
 
   // Uma carta sem categoria de motociclo é o problema que só aparece tarde — a
@@ -250,6 +263,7 @@ export default function KycDeDocumento({
       if (v) texto[(c.coluna as string) ?? c.chave] = v;
     }
     const alvoFicha = motoristas.find((m) => m.id === alvo);
+    // Outro n.º de documento: é o atualizarMotorista que tira a data e o emissor do anterior.
     const updates: MotoristaEditavel = {
       ...(texto as MotoristaEditavel),
       ...(docTipo ? { doc_id_tipo: docTipo as DocIdTipo } : {}),
@@ -375,7 +389,7 @@ export default function KycDeDocumento({
       )}
 
       {GRUPOS.map((g) => {
-        const faltamAqui = g.campos.filter((c) => !campos[c.chave]?.trim() && !naFicha(c));
+        const faltamAqui = g.campos.filter((c) => !c.opcional && !campos[c.chave]?.trim() && !naFicha(c));
         return (
           <section key={g.titulo} className="rounded-2xl border border-slate-200 p-4">
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -414,6 +428,7 @@ export default function KycDeDocumento({
                     <span>{c.rotulo}</span>
                     <input
                       className={campo}
+                      type={c.data ? "date" : undefined}
                       value={campos[c.chave] ?? ""}
                       placeholder={jaTem ? jaTem : "—"}
                       onChange={(e) => setCampos((s) => ({ ...s, [c.chave]: e.target.value }))}

@@ -9,6 +9,8 @@ import { enviarLembrete } from "@/lib/sms";
 import { formatarPreco } from "@/lib/precos";
 import { dataBR } from "@/lib/datas";
 import { notificar } from "@/lib/notificacoes";
+import { erroDataNotificacao, prepararInfracaoDaCoima } from "@/lib/infracaoServidor";
+import type { InfracaoEstado } from "@/types/infracao";
 
 export interface RegistarCoimaInput {
   veiculo_id: string | null;
@@ -17,6 +19,7 @@ export interface RegistarCoimaInput {
   descricao?: string | null;
   data_despesa: string; // data do auto/documento
   data_infracao?: string | null; // data da infração (acha o condutor)
+  data_notificacao?: string | null; // data da notificação ao titular (conta o prazo do F306)
   pontos?: number | null;
   fornecedor?: string | null;
   referencia_externa?: string | null;
@@ -67,6 +70,8 @@ export interface RegistarCoimaResultado {
   valor_divida?: string;
   notificado?: "whatsapp" | "sms" | "nenhum" | null;
   aviso?: string;
+  /** O processo do F306 aberto ao registar (null sem a fase16), para a lista o mostrar logo. */
+  infracao?: { estado: InfracaoEstado; prazo_identificacao: string | null } | null;
 }
 
 /**
@@ -86,6 +91,11 @@ export async function registarCoima(
     return { success: false, error: "Indica um valor válido." };
   }
   if (!input.data_despesa) return { success: false, error: "Indica a data do documento." };
+  // A data da notificação conta o prazo do F306: recusa-se já, em vez de a perder.
+  if (input.data_notificacao) {
+    const erroData = erroDataNotificacao(input.data_notificacao, input.data_infracao || input.data_despesa);
+    if (erroData) return { success: false, error: erroData };
+  }
 
   const valor = String(valorNum);
   const ivaNum = Number(String(input.iva ?? "").replace(",", ".")) || 0;
@@ -129,6 +139,9 @@ export async function registarCoima(
       contrato_id: contratoId,
       fornecedor: input.fornecedor?.trim() || null,
       referencia_externa: input.referencia_externa?.trim() || null,
+      // Também na coima, não só no processo: se o processo não abrir agora (sem a
+      // fase16, um erro), a identificação volta a encontrá-la ao abrir.
+      ...(input.data_notificacao ? { detalhe: { data_notificacao: input.data_notificacao } } : {}),
     })
     .select("id")
     .single();
@@ -148,6 +161,13 @@ export async function registarCoima(
     if (error) console.warn("registarCoima data_infracao/pontos (migrar fase3f?):", error.message);
   }
 
+  // 3b. Abre o processo do F306 (identificação do condutor): com o n.º do auto e a
+  //     data da notificação, o prazo começa já a contar. Nunca falha o registo.
+  const processo = await prepararInfracaoDaCoima(despesa.id, {
+    numeroAuto: input.referencia_externa,
+    dataNotificacao: input.data_notificacao,
+  });
+
   const res: RegistarCoimaResultado = {
     success: true,
     id: despesa.id,
@@ -155,6 +175,10 @@ export async function registarCoima(
     contrato_numero: condutor?.contrato_numero ?? null,
     divida_gerada: false,
     notificado: null,
+    infracao: processo.infracao
+      ? { estado: processo.infracao.estado, prazo_identificacao: processo.infracao.prazo_identificacao }
+      : null,
+    ...(processo.aviso ? { aviso: processo.aviso } : {}),
   };
 
   // 4. Gerar a dívida ao motorista (cobrança 'extra'). Precisa de contrato.
@@ -178,7 +202,9 @@ export async function registarCoima(
 
     if (eCob || !cob) {
       console.warn("registarCoima cobrança extra:", eCob?.message);
-      res.aviso = "A coima ficou registada, mas não consegui gerar a dívida ao motorista (verifica a migração fase3f).";
+      res.aviso = [res.aviso, "A coima ficou registada, mas não consegui gerar a dívida ao motorista (verifica a migração fase3f)."]
+        .filter(Boolean)
+        .join(" ");
     } else {
       res.divida_gerada = true;
       res.valor_divida = valorTotal;
@@ -189,7 +215,12 @@ export async function registarCoima(
       if (eLink) console.warn("registarCoima elo despesa→cobrança (migrar fase3f?):", eLink.message);
     }
   } else if (input.gerar_divida && !contratoId) {
-    res.aviso = "Sem contrato ativo na data — a coima ficou registada, mas associa o motorista à mão para lhe cobrar.";
+    res.aviso = [
+      res.aviso,
+      "Sem contrato ativo na data — a coima ficou registada, sem dívida ao motorista. Identifica o condutor a seguir; se for para lhe cobrar, cria a dívida em Cobranças.",
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
 
   // 5. Notificar o motorista (opcional, fail-silent).
@@ -233,6 +264,7 @@ export async function registarCoima(
   });
 
   revalidatePath("/admin/despesas");
+  revalidatePath("/admin/coimas");
   revalidatePath("/admin/cobrancas");
   return res;
 }
