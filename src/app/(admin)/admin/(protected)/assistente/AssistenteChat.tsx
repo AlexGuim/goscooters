@@ -15,7 +15,7 @@ const EXEMPLOS = [
   "Qual a receita esperada esta semana?",
   "Que seguros expiram nos próximos 30 dias?",
   "Que motos precisam de pneu ou revisão?",
-  "Quanto deve o Seif?",
+  "Que motoristas estão em dívida?",
 ];
 
 export default function AssistenteChat() {
