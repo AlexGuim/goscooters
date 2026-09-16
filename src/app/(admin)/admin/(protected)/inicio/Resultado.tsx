@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { formatarPreco } from "@/lib/precos";
-import { graficoDoResultado, ultimoFechado } from "@/lib/inicioResultado";
+import { graficoDoResultado, ultimoFechado, type MesDoResultado } from "@/lib/inicioResultado";
 import { Bloco, BlocoFalhou, Barra } from "./Bloco";
 import { lerResultado } from "./dados";
 
 /** Altura da área desenhada. As colunas são % desta altura. */
 const PLOT = "h-40";
 
-/** No telemóvel só cabem quatro meses; os mais antigos escondem-se. */
-const VISIVEIS_NO_TELEMOVEL = 4;
+/** No telemóvel só cabem quatro meses; os mais antigos ficam de fora. */
+const MESES_NO_TELEMOVEL = 4;
 
 const CARTAO = "rounded-3xl bg-white p-5 shadow-sm";
 const LEGENDA = "receita das semanas − custos da frota − custos da empresa · valores vivos";
@@ -19,7 +19,76 @@ function comSinal(valor: number): string {
 }
 
 /**
- * O Resultado dos últimos seis meses, em colunas.
+ * As colunas de uma janela de meses, com a escala feita SÓ sobre elas.
+ *
+ * Por isso é que há duas: no telemóvel mostram-se quatro meses e no computador
+ * seis. Com uma só marcação, e os dois mais antigos escondidos por CSS, um mês
+ * fora do ecrã continuava a mandar na altura das colunas à vista — bastava um
+ * mês excepcional para os quatro visíveis ficarem todos rentes ao chão, sem
+ * nada no ecrã que explicasse porquê. Um gráfico existe para dar a forma de
+ * relance; a dar a forma errada, é pior do que não estar lá.
+ */
+function Grafico({
+  meses,
+  mesAtual,
+  className,
+}: {
+  meses: MesDoResultado[];
+  mesAtual: string;
+  className: string;
+}) {
+  const { colunas, zero } = graficoDoResultado(meses, mesAtual);
+  return (
+    <div className={`relative mt-4 ${className}`}>
+      {/* A linha do zero atravessa o gráfico todo — por isso vive aqui e não dentro de cada coluna. */}
+      <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-0 ${PLOT}`}>
+        <div className="absolute inset-x-0 border-t border-slate-200" style={{ bottom: `${zero}%` }} />
+      </div>
+
+      <div className="flex items-start gap-1">
+        {colunas.map((c) => {
+          const positivo = c.resultado >= 0;
+          const cor = positivo
+            ? c.em_curso
+              ? "bg-emerald-200"
+              : "bg-emerald-500"
+            : c.em_curso
+              ? "bg-red-200"
+              : "bg-red-500";
+          return (
+            <Link
+              key={c.competencia}
+              href={`/admin/financeiro/${c.competencia}`}
+              title={`${c.nome}: ${formatarPreco(c.resultado)}`}
+              className="flex min-w-0 flex-1 flex-col rounded-2xl transition hover:bg-slate-50"
+            >
+              <span className={`relative block w-full ${PLOT}`}>
+                <span
+                  className={`absolute inset-x-1.5 ${positivo ? "rounded-t" : "rounded-b"} ${cor}`}
+                  style={{ bottom: `${c.base}%`, height: `${c.altura}%` }}
+                />
+              </span>
+              <span className="mt-2 block truncate text-center text-[11px] leading-4 text-slate-500">{c.curto}</span>
+              <span className="block truncate text-center text-[11px] font-semibold leading-4 tabular-nums text-slate-900">
+                {formatarPreco(c.resultado)}
+              </span>
+              {/* A linha existe em todas as colunas, visível só no mês em curso: assim
+                  todas têm a mesma altura e o gráfico não fica torto. */}
+              <span className={`block text-center text-[10px] leading-4 ${c.em_curso ? "text-slate-400" : "invisible"}`}>
+                em curso
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * O Resultado dos últimos meses, em colunas: seis no computador, quatro no
+ * telemóvel — e cada janela com a sua escala, para a forma do gráfico ser a dos
+ * meses que se estão mesmo a ver.
  *
  * Uma só série: o Resultado do fecho de gestão (Margem da frota − Custos da
  * empresa), o mesmo número da tabela do Resultado. Desenhado em HTML e CSS, no
@@ -38,9 +107,7 @@ export default async function BlocoResultado() {
     );
   }
 
-  const { colunas, zero } = graficoDoResultado(dados.meses, dados.mes_atual);
   const ultimo = ultimoFechado(dados.meses, dados.mes_atual);
-  const primeiraVisivelNoTelemovel = Math.max(0, colunas.length - VISIVEIS_NO_TELEMOVEL);
 
   return (
     <Bloco titulo="Resultado" href="/admin/financeiro" abrir="Ver o ano">
@@ -68,51 +135,12 @@ export default async function BlocoResultado() {
           </p>
         )}
 
-        <div className="relative mt-4">
-          {/* A linha do zero atravessa o gráfico todo — por isso vive aqui e não dentro de cada coluna. */}
-          <div aria-hidden className={`pointer-events-none absolute inset-x-0 top-0 ${PLOT}`}>
-            <div className="absolute inset-x-0 border-t border-slate-200" style={{ bottom: `${zero}%` }} />
-          </div>
-
-          <div className="flex items-start gap-1">
-            {colunas.map((c, i) => {
-              const positivo = c.resultado >= 0;
-              const cor = positivo
-                ? c.em_curso
-                  ? "bg-emerald-200"
-                  : "bg-emerald-500"
-                : c.em_curso
-                  ? "bg-red-200"
-                  : "bg-red-500";
-              return (
-                <Link
-                  key={c.competencia}
-                  href={`/admin/financeiro/${c.competencia}`}
-                  title={`${c.nome}: ${formatarPreco(c.resultado)}`}
-                  className={`${i < primeiraVisivelNoTelemovel ? "hidden sm:flex" : "flex"} min-w-0 flex-1 flex-col rounded-2xl transition hover:bg-slate-50`}
-                >
-                  <span className={`relative block w-full ${PLOT}`}>
-                    <span
-                      className={`absolute inset-x-1.5 ${positivo ? "rounded-t" : "rounded-b"} ${cor}`}
-                      style={{ bottom: `${c.base}%`, height: `${c.altura}%` }}
-                    />
-                  </span>
-                  <span className="mt-2 block truncate text-center text-[11px] leading-4 text-slate-500">{c.curto}</span>
-                  <span className="block truncate text-center text-[11px] font-semibold leading-4 tabular-nums text-slate-900">
-                    {formatarPreco(c.resultado)}
-                  </span>
-                  {/* A linha existe em todas as colunas, visível só no mês em curso: assim
-                      todas têm a mesma altura e o gráfico não fica torto. */}
-                  <span
-                    className={`block text-center text-[10px] leading-4 ${c.em_curso ? "text-slate-400" : "invisible"}`}
-                  >
-                    em curso
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
+        <Grafico meses={dados.meses} mesAtual={dados.mes_atual} className="hidden sm:block" />
+        <Grafico
+          meses={dados.meses.slice(-MESES_NO_TELEMOVEL)}
+          mesAtual={dados.mes_atual}
+          className="sm:hidden"
+        />
 
         <p className="mt-3 text-xs text-slate-500">{LEGENDA}</p>
       </div>
@@ -131,7 +159,7 @@ export function EsqueletoResultado() {
           {alturas.map((h, i) => (
             <div
               key={h + i}
-              className={`${i < alturas.length - VISIVEIS_NO_TELEMOVEL ? "hidden sm:flex" : "flex"} min-w-0 flex-1 flex-col`}
+              className={`${i < alturas.length - MESES_NO_TELEMOVEL ? "hidden sm:flex" : "flex"} min-w-0 flex-1 flex-col`}
             >
               <span className={`relative block w-full ${PLOT}`}>
                 <span className={`absolute inset-x-1.5 bottom-0 ${h} animate-pulse rounded-t bg-slate-200`} />
