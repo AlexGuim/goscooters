@@ -82,7 +82,9 @@ export default function ManutencaoFrota({ linhas }: { linhas: LinhaOleoFrota[] |
                       <p className="text-xs text-slate-500">{l.modelo}</p>
                     </td>
                     <td className="px-6 py-4">
-                      <BadgeOleo estado={l.estado}>{l.texto}</BadgeOleo>
+                      <BadgeOleo estado={l.estado} passou={l.passou}>
+                        {l.texto}
+                      </BadgeOleo>
                     </td>
                     <td className="px-6 py-4 text-slate-600">{l.proxima ?? "—"}</td>
                     <td className="px-6 py-4">

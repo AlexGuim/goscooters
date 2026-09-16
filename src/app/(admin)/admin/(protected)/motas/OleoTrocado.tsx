@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { registarOleoTrocado } from "@/actions/manutencaoActions";
-import { formatarKm, lerKmEscrito, validarKmManual } from "@/lib/manutencao/oleo";
+import { avisoDoKmConfirmado, formatarKm, lerKmEscrito, validarKmManual } from "@/lib/manutencao/oleo";
 import { dataBR, hojeEmLisboa } from "@/lib/datas";
 import { Botao, Modal, campo, etiqueta } from "@/components/ui";
 
@@ -137,8 +137,8 @@ export function OleoTrocadoCartao({
                 onChange={(e) => setConfirmo(e.target.checked)}
               />
               <span className="text-sm text-slate-700">
-                <strong className="text-slate-950">Confirmo este km.</strong> {motivoConfirmar} Ao
-                gravar, passa a ser o km da mota.
+                <strong className="text-slate-950">Confirmo este km.</strong> {motivoConfirmar}{" "}
+                {avisoDoKmConfirmado(data, mota.ultimaLeitura)}
               </span>
             </label>
           )}

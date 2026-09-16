@@ -99,7 +99,10 @@ export default function MotoSaudeModal({ moto, onClose }: { moto: Moto; onClose:
     <Modal
       onClose={onClose}
       titulo="Seguro"
-      subtitulo={`${moto.matricula ?? "?"} · ${moto.modelo}${moto.km_atual != null ? ` · ${moto.km_atual.toLocaleString("pt-PT")} km` : ""}`}
+      // O km vive na página da mota, e só lá é que passa pelo cálculo que põe de
+      // lado as leituras que não batem certo. Aqui saía o km_atual cru e os dois
+      // ecrãs, ligados pelo «Ver manutenção», diziam números diferentes.
+      subtitulo={`${moto.matricula ?? "?"} · ${moto.modelo}`}
     >
 
         {erro && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-2 text-sm text-red-700">{erro}</p>}

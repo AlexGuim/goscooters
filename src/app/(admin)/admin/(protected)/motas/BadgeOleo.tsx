@@ -14,6 +14,15 @@ const TOM: Record<EstadoOleo, BadgeTom> = {
   sem_regra: "neutral",
 };
 
-export default function BadgeOleo({ estado, children }: { estado: EstadoOleo; children: ReactNode }) {
-  return <Badge tom={TOM[estado]}>{children}</Badge>;
+export default function BadgeOleo({
+  estado,
+  passou = false,
+  children,
+}: {
+  estado: EstadoOleo;
+  /** A troca já passou numa mota parada: não fica «Vencida», mas também não fica verde. */
+  passou?: boolean;
+  children: ReactNode;
+}) {
+  return <Badge tom={estado === "ok" && passou ? "neutral" : TOM[estado]}>{children}</Badge>;
 }

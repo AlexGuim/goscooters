@@ -7,13 +7,13 @@ import { documentoDoDetalhe } from "@/lib/documentoDespesa";
 import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import { entradaOleo, lerDadosOleo } from "@/lib/manutencao/dados";
 import {
-  ROTULO_ESTADO_OLEO,
   SELO_FORA_DO_INTERVALO,
   SELO_REPETIDA,
   TEXTO_KM_POR_CONFIRMAR,
   avaliarOleo,
   formatarKm,
   historicoManutencao,
+  rotuloEstadoOleo,
   textoEstadoOleo,
   textoProximaTroca,
 } from "@/lib/manutencao/oleo";
@@ -49,7 +49,12 @@ export default async function MotaPage({
       .select("id, matricula, modelo, estado_operacional")
       .eq("id", id)
       .maybeSingle(),
-    lerDadosOleo(id),
+    // Se a manutenção não carregar, a página abre na mesma com a matrícula e o
+    // caminho de volta — como em /admin/motas, onde só a sub-aba é que avisa.
+    lerDadosOleo(id).catch((erro) => {
+      console.error("MotaPage manutenção:", erro);
+      return null;
+    }),
   ]);
   if (motoRes.error) {
     console.error("MotaPage moto:", motoRes.error);
@@ -58,7 +63,8 @@ export default async function MotaPage({
   const moto = motoRes.data;
   if (!moto) notFound();
 
-  const dados = dadosDaFrota.get(id);
+  const erroManutencao = dadosDaFrota === null;
+  const dados = dadosDaFrota?.get(id);
   const entrada = entradaOleo(moto, dados, hojeEmLisboa());
   const oleo = avaliarOleo(entrada);
   // Da mais recente para a mais antiga: o que interessa ver primeiro é o último
@@ -88,88 +94,108 @@ export default async function MotaPage({
         <p className="mt-1 text-slate-600">{moto.modelo}</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {erroManutencao ? (
         <Cartao>
-          <p className="text-sm text-slate-500">Km atual</p>
-          {ultima && !oleo.km.porConfirmar ? (
-            <>
-              <p className="mt-1 text-2xl font-bold text-slate-950">{formatarKm(ultima.km)} km</p>
-              <p className="text-xs text-slate-500">leitura de {dataBR(ultima.data)}</p>
-            </>
-          ) : (
-            <>
-              <p className="mt-1 text-2xl font-bold text-amber-700">{TEXTO_KM_POR_CONFIRMAR}</p>
-              <p className="text-xs text-slate-500">
-                {ultima
-                  ? `última leitura válida: ${formatarKm(ultima.km)} km a ${dataBR(ultima.data)}`
-                  : "sem leituras de km"}
-              </p>
-            </>
-          )}
+          <p className="text-sm text-slate-600">
+            Não foi possível carregar a manutenção — recarrega a página.
+          </p>
         </Cartao>
-
-        <Cartao>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Óleo do motor</p>
-              <p className="mt-1">
-                <BadgeOleo estado={oleo.estado}>{ROTULO_ESTADO_OLEO[oleo.estado]}</BadgeOleo>
-              </p>
-            </div>
-            <BotaoOleoTrocado
-              mota={{ id: moto.id, matricula: moto.matricula, modelo: moto.modelo, ultimaLeitura: ultima }}
-            />
-          </div>
-          <p className="mt-3 text-sm text-slate-700">{textoEstadoOleo(oleo)}</p>
-          {proxima && <p className="text-sm text-slate-700">Próxima troca {proxima}</p>}
-          {oleo.regra && (
-            <p className="mt-2 text-xs text-slate-400">
-              {oleo.regra.nome}: a cada {formatarKm(oleo.regra.km)} km ou {oleo.regra.dias} dias
-              {oleo.regra.porConfirmar ? " (por confirmar com a oficina)" : ""}
-            </p>
-          )}
-        </Cartao>
-      </div>
-
-      <Cartao>
-        <h2 className="text-lg font-semibold text-slate-950">Histórico</h2>
-        {historico.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">Sem manutenções registadas.</p>
-        ) : (
-          <div className="mt-4 divide-y divide-slate-100 rounded-2xl border border-slate-200">
-            {historico.map((h, i) => (
-              <div
-                key={h.manutencaoId}
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{h.servico}</p>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Cartao>
+              <p className="text-sm text-slate-500">Km atual</p>
+              {ultima && !oleo.km.porConfirmar ? (
+                <>
+                  <p className="mt-1 text-2xl font-bold text-slate-950">{formatarKm(ultima.km)} km</p>
+                  <p className="text-xs text-slate-500">leitura de {dataBR(ultima.data)}</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-2xl font-bold text-amber-700">{TEXTO_KM_POR_CONFIRMAR}</p>
                   <p className="text-xs text-slate-500">
-                    {[h.km != null ? `${formatarKm(h.km)} km` : null, dataBR(h.data), h.desdeAnterior]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {ultima
+                      ? `última leitura válida: ${formatarKm(ultima.km)} km a ${dataBR(ultima.data)}`
+                      : "sem leituras de km"}
+                  </p>
+                </>
+              )}
+            </Cartao>
+
+            <Cartao>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-slate-500">Óleo do motor</p>
+                  <p className="mt-1">
+                    <BadgeOleo estado={oleo.estado} passou={oleo.passou}>
+                      {rotuloEstadoOleo(oleo)}
+                    </BadgeOleo>
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  {h.foraDoIntervalo && <Badge tom="warning">{SELO_FORA_DO_INTERVALO}</Badge>}
-                  {h.repetida && <Badge tom="neutral">{SELO_REPETIDA}</Badge>}
-                  {documentos[i] && (
-                    <a
-                      href={documentos[i]!}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                    >
-                      doc
-                    </a>
-                  )}
-                  <ApagarManutencao id={h.manutencaoId} />
-                </div>
+                <BotaoOleoTrocado
+                  mota={{ id: moto.id, matricula: moto.matricula, modelo: moto.modelo, ultimaLeitura: ultima }}
+                />
               </div>
-            ))}
+              <p className="mt-3 text-sm text-slate-700">{textoEstadoOleo(oleo)}</p>
+              {proxima && <p className="text-sm text-slate-700">Próxima troca {proxima}</p>}
+              {oleo.regra && (
+                <p className="mt-2 text-xs text-slate-400">
+                  {oleo.regra.nome}: a cada {formatarKm(oleo.regra.km)} km ou {oleo.regra.dias} dias
+                  {oleo.regra.porConfirmar ? " (por confirmar com a oficina)" : ""}
+                </p>
+              )}
+            </Cartao>
           </div>
-        )}
-      </Cartao>
+
+          <Cartao>
+            <h2 className="text-lg font-semibold text-slate-950">Histórico</h2>
+            {historico.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">Sem manutenções registadas.</p>
+            ) : (
+              <div className="mt-4 divide-y divide-slate-100 rounded-2xl border border-slate-200">
+                {historico.map((h, i) => (
+                  <div
+                    key={h.manutencaoId}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-900">{h.servico}</p>
+                      <p className="text-xs text-slate-500">
+                        {[
+                          h.km != null
+                            ? `${formatarKm(h.km)} km`
+                            : h.kmRegistadoSuspeito != null
+                              ? `${formatarKm(h.kmRegistadoSuspeito)} km (por confirmar)`
+                              : null,
+                          dataBR(h.data),
+                          h.desdeAnterior,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {h.foraDoIntervalo && <Badge tom="warning">{SELO_FORA_DO_INTERVALO}</Badge>}
+                      {h.repetida && <Badge tom="neutral">{SELO_REPETIDA}</Badge>}
+                      {documentos[i] && (
+                        <a
+                          href={documentos[i]!}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        >
+                          doc
+                        </a>
+                      )}
+                      <ApagarManutencao id={h.manutencaoId} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Cartao>
+        </>
+      )}
     </div>
   );
 }
