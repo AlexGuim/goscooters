@@ -168,8 +168,10 @@ test("com a troca ainda longe, a mota parada continua «OK»", () => {
 test("numa mota ocupada, o rótulo é o estado de sempre", () => {
   const vencida = avaliar({ manutencoes: [troca(30, 40000)], leituras: [leitura(0, 41000)] });
   assert.equal(rotuloEstadoOleo(vencida), "Vencida");
-  assert.equal(rotuloEstadoOleo(avaliar({})), "Vencida");
-  assert.equal(rotuloEstadoOleo(avaliar({ estadoOperacional: "disponivel" })), "Sem dados");
+  assert.equal(rotuloEstadoOleo(avaliar({})), "Sem registo");
+  assert.equal(rotuloEstadoOleo(avaliar({ estadoOperacional: "disponivel" })), "Sem registo");
+  const inativaSemRegra = avaliar({ modelo: "SYM Jet 14", estadoOperacional: "inativo" });
+  assert.equal(rotuloEstadoOleo(inativaSemRegra), "Sem dados", "parada e sem se avaliar não é falta de registo");
 });
 
 // ── O aviso da caixa «Confirmo este km» ─────────────────────────────────────

@@ -141,6 +141,8 @@ export type LinhaOleoFrota = {
   matricula: string | null;
   modelo: string;
   estado: EstadoOleo;
+  /** Nunca houve troca registada: aparece «Sem registo» e conta-se à parte. */
+  semRegisto: boolean;
   /** A troca já passou: numa mota parada, tira o verde ao selo. */
   passou: boolean;
   /** «vencida há 9 dias», «+640 km», «faltam 180 km». */
@@ -173,6 +175,7 @@ export async function linhasOleoDaFrota(
       matricula: moto.matricula,
       modelo: moto.modelo,
       estado: oleo.estado,
+      semRegisto: oleo.semRegisto,
       passou: oleo.passou,
       texto: textoEstadoOleo(oleo),
       proxima: textoProximaTroca(oleo.proxima),

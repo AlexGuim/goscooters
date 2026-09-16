@@ -136,9 +136,10 @@ test("mota disponível, inativa ou em manutenção sem troca registada: Sem dado
   }
 });
 
-test("mota ocupada sem troca registada: Vencida, sem próxima para mostrar", () => {
+test("mota ocupada sem troca registada: Sem registo, sem próxima para mostrar", () => {
   const a = avaliar({ manutencoes: [{ id: "p1", tipo: "pneus", data: antes(4), km: 30000 }] });
-  assert.equal(a.estado, "vencida");
+  assert.equal(a.estado, "sem_dados");
+  assert.equal(a.semRegisto, true);
   assert.equal(a.ultimaTroca, null);
   assert.equal(a.proxima, null);
 });

@@ -15,11 +15,12 @@ import { OleoTrocadoCartao, type MotaParaOleoTrocado } from "./OleoTrocado";
  * feitas do servidor (o mesmo cálculo da página da mota), aqui só se filtra.
  */
 
-const FILTROS: FiltroOleo[] = ["vencidas", "a_aproximar", "todas"];
+const FILTROS: FiltroOleo[] = ["vencidas", "a_aproximar", "sem_registo", "todas"];
 
 const VAZIO: Record<FiltroOleo, string> = {
   vencidas: "Nenhuma mota com o óleo vencido.",
   a_aproximar: "Nenhuma mota perto da troca de óleo.",
+  sem_registo: "Todas as motas têm pelo menos uma troca de óleo registada.",
   todas: "Sem veículos.",
 };
 
@@ -35,7 +36,7 @@ export default function ManutencaoFrota({ linhas }: { linhas: LinhaOleoFrota[] |
     );
   }
 
-  const visiveis = linhas.filter((l) => passaFiltroOleo(l.estado, filtro));
+  const visiveis = linhas.filter((l) => passaFiltroOleo(l, filtro));
 
   return (
     <div className="space-y-6">
@@ -48,7 +49,7 @@ export default function ManutencaoFrota({ linhas }: { linhas: LinhaOleoFrota[] |
               filtro === f ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
             }`}
           >
-            {ROTULO_FILTRO_OLEO[f]} ({linhas.filter((l) => passaFiltroOleo(l.estado, f)).length})
+            {ROTULO_FILTRO_OLEO[f]} ({linhas.filter((l) => passaFiltroOleo(l, f)).length})
           </button>
         ))}
       </div>

@@ -423,13 +423,15 @@ export type AvaliacaoOleo = {
   faltaDias: number | null;
   /** A troca já passou (de data ou de km). Numa mota parada isso não é «Vencida», mas também não é «OK». */
   passou: boolean;
+  /** Nunca houve troca de óleo registada nesta mota: é falta de registo, não atraso. */
+  semRegisto: boolean;
 };
 
 /**
  * O estado do óleo de uma mota:
  *  - sem regra para o modelo: «Sem regra»;
  *  - Jet 14 inativa: não se avalia («Sem dados»);
- *  - sem troca registada: «Vencida» se a mota está ocupada, «Sem dados» se não;
+ *  - sem troca registada: «Sem registo», contada à parte — nunca «Vencida»;
  *  - com troca: Vencida quando passou a data ou chegou ao km; A aproximar a 3
  *    dias ou 250 km; OK. Só as ocupadas ficam Vencida ou A aproximar; as outras
  *    ficam OK, com a próxima troca à vista.
@@ -441,12 +443,15 @@ export function avaliarOleo(e: EntradaOleo): AvaliacaoOleo {
   const trocas = trocasDeOleo(e.manutencoes, classificadas);
   const ultimaTroca = trocas.length > 0 ? trocas[trocas.length - 1] : null;
   const regra = regraOleoDoModelo(e.modelo);
-  const semContas = { regra, km, ultimaTroca, proxima: null, faltaKm: null, faltaDias: null, passou: false };
+  const semContas = { regra, km, ultimaTroca, proxima: null, faltaKm: null, faltaDias: null, passou: false, semRegisto: false };
 
   if (!regra) return { estado: "sem_regra", ...semContas };
   if (e.estadoOperacional === "inativo" && !regra.avaliaInativa) return { estado: "sem_dados", ...semContas };
   const ocupada = e.estadoOperacional === "ocupado";
-  if (!ultimaTroca) return { estado: ocupada ? "vencida" : "sem_dados", ...semContas };
+  // Sem NENHUMA troca registada não é atraso: é falta de registo (faltam faturas
+  // antigas). Marcá-la «Vencida» enchia a lista que abre primeiro e ensinava a
+  // ignorá-la. Fica «Sem registo», contada à parte.
+  if (!ultimaTroca) return { estado: "sem_dados", ...semContas, semRegisto: true };
 
   const proxima = proximaTroca(regra, ultimaTroca);
   const faltaDias = diasEntre(e.hoje, proxima.data);
@@ -461,7 +466,7 @@ export function avaliarOleo(e: EntradaOleo): AvaliacaoOleo {
     }
   }
   const passou = faltaDias < 0 || (faltaKm != null && faltaKm <= 0);
-  return { estado, regra, km, ultimaTroca, proxima, faltaKm, faltaDias, passou };
+  return { estado, regra, km, ultimaTroca, proxima, faltaKm, faltaDias, passou, semRegisto: false };
 }
 
 /**
@@ -469,7 +474,8 @@ export function avaliarOleo(e: EntradaOleo): AvaliacaoOleo {
  * —, mas também não pode ficar verde a dizer «OK» com um «passou há 24 dias» ao
  * lado: fica «Parada», e o selo perde o verde (BadgeOleo).
  */
-export function rotuloEstadoOleo(a: Pick<AvaliacaoOleo, "estado" | "passou">): string {
+export function rotuloEstadoOleo(a: Pick<AvaliacaoOleo, "estado" | "passou" | "semRegisto">): string {
+  if (a.semRegisto) return "Sem registo";
   return a.estado === "ok" && a.passou ? "Parada" : ROTULO_ESTADO_OLEO[a.estado];
 }
 
@@ -745,17 +751,19 @@ export function textoAposOleoTrocado(a: Pick<AvaliacaoOleo, "estado" | "proxima"
 
 // ── 8. Lista da frota ───────────────────────────────────────────────────────
 
-export type FiltroOleo = "vencidas" | "a_aproximar" | "todas";
+export type FiltroOleo = "vencidas" | "a_aproximar" | "sem_registo" | "todas";
 
 export const ROTULO_FILTRO_OLEO: Record<FiltroOleo, string> = {
   vencidas: "Vencidas",
   a_aproximar: "A aproximar",
+  sem_registo: "Sem registo",
   todas: "Todas",
 };
 
-export function passaFiltroOleo(estado: EstadoOleo, filtro: FiltroOleo): boolean {
-  if (filtro === "vencidas") return estado === "vencida";
-  if (filtro === "a_aproximar") return estado === "a_aproximar";
+export function passaFiltroOleo(a: Pick<AvaliacaoOleo, "estado" | "semRegisto">, filtro: FiltroOleo): boolean {
+  if (filtro === "vencidas") return a.estado === "vencida";
+  if (filtro === "a_aproximar") return a.estado === "a_aproximar";
+  if (filtro === "sem_registo") return a.semRegisto;
   return true;
 }
 

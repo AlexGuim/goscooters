@@ -26,6 +26,9 @@ const avaliar = (entrada) =>
     ...entrada,
   });
 
+/** Uma avaliação mínima, só com o que o filtro lê. */
+const av = (estado, semRegisto = false) => ({ estado, semRegisto });
+
 // As motas de exemplo, uma por situação.
 const SEM_TROCA = avaliar({ leituras: [leitura(0, 41000)] });
 const VENCIDA_9_DIAS = avaliar({ manutencoes: [troca(30, 40000)], leituras: [leitura(0, 41000)] });
@@ -36,7 +39,8 @@ const SEM_DADOS = avaliar({ estadoOperacional: "disponivel" });
 const SEM_REGRA = avaliar({ modelo: "Toyota Yaris", manutencoes: [troca(10, 40000)] });
 
 test("os estados de exemplo são os que se espera", () => {
-  assert.equal(SEM_TROCA.estado, "vencida");
+  assert.equal(SEM_TROCA.estado, "sem_dados");
+  assert.equal(SEM_TROCA.semRegisto, true, "sem troca registada é falta de registo, não atraso");
   assert.equal(VENCIDA_9_DIAS.estado, "vencida");
   assert.equal(VENCIDA_640_KM.estado, "vencida");
   assert.equal(A_APROXIMAR.estado, "a_aproximar");
@@ -45,27 +49,27 @@ test("os estados de exemplo são os que se espera", () => {
   assert.equal(SEM_REGRA.estado, "sem_regra");
 });
 
-test("os filtros são Vencidas, A aproximar e Todas", () => {
-  assert.deepEqual(Object.values(ROTULO_FILTRO_OLEO), ["Vencidas", "A aproximar", "Todas"]);
+test("os filtros são Vencidas, A aproximar, Sem registo e Todas", () => {
+  assert.deepEqual(Object.values(ROTULO_FILTRO_OLEO), ["Vencidas", "A aproximar", "Sem registo", "Todas"]);
 });
 
 test("«Vencidas» só mostra as vencidas", () => {
-  assert.equal(passaFiltroOleo("vencida", "vencidas"), true);
+  assert.equal(passaFiltroOleo(av("vencida"), "vencidas"), true);
   for (const estado of ["a_aproximar", "ok", "sem_dados", "sem_regra"]) {
-    assert.equal(passaFiltroOleo(estado, "vencidas"), false, estado);
+    assert.equal(passaFiltroOleo(av(estado), "vencidas"), false, estado);
   }
 });
 
 test("«A aproximar» só mostra as que estão a chegar", () => {
-  assert.equal(passaFiltroOleo("a_aproximar", "a_aproximar"), true);
+  assert.equal(passaFiltroOleo(av("a_aproximar"), "a_aproximar"), true);
   for (const estado of ["vencida", "ok", "sem_dados", "sem_regra"]) {
-    assert.equal(passaFiltroOleo(estado, "a_aproximar"), false, estado);
+    assert.equal(passaFiltroOleo(av(estado), "a_aproximar"), false, estado);
   }
 });
 
 test("«Todas» não esconde nada, nem os carros sem regra", () => {
   for (const estado of ["vencida", "a_aproximar", "ok", "sem_dados", "sem_regra"]) {
-    assert.equal(passaFiltroOleo(estado, "todas"), true, estado);
+    assert.equal(passaFiltroOleo(av(estado), "todas"), true, estado);
   }
 });
 
@@ -75,8 +79,8 @@ test("a urgência é a parte do intervalo que falta, pelo que aperta mais", () =
   // Metade dos dias andados e quase nenhum km: manda o tempo.
   const meio = avaliar({ manutencoes: [troca(11, 40000)], leituras: [leitura(0, 40100)] });
   assert.ok(Math.abs(urgenciaOleo(meio) - 10 / 21) < 1e-9);
-  // Vencida sem troca registada vai à frente de todas; sem regra fica no fim.
-  assert.equal(urgenciaOleo(SEM_TROCA), -Infinity);
+  // Sem troca registada não há contas para fazer: fica no fim, como quem não tem regra.
+  assert.equal(urgenciaOleo(SEM_TROCA), Infinity);
   assert.equal(urgenciaOleo(SEM_REGRA), Infinity);
 });
 
@@ -92,18 +96,18 @@ test("a lista põe à frente o que aperta mais, e no fim o que não se avalia", 
   ];
   const ordenadas = [...motas].sort((x, y) => compararUrgenciaOleo(x.a, y.a)).map((m) => m.id);
   assert.deepEqual(ordenadas, [
-    "sem_troca",
     "vencida_dias",
     "vencida_km",
     "a_aproximar",
     "ok",
     "sem_dados",
+    "sem_troca",
     "sem_regra",
   ]);
 });
 
 test("com a mesma urgência, a ordem não muda (o desempate é de quem chama)", () => {
   assert.equal(compararUrgenciaOleo(OK, OK), 0);
-  assert.equal(compararUrgenciaOleo(SEM_TROCA, SEM_TROCA), 0, "duas vencidas sem registo");
+  assert.equal(compararUrgenciaOleo(SEM_TROCA, SEM_TROCA), 0, "duas sem registo");
   assert.equal(compararUrgenciaOleo(SEM_REGRA, SEM_REGRA), 0, "dois carros sem regra");
 });
