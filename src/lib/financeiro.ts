@@ -539,7 +539,6 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     // O valor guardado (URL público ou caminho privado): o ecrã resolve-o para abrir.
     documento_url: documentoDoDetalhe(d.detalhe),
   }));
-  const despesasTotal = despesas.reduce((s, d) => s + d.valor, 0);
   const receita = receitaFrota + receitaComissao;
 
   // ── O fecho de gestão: a cascata deste mês e a do anterior ────────────
@@ -599,7 +598,9 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
     custos_frota: fecho.custos_frota,
     margem_frota: fecho.margem_frota,
     custos_empresa: fecho.custos_empresa,
-    despesas_gs: r2(despesasTotal),
+    // A mesma fonte da cascata (e do ano): somar os valores por arredondar dava,
+    // com cêntimos ímpares, um total 1 cêntimo diferente do da cascata acima.
+    despesas_gs: r2(fecho.custos_frota + fecho.custos_empresa),
     resultado: fecho.resultado,
     turnover: r2(turnover),
     receita_frota: r2(receitaFrota),

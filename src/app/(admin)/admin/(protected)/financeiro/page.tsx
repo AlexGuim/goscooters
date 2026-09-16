@@ -101,13 +101,13 @@ export default async function FinanceiroPage({
                   </td>
                   <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(m.receita_gs)}</td>
                   <td className="px-5 py-3 text-right text-red-600">
-                    {m.custos_frota > 0 ? `−${formatarPreco(m.custos_frota)}` : "—"}
+                    {m.custos_frota > 0 ? formatarPreco(m.custos_frota) : "—"}
                   </td>
                   <td className={`px-5 py-3 text-right ${m.margem_frota >= 0 ? "text-slate-700" : "text-red-600"}`}>
                     {formatarPreco(m.margem_frota)}
                   </td>
                   <td className="px-5 py-3 text-right text-red-600">
-                    {m.custos_empresa > 0 ? `−${formatarPreco(m.custos_empresa)}` : "—"}
+                    {m.custos_empresa > 0 ? formatarPreco(m.custos_empresa) : "—"}
                   </td>
                   <td className={`px-5 py-3 text-right font-semibold ${m.resultado >= 0 ? "text-slate-900" : "text-red-600"}`}>
                     {formatarPreco(m.resultado)}
@@ -121,9 +121,13 @@ export default async function FinanceiroPage({
               <tr>
                 <td className="px-5 py-3 text-slate-900">Total {ano}</td>
                 <td className="px-5 py-3 text-right text-emerald-700">{formatarPreco(total.receita_gs)}</td>
-                <td className="px-5 py-3 text-right text-red-600">−{formatarPreco(total.custos_frota)}</td>
+                <td className="px-5 py-3 text-right text-red-600">
+                  {total.custos_frota > 0 ? formatarPreco(total.custos_frota) : "—"}
+                </td>
                 <td className="px-5 py-3 text-right text-slate-700">{formatarPreco(total.margem_frota)}</td>
-                <td className="px-5 py-3 text-right text-red-600">−{formatarPreco(total.custos_empresa)}</td>
+                <td className="px-5 py-3 text-right text-red-600">
+                  {total.custos_empresa > 0 ? formatarPreco(total.custos_empresa) : "—"}
+                </td>
                 <td className="px-5 py-3 text-right text-slate-900">{formatarPreco(total.resultado)}</td>
               </tr>
             </tfoot>
