@@ -52,12 +52,13 @@ export async function GET(request: NextRequest) {
   // faturação, à espera de recolha, KYC incompleto, cobranças em atraso.
   const derivadas = await varrerDerivadas();
 
-  // Alertas proativos do dia (seguro/manutenção/documentos a expirar): empurra um
-  // resumo por Telegram ao gestor. Corre sempre — mesmo que nada vença amanhã.
+  // Alertas proativos do dia (seguro/manutenção/documentos a expirar e prazo das
+  // coimas): empurra um resumo por Telegram ao gestor. Corre sempre — mesmo que
+  // nada vença amanhã. São os tipos que src/lib/resumoAlertas.ts sabe contar.
   const { data: alertas } = await supabaseAdmin
     .from("notificacao")
     .select("tipo, titulo, detalhe")
-    .in("tipo", ["seguro_a_expirar", "manutencao_a_vencer", "doc_motorista_a_expirar"])
+    .in("tipo", ["seguro_a_expirar", "manutencao_a_vencer", "doc_motorista_a_expirar", "infracao_prazo"])
     .neq("estado", "feita");
   // O detalhe (nome do motorista, matrícula, datas) fica para o email ao admin e
   // para a caixa de Notificações, que pede sessão. O Telegram — um terceiro, com
@@ -180,7 +181,7 @@ async function enviarResumoAdmin(
 
   const linhas = resultados.map((r) => `• ${r.nome}: ${r.estado}`).join("\n");
   const seccaoAlertas = linhasAlerta.length
-    ? `\n\n⚠️ Alertas (${linhasAlerta.length}): seguros/manutenção/documentos a expirar\n${linhasAlerta.join("\n")}`
+    ? `\n\n⚠️ Alertas (${linhasAlerta.length}): seguros/manutenção/documentos a expirar e prazos das coimas\n${linhasAlerta.join("\n")}`
     : "";
   const corpo = `Lembretes de pagamento — vencem em ${amanha}\n\n${enviados} SMS enviado(s) de ${resultados.length} cobrança(s).\n\n${linhas}${seccaoAlertas}`;
 

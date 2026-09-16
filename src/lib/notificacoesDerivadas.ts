@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { formatarPreco } from "@/lib/precos";
 import { kycCompleto } from "@/lib/kyc";
 import { textoLembrete } from "@/lib/lembretes";
+import { diasUteisAte, hojeEmLisboa, textoDiasUteis } from "@/lib/diasUteis";
+import { DIAS_UTEIS_A_ACABAR } from "@/lib/coimasLista";
 
 /**
  * Notificações DERIVADAS do estado (recalculadas, não são eventos pontuais).
@@ -24,6 +26,7 @@ const DERIVADOS = [
   "manutencao_a_vencer",
   "doc_motorista_a_expirar",
   "pagamento_a_comunicar",
+  "infracao_prazo",
 ];
 
 // Horizontes dos alertas proativos (dias / km). Sensatos por omissão.
@@ -297,27 +300,68 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
       }
     }
 
+    // 9. Coima com o prazo para identificar o condutor a acabar (F306, fase16).
+    //    Em dias úteis. Sem a migração aplicada a leitura falha e o resto segue.
+    const { data: infr, error: eInfr } = await supabaseAdmin
+      .from("infracao")
+      .select("id, despesa_id, veiculo_id, numero_auto, prazo_identificacao")
+      .in("estado", ["por_identificar", "gerada", "assinada"])
+      .not("prazo_identificacao", "is", null);
+    if (eInfr) console.warn("varrerDerivadas infracao (fase16 por aplicar?):", eInfr.message);
+    // Só as que continuam a ser coimas: uma despesa reclassificada deixa a linha para trás.
+    const idsDespesa = [...new Set((infr ?? []).map((i) => i.despesa_id).filter((x): x is string => Boolean(x)))];
+    const { data: coimasAtuais } = idsDespesa.length
+      ? await supabaseAdmin.from("despesa").select("id").eq("categoria", "coima").in("id", idsDespesa)
+      : { data: [] as { id: string }[] };
+    const aindaCoima = new Set((coimasAtuais ?? []).map((d) => d.id));
+    const hojeL = hojeEmLisboa();
+    for (const i of infr ?? []) {
+      if (!i.prazo_identificacao || !i.despesa_id || !aindaCoima.has(i.despesa_id)) continue;
+      const dias = diasUteisAte(hojeL, i.prazo_identificacao);
+      if (dias > DIAS_UTEIS_A_ACABAR) continue;
+      add({
+        tipo: "infracao_prazo",
+        titulo: "Identificar condutor — prazo a acabar",
+        detalhe: `${(i.veiculo_id && matriculaDe.get(i.veiculo_id)) || "coima"} — auto ${i.numero_auto ?? "sem n.º"} · ${textoDiasUteis(dias)}`,
+        href: "/admin/coimas",
+        entidade: "infracao",
+        entidade_id: i.id,
+      });
+    }
+
     // Reconcilia com o existente destes tipos (agrupado por chave).
     const { data: existentes } = await supabaseAdmin
       .from("notificacao")
-      .select("id, tipo, entidade_id, estado")
+      .select("id, tipo, entidade_id, estado, titulo, detalhe")
       .in("tipo", DERIVADOS);
-    const porChave = new Map<string, { id: string; estado: string }[]>();
+    const porChave = new Map<string, { id: string; estado: string; titulo: string; detalhe: string | null }[]>();
     for (const e of existentes ?? []) {
       const k = `${e.tipo}|${e.entidade_id}`;
       const arr = porChave.get(k) ?? [];
-      arr.push({ id: e.id as string, estado: e.estado as string });
+      arr.push({
+        id: e.id as string,
+        estado: e.estado as string,
+        titulo: e.titulo as string,
+        detalhe: (e.detalhe as string | null) ?? null,
+      });
       porChave.set(k, arr);
     }
 
     const remover: string[] = [];
+    const refrescar: { id: string; titulo: string; detalhe: string | null }[] = [];
     for (const [k, rows] of porChave) {
-      if (atuais.has(k)) {
+      const atual = atuais.get(k);
+      if (atual) {
         // Condição mantém-se: guarda UMA linha (prefere 'feita', que suprime o
         // realerta) e limpa duplicados. Não reinsere (preserva 'lida').
         atuais.delete(k);
         const manter = rows.find((r) => r.estado === "feita") ?? rows[0];
         for (const r of rows) if (r.id !== manter.id) remover.push(r.id);
+        // O prazo das coimas conta-se de novo todos os dias: a linha fica (e o estado
+        // dela), mas "faltam N dias úteis" não pode parar no texto da 1.ª varredura.
+        if (atual.tipo === "infracao_prazo" && (manter.titulo !== atual.titulo || manter.detalhe !== atual.detalhe)) {
+          refrescar.push({ id: manter.id, titulo: atual.titulo, detalhe: atual.detalhe });
+        }
       } else {
         // Condição cessou: remove tudo (se voltar mais tarde, realerta de novo).
         for (const r of rows) remover.push(r.id);
@@ -325,6 +369,13 @@ export async function varrerDerivadas(): Promise<{ inseridas: number; removidas?
     }
     if (remover.length) {
       await supabaseAdmin.from("notificacao").delete().in("id", remover);
+    }
+    for (const r of refrescar) {
+      const { error } = await supabaseAdmin
+        .from("notificacao")
+        .update({ titulo: r.titulo, detalhe: r.detalhe })
+        .eq("id", r.id);
+      if (error) console.warn("varrerDerivadas refrescar texto:", error.message);
     }
 
     const novas = [...atuais.values()];

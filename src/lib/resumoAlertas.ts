@@ -16,6 +16,7 @@ const ROTULOS = new Map<string, readonly [singular: string, plural: string]>([
   ["seguro_a_expirar", ["seguro a expirar", "seguros a expirar"]],
   ["manutencao_a_vencer", ["manutenção a vencer", "manutenções a vencer"]],
   ["doc_motorista_a_expirar", ["documento de motorista a expirar", "documentos de motorista a expirar"]],
+  ["infracao_prazo", ["coima com prazo para identificar o condutor", "coimas com prazo para identificar o condutor"]],
 ]);
 
 /**

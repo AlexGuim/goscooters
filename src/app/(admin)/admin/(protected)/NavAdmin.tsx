@@ -32,6 +32,7 @@ const GRUPOS: { cat: string; itens: { href: string; rotulo: string }[] }[] = [
       { href: "/admin/documentos", rotulo: "Documentos" },
       { href: "/admin/cobrancas", rotulo: "Cobrança" },
       { href: "/admin/despesas", rotulo: "Despesas" },
+      { href: "/admin/coimas", rotulo: "Coimas" },
       { href: "/admin/acertos", rotulo: "Acertos" },
       { href: "/admin/financeiro", rotulo: "Resultado" },
     ],
