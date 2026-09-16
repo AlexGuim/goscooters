@@ -76,6 +76,29 @@ async function quem_tinha_a_moto(args: Args) {
   return { matricula: m?.matricula ?? matricula, data, motorista: mot.nome, telefone: mot.telefone_e164 };
 }
 
+type CobrancaEmAtraso = { tipo: string | null; em_falta: number | string | null; observacoes: string | null };
+
+/**
+ * Só as rendas contam como semanas em atraso. As cobranças avulsas ('extra', como
+ * a dívida de uma coima) vão à parte, com o motivo — senão o Assistente dizia
+ * "1 semana em atraso" a uma coima. Não se manda a descrição livre ao modelo.
+ */
+function resumoDivida(cobs: readonly CobrancaEmAtraso[]) {
+  let semanas = 0;
+  let rendas = 0;
+  const outras: { motivo: string; valor: string }[] = [];
+  for (const c of cobs) {
+    const falta = Number(c.em_falta);
+    if (c.tipo === "renda") {
+      semanas += 1;
+      rendas += falta;
+    } else {
+      outras.push({ motivo: /^coima\b/i.test(c.observacoes ?? "") ? "coima" : "outra cobrança avulsa", valor: falta.toFixed(2) });
+    }
+  }
+  return { semanas_de_renda_em_atraso: semanas, valor_rendas_em_atraso: rendas.toFixed(2), outras_dividas: outras };
+}
+
 async function divida_motorista(args: Args) {
   const nome = String(args.nome ?? "").trim();
   if (!nome) return { erro: "Preciso do nome do motorista." };
@@ -85,12 +108,12 @@ async function divida_motorista(args: Args) {
   for (const m of mots) {
     const { data: cobs } = await supabaseAdmin
       .from("vw_cobranca_estado")
-      .select("em_falta")
+      .select("em_falta, tipo, observacoes")
       .eq("motorista_id", m.id)
       .eq("em_atraso", true)
       .neq("tipo", "caucao");
     const total = (cobs ?? []).reduce((s, c) => s + Number(c.em_falta), 0);
-    resultados.push({ nome: m.nome, semanas_em_atraso: cobs?.length ?? 0, total_em_divida: total.toFixed(2) });
+    resultados.push({ nome: m.nome, total_em_divida: total.toFixed(2), ...resumoDivida(cobs ?? []) });
   }
   return resultados;
 }
@@ -109,22 +132,22 @@ async function total_em_atraso() {
 async function quem_nao_pagou() {
   const { data } = await supabaseAdmin
     .from("vw_cobranca_estado")
-    .select("motorista_id, em_falta")
+    .select("motorista_id, em_falta, tipo, observacoes")
     .eq("em_atraso", true)
     .neq("tipo", "caucao");
-  const porMot = new Map<string, { total: number; n: number }>();
+  const porMot = new Map<string, { total: number; cobs: CobrancaEmAtraso[] }>();
   for (const c of data ?? []) {
     const k = c.motorista_id as string;
-    const a = porMot.get(k) ?? { total: 0, n: 0 };
+    const a = porMot.get(k) ?? { total: 0, cobs: [] };
     a.total += Number(c.em_falta);
-    a.n += 1;
+    a.cobs.push(c);
     porMot.set(k, a);
   }
   if (!porMot.size) return [];
   const { data: nomes } = await supabaseAdmin.from("motorista").select("id, nome").in("id", [...porMot.keys()]);
   const nomeDe = new Map((nomes ?? []).map((m) => [m.id, m.nome]));
   return [...porMot.entries()]
-    .map(([id, a]) => ({ nome: nomeDe.get(id) ?? "?", total_em_divida: a.total.toFixed(2), semanas_em_atraso: a.n }))
+    .map(([id, a]) => ({ nome: nomeDe.get(id) ?? "?", total_em_divida: a.total.toFixed(2), ...resumoDivida(a.cobs) }))
     .sort((a, b) => Number(b.total_em_divida) - Number(a.total_em_divida));
 }
 
