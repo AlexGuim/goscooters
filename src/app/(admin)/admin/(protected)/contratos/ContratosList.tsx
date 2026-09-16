@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Botao, classesBotao, AcoesMenu, Modal, type AcaoMenu } from "@/components/ui";
 import { dataBR, hojeEmLisboa } from "@/lib/datas";
 import {
+  avisoDoKmConfirmado,
   dataDaLeituraDeRecolha,
   formatarKm,
   lerKmEscrito,
@@ -550,8 +551,8 @@ function TerminarContratoModal({
                 onChange={(e) => setConfirmo(e.target.checked)}
               />
               <span className="text-sm text-slate-700">
-                <strong className="text-slate-950">Confirmo este km.</strong> {motivoConfirmar} Ao
-                gravar, passa a ser o km da mota.
+                <strong className="text-slate-950">Confirmo este km.</strong> {motivoConfirmar}{" "}
+                {avisoDoKmConfirmado(dataLeitura, ultimaLeitura)}
               </span>
             </label>
           )}

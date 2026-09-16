@@ -457,6 +457,10 @@ export async function ultimaLeituraDaMotaDoContrato(
   }
 }
 
+/** Os estados em que um contrato ainda se pode terminar. */
+const ESTADOS_ABERTOS: ContratoEstado[] = ["ativo", "pendente_fecho", "suspenso"];
+const ERRO_CONTRATO_ABERTO = "Só um contrato aberto (ativo/pendente/suspenso) pode ser terminado.";
+
 export type TerminarContratoResultado = {
   success: boolean;
   anuladas?: number;
@@ -492,9 +496,14 @@ export async function terminarContrato(
 
   const { data: c } = await supabaseAdmin
     .from("contrato_aluguer")
-    .select("veiculo_id")
+    .select("veiculo_id, estado")
     .eq("id", id)
     .maybeSingle();
+
+  // A guarda de estado vem primeiro: num contrato já concluído (a vistoria de
+  // recolha também o fecha) não vale a pena pedir «Confirmo este km» para depois
+  // dizer que não havia nada a terminar. O update repete a guarda, contra corridas.
+  if (!c || !ESTADOS_ABERTOS.includes(c.estado)) return { success: false, error: ERRO_CONTRATO_ABERTO };
 
   // 0.º o km da recolha, ANTES de mexer no contrato: um km fora dos limites pede
   // confirmação, e nessa volta nada pode ficar já terminado.
@@ -505,7 +514,7 @@ export async function terminarContrato(
   let porGravar: number | null = null;
   let kmGravado: number | null = null;
   if (km != null) {
-    if (!c?.veiculo_id) {
+    if (!c.veiculo_id) {
       return { success: false, error: "Este contrato não tem mota: termina-o sem km." };
     }
     let decisao: DecisaoKmRecolha;
@@ -539,14 +548,14 @@ export async function terminarContrato(
     .from("contrato_aluguer")
     .update({ estado: "concluido", data_fim: dataFim })
     .eq("id", id)
-    .in("estado", ["ativo", "pendente_fecho", "suspenso"])
+    .in("estado", ESTADOS_ABERTOS)
     .select("id")
     .maybeSingle();
   if (error) {
     console.error("terminarContrato error:", error);
     return { success: false, error: "Erro ao terminar o contrato." };
   }
-  if (!terminado) return { success: false, error: "Só um contrato aberto (ativo/pendente/suspenso) pode ser terminado." };
+  if (!terminado) return { success: false, error: ERRO_CONTRATO_ABERTO };
 
   // 2.º anular as semanas FUTURAS por liquidar (início depois do fim). As já
   // pagas/parciais mantêm-se (dinheiro real ou dívida por uma semana usada).
@@ -563,7 +572,7 @@ export async function terminarContrato(
     // podem ser anuladas manualmente. Não revertemos.
   }
 
-  if (c?.veiculo_id) {
+  if (c.veiculo_id) {
     await libertarMota(c.veiculo_id);
   }
 
@@ -571,7 +580,7 @@ export async function terminarContrato(
   // mais recente — é por isso que um km fora dos limites pede confirmação. O
   // contrato_id deixa a leitura presa ao aluguer que acabou.
   let aviso: string | undefined;
-  if (porGravar != null && c?.veiculo_id) {
+  if (porGravar != null && c.veiculo_id) {
     const { error: kmErr } = await supabaseAdmin.from("km_registo").insert({
       veiculo_id: c.veiculo_id,
       km: porGravar,
@@ -589,7 +598,7 @@ export async function terminarContrato(
 
   revalidatePath("/admin/contratos");
   revalidatePath("/admin/motas");
-  if (c?.veiculo_id) revalidatePath(`/admin/motas/${c.veiculo_id}`);
+  if (c.veiculo_id) revalidatePath(`/admin/motas/${c.veiculo_id}`);
   revalidatePath("/admin/cobrancas");
   return { success: true, anuladas: anuladasData?.length ?? 0, kmGravado, aviso };
 }
