@@ -1,9 +1,19 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { financeiroAno } from "@/lib/financeiro";
+import { resultadoDoAno } from "@/lib/financeiro";
+import { lerPaginado } from "@/lib/leituraPaginada";
 import { mesDeHojeEmLisboa, semanaDeHojeEmLisboa } from "@/lib/datas";
-import { emAtraso, semanaDeRendas, type EmAtraso, type SemanaDeRendas } from "@/lib/inicioCobranca";
+import {
+  emAtraso,
+  semanaDeRendas,
+  type EmAtraso,
+  type LinhaDaSemana,
+  type LinhaEmAtraso,
+  type SemanaDeRendas,
+} from "@/lib/inicioCobranca";
 import { competenciasAte, type MesDoResultado } from "@/lib/inicioResultado";
 import type { ContratoEstado, Notificacao } from "@/types/db";
 
@@ -15,6 +25,10 @@ import type { ContratoEstado, Notificacao } from "@/types/db";
  * atraso» com toda a calma no dia em que a base estava em baixo. Aqui cada
  * consulta verifica o `error` e lança; quem apanha é o bloco, que mostra «Não
  * foi possível carregar» só na sua fatia do ecrã.
+ *
+ * A outra maneira de mostrar um número errado com ar de certo é parar nas mil
+ * linhas que o PostgREST devolve de cada vez, sem dizer nada. As leituras que
+ * podem lá chegar vão página a página, pelo mesmo leitor do Resultado.
  */
 
 interface ErroDaBase {
@@ -39,6 +53,29 @@ function contagem(oQue: string, r: { count: number | null; error: ErroDaBase | n
   return r.count;
 }
 
+/**
+ * As cobranças em atraso — o mesmo filtro da página Cobrança: `em_atraso` (que a
+ * vista só dá a por liquidar e parciais já vencidas) e sem cauções, que se
+ * cobram em mão na entrega.
+ *
+ * Lida uma vez por ecrã (`cache`): o cartão dos Números e a linha da Cobrança
+ * mostram o mesmo conjunto e não podem discordar. E página a página, porque
+ * anos de atrasos antigos passam das mil linhas e o PostgREST cortava-as sem
+ * dizer nada — o valor aparecia a menos, calado.
+ */
+const cobrancasEmAtraso = cache(
+  (): Promise<LinhaEmAtraso[]> =>
+    lerPaginado("Início", "as cobranças em atraso", (de, ate) =>
+      supabaseAdmin
+        .from("vw_cobranca_estado")
+        .select("em_falta")
+        .eq("em_atraso", true)
+        .neq("tipo", "caucao")
+        .order("id")
+        .range(de, ate),
+    ),
+);
+
 export interface NumerosDoInicio {
   por_resolver: number;
   por_preencher: number;
@@ -58,16 +95,13 @@ export async function lerNumeros(): Promise<NumerosDoInicio> {
   const contarContratos = (estados: ContratoEstado[]) =>
     supabaseAdmin.from("contrato_aluguer").select("id", { count: "exact", head: true }).in("estado", estados);
 
-  const [porResolver, porPreencher, emAtraso, porRecolher, ativos] = await Promise.all([
+  const [porResolver, porPreencher, atrasadas, porRecolher, ativos] = await Promise.all([
     supabaseAdmin.from("notificacao").select("id", { count: "exact", head: true }).neq("estado", "feita"),
     contarContratos(["pre_contrato", "rascunho"]),
-    // "Em atraso" = renda/extras vencidos; a caução (cobrada em mão) não conta,
-    // para bater certo com a caixa de notificações e a lista de cobranças.
-    supabaseAdmin
-      .from("vw_cobranca_estado")
-      .select("id", { count: "exact", head: true })
-      .eq("em_atraso", true)
-      .neq("tipo", "caucao"),
+    // O MESMO conjunto que a linha da Cobrança soma, lido uma só vez: eram duas
+    // consultas ao mesmo filtro em dois instantes, e um pagamento a entrar entre
+    // elas punha 7 num sítio e 6 no outro, no mesmo ecrã.
+    cobrancasEmAtraso(),
     contarContratos(["pendente_fecho"]),
     contarContratos(["ativo"]),
   ]);
@@ -75,7 +109,7 @@ export async function lerNumeros(): Promise<NumerosDoInicio> {
   return {
     por_resolver: contagem("as notificações por resolver", porResolver),
     por_preencher: contagem("os contratos por preencher", porPreencher),
-    em_atraso: contagem("as cobranças em atraso", emAtraso),
+    em_atraso: atrasadas.length,
     por_recolher: contagem("os contratos por recolher", porRecolher),
     ativos: contagem("os contratos ativos", ativos),
   };
@@ -89,8 +123,9 @@ export async function lerNotificacoes(limite = 50): Promise<Notificacao[]> {
     .neq("estado", "feita")
     .order("created_at", { ascending: false })
     .limit(limite);
-  seFalhou("a caixa de próxima ação", error);
-  return (data ?? []) as Notificacao[];
+  // `data ?? []` diria «Tudo tratado 🎉» no dia em que a leitura viesse vazia
+  // por avaria — a mesma falha disfarçada de bom dia que o resto do ficheiro evita.
+  return linhas("a caixa de próxima ação", { data, error }) as Notificacao[];
 }
 
 // ── Bloco Cobrança ──────────────────────────────────────────────────────────
@@ -111,24 +146,24 @@ export interface CobrancaDoInicio {
 export async function lerCobranca(): Promise<CobrancaDoInicio> {
   const { de, ate } = semanaDeHojeEmLisboa();
 
-  const [atrasoRes, semanaRes] = await Promise.all([
-    supabaseAdmin
-      .from("vw_cobranca_estado")
-      .select("em_falta")
-      .eq("em_atraso", true)
-      .neq("tipo", "caucao"),
-    supabaseAdmin
-      .from("vw_cobranca_estado")
-      .select("valor_devido, valor_pago, desconto, em_falta, estado_liquidacao")
-      .eq("tipo", "renda")
-      .gte("data_vencimento", de)
-      .lte("data_vencimento", ate)
-      .neq("estado_liquidacao", "anulada"),
+  const [atrasadas, daSemana] = await Promise.all([
+    cobrancasEmAtraso(),
+    lerPaginado<LinhaDaSemana>("Início", `as rendas de ${de} a ${ate}`, (dePagina, atePagina) =>
+      supabaseAdmin
+        .from("vw_cobranca_estado")
+        .select("valor_devido, valor_pago, desconto, em_falta, estado_liquidacao")
+        .eq("tipo", "renda")
+        .gte("data_vencimento", de)
+        .lte("data_vencimento", ate)
+        .neq("estado_liquidacao", "anulada")
+        .order("id")
+        .range(dePagina, atePagina),
+    ),
   ]);
 
   return {
-    atraso: emAtraso(linhas("as cobranças em atraso", atrasoRes)),
-    semana: semanaDeRendas(linhas(`as rendas de ${de} a ${ate}`, semanaRes)),
+    atraso: emAtraso(atrasadas),
+    semana: semanaDeRendas(daSemana),
   };
 }
 
@@ -144,17 +179,20 @@ export interface ResultadoDoInicio {
  * O Resultado dos últimos `quantos` meses (por omissão 6: cinco fechados mais o
  * mês em curso).
  *
- * O número é o MESMO da tabela do Resultado — vem de `financeiroAno`, que o
- * calcula pelo fecho de gestão. O Início não recalcula nada: só escolhe os meses
- * e desenha. Quando a janela atravessa a virada do ano, leem-se os dois anos.
+ * O número é o MESMO da tabela do Resultado — vem de `resultadoDoAno`, que o
+ * calcula pelo fecho de gestão, com a mesma conta da tabela. O Início não
+ * recalcula nada: só escolhe os meses e desenha. Quando a janela atravessa a
+ * virada do ano, leem-se os dois anos.
  */
 export async function lerResultado(quantos = 6): Promise<ResultadoDoInicio> {
   const mesAtual = mesDeHojeEmLisboa();
   const competencias = competenciasAte(mesAtual, quantos);
   const anos = [...new Set(competencias.map((c) => Number(c.slice(0, 4))))];
 
-  // financeiroAno lança quando a base falha — não devolve zeros a fingir.
-  const lidos = await Promise.all(anos.map((ano) => financeiroAno(ano)));
+  // Só o Resultado de cada mês: é o único número que o gráfico mostra, e assim
+  // não se paga a conta da receita em caixa em cada visita ao Início.
+  // Lança quando a base falha — não devolve zeros a fingir.
+  const lidos = await Promise.all(anos.map((ano) => resultadoDoAno(ano)));
 
   const porCompetencia = new Map<string, number>();
   for (const ano of lidos) {

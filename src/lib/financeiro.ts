@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mesDaSemana } from "@/lib/datas";
 import { documentoDoDetalhe } from "@/lib/documentoDespesa";
 import { partirEmLotes } from "@/lib/lotes";
+import { lerPaginado, type ErroDaBase } from "@/lib/leituraPaginada";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import { rubricaDoDetalhe } from "@/lib/custos";
 import { catalogoDeMotas, parteDaCasa, receitaDaCasa, type CatalogoDeMotas } from "@/lib/receitaCasa";
@@ -29,70 +30,17 @@ const LOTE_IDS = 100;
 /** Quantos desses pedidos vão ao mesmo tempo, para não atropelar o gateway. */
 const PEDIDOS_EM_PARALELO = 4;
 
-/** Linhas que se pedem de cada vez. O PostgREST pode devolver menos, se o projeto tiver um limite mais baixo. */
-const PAGINA = 1000;
-
 /**
- * Travão de segurança: 100 páginas são 100 000 linhas. Uma leitura maior do que
- * isto não é um mês grande, é um filtro que se perdeu pelo caminho — mais vale
- * dar erro do que ficar a ler para sempre.
+ * Lê uma tabela inteira, página a página — o PostgREST devolve no máximo 1000
+ * linhas por pedido e deita o resto fora SEM erro. A leitura vive em
+ * leituraPaginada.ts, partilhada com o Início, que lê as mesmas cobranças; aqui
+ * só se fixa de quem é a avaria quando alguma coisa corre mal.
  */
-const PAGINAS_MAX = 100;
-
-/** Um erro da base como o supabase-js o devolve: mensagem e, quando há, o código. */
-interface ErroDaBase {
-  message: string;
-  code?: string;
-}
-
-/**
- * Uma consulta que falha NÃO pode virar zeros. O supabase-js não lança: devolve
- * `{ data: null, error }`, e com `data ?? []` o Resultado mostrava 0 € de receita
- * como se fosse verdade. Cada consulta daqui verifica o `error` e lança com
- * contexto — melhor uma página de erro do que um número errado com ar de certo.
- */
-function erroDeLeitura(oQue: string, error: ErroDaBase): Error {
-  return new Error(`Resultado: não foi possível ler ${oQue}: ${error.message}`);
-}
-
-/**
- * Lê uma tabela inteira, página a página.
- *
- * O outro caminho para um número errado com ar de certo: o PostgREST devolve no
- * máximo 1000 linhas por pedido e deita o resto fora SEM erro. Com a frota de
- * hoje não chega lá; numa instância com ~60 motas, um ano de rendas passa das
- * 3000 e a receita do ano aparecia a menos, calada. Aqui pede-se página a
- * página — e cada página verifica o seu erro.
- *
- * Avança pelo que VEIO, não pelo tamanho que se pediu, e só pára numa página
- * vazia. O limite de linhas por pedido é uma definição do projeto Supabase e
- * pode ser baixada sem ninguém tocar no código: a parar na primeira página
- * incompleta, um limite de 500 devolvia as primeiras 500 linhas e calava-se —
- * outra vez receita a menos com ar de certo. Custa um pedido vazio no fim.
- *
- * Cada consulta tem de trazer uma ordem FIXA (o `id` chega), senão a base pode
- * devolver a mesma linha em duas páginas e saltar outra.
- */
-async function lerTudo<T>(
+function lerTudo<T>(
   oQue: string,
   pedir: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: ErroDaBase | null }>,
 ): Promise<T[]> {
-  const linhas: T[] = [];
-  let de = 0;
-  for (let pagina = 0; pagina < PAGINAS_MAX; pagina++) {
-    const { data, error } = await pedir(de, de + PAGINA - 1);
-    if (error) {
-      // Pedir um intervalo já fora da tabela é o fim da leitura, não uma avaria:
-      // há instalações que respondem 416 (PGRST103) em vez de uma lista vazia.
-      if (de > 0 && error.code === "PGRST103") return linhas;
-      throw erroDeLeitura(oQue, error);
-    }
-    const desta = data ?? [];
-    linhas.push(...desta);
-    if (desta.length === 0) return linhas;
-    de += desta.length;
-  }
-  throw new Error(`Resultado: ${oQue} não acabou ao fim de ${PAGINAS_MAX} páginas — a leitura foi interrompida.`);
+  return lerPaginado("Resultado", oQue, pedir);
 }
 
 /**
@@ -152,7 +100,45 @@ export interface FinanceiroAno {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
+/**
+ * O ano inteiro, com tudo: receita, a parte dela que entrou mesmo em caixa,
+ * custos e Resultado de cada mês.
+ */
+export function financeiroAno(ano: number): Promise<FinanceiroAno> {
+  return consolidar(ano, true);
+}
+
+/** Só o Resultado de cada mês do ano — sem a separação da receita em caixa. */
+export interface ResultadoDoAno {
+  ano: number;
+  /** Um por mês, de janeiro a dezembro. */
+  meses: { mes: number; resultado: number }[];
+}
+
+/**
+ * O Resultado de cada mês, para quem só quer o número do fecho de gestão — é o
+ * caso do gráfico do Início, que o abre a cada visita a /admin.
+ *
+ * Dá exactamente o mesmo `resultado` da tabela do Resultado, ao cêntimo, mas
+ * poupa a parte mais cara da consolidação: saber quanto de cada renda foi a
+ * GoScooters a cobrar só serve para separar a receita «em caixa» da que vem
+ * pelo acerto, e isso o gráfico não mostra. Numa instância de ~60 motas era um
+ * ano de rendas às voltas em dezenas de pedidos, em todas as visitas ao Início.
+ *
+ * Devolve só o que calcula: assim nenhum ecrã pode ler «0 € em caixa» de uma
+ * conta que ninguém chegou a fazer.
+ */
+export async function resultadoDoAno(ano: number): Promise<ResultadoDoAno> {
+  const { meses } = await consolidar(ano, false);
+  return { ano, meses: meses.map((m) => ({ mes: m.mes, resultado: m.resultado })) };
+}
+
+/**
+ * A consolidação do ano. Com `comCaixa`, separa também a receita que entrou na
+ * conta da casa da que chega pelo acerto do parceiro — é a única parte que
+ * obriga a ler os pagamentos cobrança a cobrança.
+ */
+async function consolidar(ano: number, comCaixa: boolean): Promise<FinanceiroAno> {
   // Janela generosa: uma semana de janeiro pode vencer em dezembro do ano
   // anterior, e uma de dezembro em janeiro do seguinte. Filtra-se depois pela
   // regra da quarta-feira, que é quem manda.
@@ -177,7 +163,9 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
   );
 
   const doAno = cobs.filter((c) => (mesDaSemana(c.data_vencimento) ?? "").startsWith(`${ano}-`));
-  const gsPorCobranca = await parteRecebidaPelaGoScooters(doAno.map((c) => c.id));
+  const gsPorCobranca = comCaixa
+    ? await parteRecebidaPelaGoScooters(doAno.map((c) => c.id))
+    : new Map<string, number>();
 
   const receita = new Array(13).fill(0);
   const emCaixa = new Array(13).fill(0);
@@ -193,6 +181,9 @@ export async function financeiroAno(ano: number): Promise<FinanceiroAno> {
     if (!p) continue;
     turnover[mes] += p.pago;
     receita[mes] += p.receita;
+    // Sem `comCaixa` não se leram os pagamentos: não se inventa a separação — os
+    // dois campos ficam a zero e quem os pediu assim não os vê (resultadoDoAno).
+    if (!comCaixa) continue;
     if (p.eh_propria) {
       emCaixa[mes] += p.receita; // frota própria: a renda entra sempre na conta da casa
     } else {
