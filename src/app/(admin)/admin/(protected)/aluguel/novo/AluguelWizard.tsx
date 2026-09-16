@@ -226,7 +226,11 @@ function PassoMotorista({
    * ecrã de Motoristas — dois sítios diferentes para a mesma folha de papel.
    */
   const lerDocs = async (files: FileList | null) => {
-    const lista = Array.from(files ?? []).slice(0, 4);
+    const todos = Array.from(files ?? []);
+    // A leitura aceita até 6 (identificação e carta, frente e verso, e um comprovativo
+    // de morada). O que passar disso não pode ficar de fora sem ninguém saber.
+    const lista = todos.slice(0, 6);
+    const deFora = todos.length - lista.length;
     if (!lista.length) return;
     setErro(null);
     setALerDocs(true);
@@ -244,8 +248,11 @@ function PassoMotorista({
       }
       setStatusDocs("A ler com a IA…");
       const r = await lerDocumentoIA(paths);
+      const avisoDeFora = deFora
+        ? ` ${deFora} ficheiro(s) ficaram de fora (máximo 6 de cada vez): carrega-os outra vez.`
+        : "";
       if (!r.ok || !r.dados) {
-        setStatusDocs("Ficheiros guardados para a ficha; a leitura automática falhou.");
+        setStatusDocs("Ficheiros guardados para a ficha; a leitura automática falhou." + avisoDeFora);
         setErro(r.semIA ? "A leitura por IA não está configurada." : r.error ?? "Não consegui ler.");
         return;
       }
@@ -263,7 +270,7 @@ function PassoMotorista({
       // — incluindo o que foi escrito ENQUANTO a IA lia.
       if (dados.nome) setNome((atual) => (atual.trim() ? atual : dados.nome!));
       const lidos = Object.values(dados).filter(Boolean).length;
-      setStatusDocs(`✓ ${lidos} campo(s) lidos — o resto entra na ficha ao criar.`);
+      setStatusDocs(`✓ ${lidos} campo(s) lidos — o resto entra na ficha ao criar.` + avisoDeFora);
     } catch (e) {
       setStatusDocs(null);
       setErro(e instanceof Error ? e.message : "Falha ao ler os documentos.");
