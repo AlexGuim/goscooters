@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction, COOKIE_PREVIEW } from "@/lib/dal";
-import type { Database } from "@/types/db";
+import { faltaColunaOuTabela } from "@/lib/erroSupabase";
+import { mesmoDocumento } from "@/lib/documentoIdentidade";
+import type { Database, DocIdTipo, TipoPessoa } from "@/types/db";
 
 type ProprietarioUpdate = Database["public"]["Tables"]["proprietario"]["Update"];
 
@@ -24,6 +26,48 @@ export interface CriarProprietarioInput {
   eh_goscooters?: boolean;
   recebe_pagamento_direto?: boolean;
   tipo_parceiro?: "gerido" | "anunciante";
+  tipo_pessoa?: TipoPessoa;
+  morada?: string | null;
+  // Para o F306 das coimas (fase16), quando o dono é pessoa singular.
+  titular_nome?: string | null;
+  doc_id_tipo?: DocIdTipo | null;
+  doc_id_numero?: string | null;
+  doc_id_emissao?: string | null;
+  doc_id_emissor?: string | null;
+  carta_numero?: string | null;
+}
+
+/**
+ * Colunas da fase16 (F306 das coimas). Gravam-se à parte, depois da ficha base,
+ * para o nome, o NIF, o IBAN e a comissão gravarem mesmo sem a migração.
+ */
+const CAMPOS_IDENTIFICACAO = [
+  "titular_nome",
+  "doc_id_tipo",
+  "doc_id_numero",
+  "doc_id_validade",
+  "doc_id_emissao",
+  "doc_id_emissor",
+  "carta_numero",
+  "carta_validade",
+] as const satisfies readonly (keyof ProprietarioUpdate)[];
+
+type Identificacao = Pick<ProprietarioUpdate, (typeof CAMPOS_IDENTIFICACAO)[number]>;
+
+/**
+ * Grava a identificação de um proprietário que já está gravado. Sem a migração só
+ * avisa; outro erro devolve a mensagem, para o ecrã não dizer que ficou tudo gravado.
+ */
+async function gravarIdentificacao(id: string, dados: Identificacao, contexto: string): Promise<string | null> {
+  if (!Object.keys(dados).length) return null;
+  const { error } = await supabaseAdmin.from("proprietario").update(dados).eq("id", id);
+  if (!error) return null;
+  if (faltaColunaOuTabela(error)) {
+    console.warn(`${contexto} identificação (migrar fase16?):`, error.message);
+    return null;
+  }
+  console.error(`${contexto} identificação error:`, error);
+  return "O proprietário ficou gravado, mas o titular, o documento e a carta não: confirma a data de emissão e grava outra vez em Editar.";
 }
 
 export async function criarProprietario(
@@ -48,6 +92,8 @@ export async function criarProprietario(
       eh_goscooters: input.eh_goscooters ?? false,
       recebe_pagamento_direto: input.recebe_pagamento_direto ?? false,
       tipo_parceiro: input.tipo_parceiro ?? "gerido",
+      tipo_pessoa: input.tipo_pessoa ?? "singular",
+      morada: input.morada?.trim() || null,
     })
     .select("id")
     .single();
@@ -57,7 +103,28 @@ export async function criarProprietario(
     return { success: false, error: "Erro ao criar proprietário." };
   }
 
+  // Numa ficha nova só segue o que vem preenchido: o resto já nasce vazio.
+  const docNumero = input.doc_id_numero?.trim();
+  const erroIdentificacao = await gravarIdentificacao(
+    data.id,
+    {
+      ...(input.titular_nome?.trim() ? { titular_nome: input.titular_nome.trim() } : {}),
+      ...(docNumero
+        ? {
+            doc_id_tipo: input.doc_id_tipo ?? "cc",
+            doc_id_numero: docNumero,
+            ...(input.doc_id_emissao ? { doc_id_emissao: input.doc_id_emissao } : {}),
+            ...(input.doc_id_emissor?.trim() ? { doc_id_emissor: input.doc_id_emissor.trim() } : {}),
+          }
+        : {}),
+      ...(input.carta_numero?.trim() ? { carta_numero: input.carta_numero.trim() } : {}),
+    },
+    "criarProprietario",
+  );
+
   revalidatePath("/admin/proprietarios");
+  // O id segue mesmo com erro: a ficha existe, e o ecrã não a pode criar outra vez.
+  if (erroIdentificacao) return { success: false, id: data.id, error: erroIdentificacao };
   return { success: true, id: data.id };
 }
 
@@ -68,18 +135,40 @@ export async function atualizarProprietario(
   const auth = await requireAdminForAction();
   if (!auth.ok) return { success: false, error: auth.error };
 
-  const { error } = await supabaseAdmin
-    .from("proprietario")
-    .update(updates)
-    .eq("id", id);
-
-  if (error) {
-    console.error("atualizarProprietario error:", error);
-    return { success: false, error: "Erro ao atualizar proprietário." };
+  const base: ProprietarioUpdate = { ...updates };
+  const identificacao: Identificacao = {};
+  for (const campo of CAMPOS_IDENTIFICACAO) {
+    if (!(campo in base)) continue;
+    Object.assign(identificacao, { [campo]: base[campo] });
+    delete base[campo];
   }
+
+  // Outro documento: a data e o emissor do anterior deixam de valer — no F306 vão ao
+  // lado do número. A regra de atualizarMotorista: só fica o que vier com o número novo.
+  if ("doc_id_numero" in identificacao) {
+    const { data: antes } = await supabaseAdmin
+      .from("proprietario")
+      .select("doc_id_numero")
+      .eq("id", id)
+      .maybeSingle();
+    if (!mesmoDocumento(identificacao.doc_id_numero, antes?.doc_id_numero)) {
+      if (!("doc_id_emissao" in identificacao)) identificacao.doc_id_emissao = null;
+      if (!("doc_id_emissor" in identificacao)) identificacao.doc_id_emissor = null;
+    }
+  }
+
+  if (Object.keys(base).length) {
+    const { error } = await supabaseAdmin.from("proprietario").update(base).eq("id", id);
+    if (error) {
+      console.error("atualizarProprietario error:", error);
+      return { success: false, error: "Erro ao atualizar proprietário." };
+    }
+  }
+  const erroIdentificacao = await gravarIdentificacao(id, identificacao, "atualizarProprietario");
 
   revalidatePath("/admin/proprietarios");
   revalidatePath("/admin/motas");
+  if (erroIdentificacao) return { success: false, error: erroIdentificacao };
   return { success: true };
 }
 

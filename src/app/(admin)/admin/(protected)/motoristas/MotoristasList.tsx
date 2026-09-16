@@ -10,6 +10,7 @@ import { interpretarDocumento, iso3ParaIso2 } from "@/lib/documentos";
 import { kycCompleto } from "@/lib/kyc";
 import { nomeInicial } from "@/lib/nomeMotorista";
 import { hrefJornada } from "@/lib/jornada";
+import { mesmoDocumento } from "@/lib/documentoIdentidade";
 import {
   criarMotorista,
   atualizarMotorista,
@@ -612,6 +613,18 @@ function FichaKYC({
     campos.doc_id_tipo = (dt || null) as DocIdTipo | null;
     campos.doc_id_numero = dn || null;
     campos.doc_id_validade = dv || null;
+    // Data e emissor do documento (fase16, para o F306 das coimas): seguem quando
+    // mudam. Com outro n.º, só contam os escritos ou lidos para o documento novo —
+    // os do anterior, que ficaram no ecrã, não seguem ao lado do número novo.
+    const de = String(dados.get("doc_id_emissao") ?? "").trim();
+    const dem = String(dados.get("doc_id_emissor") ?? "").trim();
+    if (!mesmoDocumento(dn, motorista.doc_id_numero)) {
+      campos.doc_id_emissao = de && de !== (motorista.doc_id_emissao ?? "") ? de : null;
+      campos.doc_id_emissor = dem && dem !== (motorista.doc_id_emissor ?? "") ? dem : null;
+    } else {
+      if (de !== (motorista.doc_id_emissao ?? "")) campos.doc_id_emissao = de || null;
+      if (dem !== (motorista.doc_id_emissor ?? "")) campos.doc_id_emissor = dem || null;
+    }
     // Só envia o telefone se mudou — evita recalcular (e corromper) o E.164 de
     // um número estrangeiro que já estava correcto.
     if (telefoneNovo !== (motorista.telefone ?? "")) {
@@ -624,7 +637,8 @@ function FichaKYC({
         setErro(r.error ?? "Erro ao gravar.");
         return;
       }
-      // Funde os derivados recalculados pelo servidor (E.164, nif_valido).
+      // Funde os derivados recalculados pelo servidor (E.164, nif_valido) e a data e o
+      // emissor do documento como ficaram gravados.
       onAtualizado({ ...campos, ...(r.derivados ?? {}) } as Partial<MotoristaComAvaliacoes>);
       setAEditar(false);
     } catch (err) {
@@ -640,7 +654,7 @@ function FichaKYC({
       ["Telefone (E.164)", motorista.telefone_e164],
       ["País", motorista.pais_iso],
       ["NIF", motorista.nif ? `${motorista.nif}${motorista.nif_valido === false ? " (inválido)" : ""}` : null],
-      ["Documento", motorista.doc_id_numero ? `${docTipoRotulo(motorista.doc_id_tipo)} ${motorista.doc_id_numero}${motorista.doc_id_validade ? ` · val. ${motorista.doc_id_validade}` : ""}`.trim() : null],
+      ["Documento", motorista.doc_id_numero ? `${docTipoRotulo(motorista.doc_id_tipo)} ${motorista.doc_id_numero}${motorista.doc_id_emissao ? ` · emit. ${motorista.doc_id_emissao}` : ""}${motorista.doc_id_validade ? ` · val. ${motorista.doc_id_validade}` : ""}${motorista.doc_id_emissor ? ` · ${motorista.doc_id_emissor}` : ""}`.trim() : null],
       ["Estado", motorista.estado],
       ["Morada", [motorista.morada_linha1, motorista.codigo_postal, motorista.localidade].filter(Boolean).join(", ") || null],
       ["Carta", motorista.carta_numero ? `${motorista.carta_numero}${motorista.carta_categoria ? ` · ${motorista.carta_categoria}` : ""}${motorista.carta_pais ? ` · ${motorista.carta_pais}` : ""}${motorista.carta_validade ? ` · val. ${motorista.carta_validade}` : ""}` : null],
@@ -850,6 +864,19 @@ function FichaKYC({
           <span>Validade</span>
           <input className={campo} type="date" name="doc_id_validade" defaultValue={motorista.doc_id_validade ?? ""} />
         </label>
+        <label className={etiqueta}>
+          <span>Emitido em</span>
+          <input className={campo} type="date" name="doc_id_emissao" defaultValue={motorista.doc_id_emissao ?? ""} />
+        </label>
+        <label className={`${etiqueta} sm:col-span-2`}>
+          <span>Emissor</span>
+          <input
+            className={campo}
+            name="doc_id_emissor"
+            defaultValue={motorista.doc_id_emissor ?? ""}
+            placeholder="República Portuguesa, AIMA, autoridade do passaporte"
+          />
+        </label>
       </div>
 
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Carta de condução</p>
@@ -939,12 +966,23 @@ function LeitorDocumento({ formRef }: { formRef: React.RefObject<HTMLFormElement
         if (r.ok && r.dados) {
           const d = r.dados;
           const feitos: string[] = [];
+          // Outro documento: a data e o emissor do que estava no ecrã deixam de valer,
+          // mesmo que a leitura não traga os do novo.
+          const numeroNoEcra = (form.elements.namedItem("doc_id_numero") as HTMLInputElement | null)?.value ?? "";
+          if (d.doc_id_numero && !mesmoDocumento(d.doc_id_numero, numeroNoEcra)) {
+            for (const name of ["doc_id_emissao", "doc_id_emissor"]) {
+              const el = form.elements.namedItem(name) as HTMLInputElement | null;
+              if (el) el.value = "";
+            }
+          }
           if (preencher("nome", d.nome)) feitos.push("nome");
           if (preencher("nif", d.nif)) feitos.push("NIF");
           if (preencher("data_nascimento", d.data_nascimento)) feitos.push("nascimento");
           if (preencher("doc_id_tipo", d.doc_id_tipo)) feitos.push("tipo doc");
           if (preencher("doc_id_numero", d.doc_id_numero)) feitos.push("nº doc");
           if (preencher("doc_id_validade", d.doc_id_validade)) feitos.push("validade doc");
+          if (preencher("doc_id_emissao", d.doc_id_emissao)) feitos.push("emissão doc");
+          if (preencher("doc_id_emissor", d.doc_id_emissor)) feitos.push("emissor doc");
           if (preencher("pais_iso", d.nacionalidade_iso2)) feitos.push("país");
           if (preencher("carta_numero", d.carta_numero)) feitos.push("nº carta");
           if (preencher("carta_categoria", d.carta_categoria)) feitos.push("categoria carta");
@@ -1054,6 +1092,7 @@ function FormMotorista({
       doc_id_tipo: (String(dados.get("doc_id_tipo") ?? "").trim() || null) as DocIdTipo | null,
       doc_id_numero: String(dados.get("doc_id_numero") ?? "").trim() || null,
       doc_id_validade: String(dados.get("doc_id_validade") ?? "").trim() || null,
+      doc_id_emissao: String(dados.get("doc_id_emissao") ?? "").trim() || null,
     };
 
     let r: { success: boolean; id?: string; error?: string };
@@ -1091,6 +1130,8 @@ function FormMotorista({
       doc_id_tipo: input.doc_id_tipo,
       doc_id_numero: input.doc_id_numero,
       doc_id_validade: input.doc_id_validade,
+      doc_id_emissao: input.doc_id_emissao,
+      doc_id_emissor: null,
       doc_urls: null,
       carta_numero: null,
       carta_categoria: null,
@@ -1177,6 +1218,10 @@ function FormMotorista({
             <label className={etiqueta}>
               <span>Validade do documento</span>
               <input className={campo} type="date" name="doc_id_validade" />
+            </label>
+            <label className={etiqueta}>
+              <span>Data de emissão do documento</span>
+              <input className={campo} type="date" name="doc_id_emissao" />
             </label>
             <label className={etiqueta}>
               <span>País (ISO, ex. PT)</span>

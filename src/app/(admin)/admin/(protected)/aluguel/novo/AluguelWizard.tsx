@@ -286,6 +286,8 @@ function PassoMotorista({
     if (k.doc_id_tipo) u.doc_id_tipo = k.doc_id_tipo as DocIdTipo;
     if (k.doc_id_numero) u.doc_id_numero = k.doc_id_numero;
     if (k.doc_id_validade) u.doc_id_validade = k.doc_id_validade;
+    if (k.doc_id_emissao) u.doc_id_emissao = k.doc_id_emissao;
+    if (k.doc_id_emissor) u.doc_id_emissor = k.doc_id_emissor;
     if (k.data_nascimento) u.data_nascimento = k.data_nascimento;
     if (k.nacionalidade_iso2) u.pais_iso = k.nacionalidade_iso2;
     if (k.carta_numero) u.carta_numero = k.carta_numero;

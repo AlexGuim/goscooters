@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { normalizarTelefone, paraE164 } from "@/lib/telefone";
 import { kycCompleto, prontoParaEntrega } from "@/lib/kyc";
+import { faltaColunaOuTabela } from "@/lib/erroSupabase";
+import { mesmoDocumento } from "@/lib/documentoIdentidade";
 import type { AvaliacaoTipo, DocIdTipo, Motorista } from "@/types/db";
 
 /** NIF português: 9 dígitos com checksum mod-11. */
@@ -79,6 +81,10 @@ export interface CriarMotoristaInput {
   doc_id_tipo?: DocIdTipo | null;
   doc_id_numero?: string | null;
   doc_id_validade?: string | null;
+  doc_id_emissao?: string | null;
+  doc_id_emissor?: string | null;
+  carta_numero?: string | null;
+  carta_pais?: string | null;
 }
 
 export async function criarMotorista(
@@ -133,6 +139,8 @@ export async function criarMotorista(
       doc_id_tipo: input.doc_id_tipo || null,
       doc_id_numero: input.doc_id_numero?.trim() || null,
       doc_id_validade: input.doc_id_validade || null,
+      carta_numero: input.carta_numero?.trim() || null,
+      carta_pais: input.carta_pais?.trim().toUpperCase() || null,
     })
     .select("id")
     .single();
@@ -140,6 +148,22 @@ export async function criarMotorista(
   if (error) {
     console.error("criarMotorista error:", error);
     return { success: false, error: "Erro ao criar motorista." };
+  }
+
+  // Data e emissor do documento (fase16) à parte, com a ficha já criada: sem a
+  // migração, o motorista cria-se na mesma. Daqui para a frente nada devolve erro —
+  // o motorista existe, e um "falhou" convidava a criá-lo outra vez.
+  const documento: Partial<Motorista> = {
+    ...(input.doc_id_emissao ? { doc_id_emissao: input.doc_id_emissao } : {}),
+    ...(input.doc_id_emissor?.trim() ? { doc_id_emissor: input.doc_id_emissor.trim() } : {}),
+  };
+  if (Object.keys(documento).length) {
+    const { error: eDoc } = await supabaseAdmin.from("motorista").update(documento).eq("id", data.id);
+    if (eDoc && faltaColunaOuTabela(eDoc)) {
+      console.warn("criarMotorista documento (migrar fase16?):", eDoc.message);
+    } else if (eDoc) {
+      console.error(`criarMotorista documento (motorista ${data.id} criado sem a data/emissor do documento):`, eDoc);
+    }
   }
 
   revalidatePath("/admin/motoristas");
@@ -166,6 +190,8 @@ export type MotoristaEditavel = Partial<
     | "doc_id_tipo"
     | "doc_id_numero"
     | "doc_id_validade"
+    | "doc_id_emissao"
+    | "doc_id_emissor"
     | "carta_numero"
     | "carta_categoria"
     | "carta_pais"
@@ -175,7 +201,7 @@ export type MotoristaEditavel = Partial<
 >;
 
 export type MotoristaDerivados = Partial<
-  Pick<Motorista, "telefone_e164" | "telefone_digitos" | "nif_valido">
+  Pick<Motorista, "telefone_e164" | "telefone_digitos" | "nif_valido" | "doc_id_emissao" | "doc_id_emissor">
 >;
 
 export async function atualizarMotorista(
@@ -210,12 +236,39 @@ export async function atualizarMotorista(
     .maybeSingle();
   const completoAntes = kycAntes ? kycCompleto(kycAntes).completo : false;
 
-  const dados: Partial<Motorista> = { ...updates, ...derivados };
-  const { error } = await supabaseAdmin.from("motorista").update(dados).eq("id", id);
-
-  if (error) {
-    console.error("atualizarMotorista error:", error);
-    return { success: false, error: "Erro ao atualizar motorista." };
+  // Data e emissor do documento (fase16) vão à parte e tolerantes, como a carta nas
+  // entregas: sem a migração, o resto da ficha grava na mesma.
+  const { doc_id_emissao, doc_id_emissor, ...resto } = updates;
+  const dados: Partial<Motorista> = { ...resto, ...derivados };
+  if (Object.keys(dados).length) {
+    const { error } = await supabaseAdmin.from("motorista").update(dados).eq("id", id);
+    if (error) {
+      console.error("atualizarMotorista error:", error);
+      return { success: false, error: "Erro ao atualizar motorista." };
+    }
+  }
+  // Outro documento: a data e o emissor do anterior deixam de valer — no F306 vão ao
+  // lado do número. A regra vive aqui para valer em todos os ecrãs que gravam a ficha
+  // (wizard, Documentos, Motoristas): só fica o que vier com o número novo.
+  const outroDocumento = "doc_id_numero" in updates && !mesmoDocumento(updates.doc_id_numero, kycAntes?.doc_id_numero);
+  const documento: MotoristaDerivados = {
+    ...("doc_id_emissao" in updates || outroDocumento ? { doc_id_emissao: doc_id_emissao || null } : {}),
+    ...("doc_id_emissor" in updates || outroDocumento ? { doc_id_emissor: doc_id_emissor?.trim() || null } : {}),
+  };
+  let erroDocumento: string | null = null;
+  if (Object.keys(documento).length) {
+    const { error } = await supabaseAdmin.from("motorista").update(documento).eq("id", id);
+    // O que ficou gravado segue nos derivados: a ficha no ecrã não pode continuar a
+    // mostrar a data de um documento que o servidor acabou de tirar.
+    if (!error) {
+      Object.assign(derivados, documento);
+    } else if (faltaColunaOuTabela(error)) {
+      console.warn("atualizarMotorista documento (migrar fase16?):", error.message);
+    } else {
+      console.error("atualizarMotorista documento error:", error);
+      erroDocumento =
+        "A ficha foi gravada, mas a data e o emissor do documento não: verifica a data de emissão (dd/mm/aaaa) e grava outra vez.";
+    }
   }
 
   // Se a identidade ficou completa, atualiza a caixa do gestor sem ele ter de voltar
@@ -242,6 +295,8 @@ export async function atualizarMotorista(
   }
 
   revalidatePath("/admin/motoristas");
+  // O resto da ficha ficou gravado (e a caixa do gestor em dia): o erro diz só o que falta.
+  if (erroDocumento) return { success: false, error: erroDocumento, derivados };
   return { success: true, derivados };
 }
 

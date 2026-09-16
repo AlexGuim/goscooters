@@ -12,9 +12,55 @@ import { ehNomePlaceholder } from "@/lib/nomeMotorista";
 import { notificar } from "@/lib/notificacoes";
 import { hrefJornada } from "@/lib/jornada";
 import { geminiConfigurado, lerDocumentoGemini, mimeDoCaminho, type CamposDocumento } from "@/lib/gemini";
+import { faltaColunaOuTabela } from "@/lib/erroSupabase";
+import { dataDeDocumentoValida, mesmoDocumento } from "@/lib/documentoIdentidade";
 import type { Database, DocIdTipo, EntregaSessao } from "@/types/db";
 
 type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
+
+/**
+ * Data e emissor do documento (fase16, F306 das coimas), com o n.º já gravado. Com
+ * outro documento, os do anterior saem primeiro, numa escrita só deles: uma falha nos
+ * novos não os pode deixar ao lado do n.º novo. Sem a migração só avisa; nunca faz
+ * falhar o link do motorista.
+ */
+async function gravarEmissaoDoDocumento(
+  motoristaId: string,
+  { outroDocumento, emissao, emissor }: { outroDocumento: boolean; emissao: string | null; emissor: string | null },
+) {
+  let limpo = !outroDocumento;
+  if (outroDocumento) {
+    const { error } = await supabaseAdmin
+      .from("motorista")
+      .update({ doc_id_emissao: null, doc_id_emissor: null })
+      .eq("id", motoristaId);
+    if (error && faltaColunaOuTabela(error)) {
+      console.warn("concluirPorToken documento (migrar fase16?):", error.message);
+      return;
+    }
+    if (error) {
+      console.error(`concluirPorToken documento: não saíram a data e o emissor do documento anterior (motorista ${motoristaId}) — tenta-se com os novos:`, error);
+    } else {
+      limpo = true;
+    }
+  }
+  // Se a limpeza falhou, os nulos vão outra vez, agora com os novos.
+  const novos: MotoristaUpdate = {};
+  if (emissao) novos.doc_id_emissao = emissao;
+  else if (!limpo) novos.doc_id_emissao = null;
+  if (emissor) novos.doc_id_emissor = emissor;
+  else if (!limpo) novos.doc_id_emissor = null;
+  if (!Object.keys(novos).length) return;
+  const { error } = await supabaseAdmin.from("motorista").update(novos).eq("id", motoristaId);
+  if (!error) return;
+  if (faltaColunaOuTabela(error)) {
+    console.warn("concluirPorToken documento (migrar fase16?):", error.message);
+  } else if (!limpo) {
+    console.error(`concluirPorToken documento: o motorista ${motoristaId} FICOU com a data/emissor do documento anterior ao lado do n.º novo — corrigir na ficha antes de um F306:`, error);
+  } else {
+    console.error(`concluirPorToken documento: o motorista ${motoristaId} ficou sem a data/emissor lidos do documento novo:`, error);
+  }
+}
 
 const BUCKET_PRIVADO = "privado";
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
@@ -498,6 +544,8 @@ export interface ConcluirEntregaInput {
   doc_id_tipo?: string | null;
   doc_id_numero?: string | null;
   doc_id_validade?: string | null;
+  doc_id_emissao?: string | null;
+  doc_id_emissor?: string | null;
   doc_paths: string[]; // caminhos privados dos documentos
   assinatura_path: string | null;
   regras_versao?: string | null;
@@ -563,6 +611,13 @@ export async function concluirPorToken(
 
   // Materializa no motorista os dados e documentos (sessão é âmbito estrito).
   if (s.motorista_id) {
+    // A ficha como está AGORA, antes de gravar: os ficheiros juntam-se aos dela, e o
+    // n.º do documento diz se a data e o emissor gravados ainda são deste documento.
+    const { data: mAtual, error: eAtual } = await supabaseAdmin
+      .from("motorista")
+      .select("doc_urls, doc_id_numero")
+      .eq("id", s.motorista_id)
+      .maybeSingle();
     const upd: MotoristaUpdate = {};
     if (input.nome?.trim() && !ehNomePlaceholder(input.nome)) upd.nome = input.nome.trim();
     if (input.nif?.trim()) {
@@ -576,19 +631,16 @@ export async function concluirPorToken(
     if (input.doc_paths.length) {
       // JUNTA aos que a ficha já tem: o gestor pode ter digitalizado o cartão
       // em Documentos antes de o motorista abrir o link — não se deita fora.
-      const { data: mAtual } = await supabaseAdmin
-        .from("motorista")
-        .select("doc_urls")
-        .eq("id", s.motorista_id)
-        .maybeSingle();
       const atuais = (mAtual?.doc_urls as string[] | null) ?? [];
       upd.doc_urls = [...atuais, ...input.doc_paths.filter((p) => !atuais.includes(p))];
     }
     if (input.morada_linha1?.trim()) upd.morada_linha1 = input.morada_linha1.trim();
     if (input.codigo_postal?.trim()) upd.codigo_postal = input.codigo_postal.trim();
     if (input.localidade?.trim()) upd.localidade = input.localidade.trim();
+    let eFicha = eAtual;
     if (Object.keys(upd).length) {
-      await supabaseAdmin.from("motorista").update(upd).eq("id", s.motorista_id);
+      const { error } = await supabaseAdmin.from("motorista").update(upd).eq("id", s.motorista_id);
+      eFicha ??= error;
     }
 
     // Carta em separado: colunas recentes (fase4c) — se ainda não migradas, não
@@ -601,6 +653,20 @@ export async function concluirPorToken(
     if (Object.keys(cartaUpd).length) {
       const { error } = await supabaseAdmin.from("motorista").update(cartaUpd).eq("id", s.motorista_id);
       if (error) console.warn("concluirPorToken carta (migrar fase4c?):", error.message);
+    }
+
+    // Data e emissor do documento. Sem a ficha lida ou o n.º gravado não se sabe de que
+    // documento seriam: nem se tiram os que lá estão, nem se juntam os lidos.
+    if (eFicha) {
+      console.error(`concluirPorToken documento: data e emissor por gravar (motorista ${s.motorista_id}, ficha não lida ou não gravada):`, eFicha);
+    } else {
+      await gravarEmissaoDoDocumento(s.motorista_id, {
+        // Outro documento sem data ou emissor neste envio: os do anterior deixam de valer.
+        outroDocumento: Boolean(input.doc_id_numero?.trim()) && !mesmoDocumento(input.doc_id_numero, mAtual?.doc_id_numero),
+        // Uma data que não existe conta como não lida (e não leva a limpeza consigo).
+        emissao: dataDeDocumentoValida(input.doc_id_emissao),
+        emissor: input.doc_id_emissor?.trim() || null,
+      });
     }
   }
 

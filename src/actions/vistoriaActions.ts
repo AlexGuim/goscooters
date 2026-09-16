@@ -7,9 +7,55 @@ import { notificar, resolverNotificacoes } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 import { prontoParaEntrega, nifValidoPT } from "@/lib/kyc";
 import { ehNomePlaceholder } from "@/lib/nomeMotorista";
+import { faltaColunaOuTabela } from "@/lib/erroSupabase";
+import { dataDeDocumentoValida, mesmoDocumento } from "@/lib/documentoIdentidade";
 import type { DocIdTipo, Database } from "@/types/db";
 
 type MotoristaUpdate = Database["public"]["Tables"]["motorista"]["Update"];
+
+/**
+ * Data e emissor do documento (fase16, F306 das coimas), com o n.º já gravado. Com
+ * outro documento, os do anterior saem primeiro, numa escrita só deles: uma falha nos
+ * novos não os pode deixar ao lado do n.º novo. Sem a migração só avisa. A entrega não
+ * falha por isto: repetida, já não veria o n.º mudar e não limpava nada.
+ */
+async function gravarEmissaoDoDocumento(
+  motoristaId: string,
+  { outroDocumento, emissao, emissor }: { outroDocumento: boolean; emissao: string | null; emissor: string | null },
+) {
+  let limpo = !outroDocumento;
+  if (outroDocumento) {
+    const { error } = await supabaseAdmin
+      .from("motorista")
+      .update({ doc_id_emissao: null, doc_id_emissor: null })
+      .eq("id", motoristaId);
+    if (error && faltaColunaOuTabela(error)) {
+      console.warn("entrega documento (migrar fase16?):", error.message);
+      return;
+    }
+    if (error) {
+      console.error(`entrega documento: não saíram a data e o emissor do documento anterior (motorista ${motoristaId}) — tenta-se com os novos:`, error);
+    } else {
+      limpo = true;
+    }
+  }
+  // Se a limpeza falhou, os nulos vão outra vez, agora com os novos.
+  const novos: MotoristaUpdate = {};
+  if (emissao) novos.doc_id_emissao = emissao;
+  else if (!limpo) novos.doc_id_emissao = null;
+  if (emissor) novos.doc_id_emissor = emissor;
+  else if (!limpo) novos.doc_id_emissor = null;
+  if (!Object.keys(novos).length) return;
+  const { error } = await supabaseAdmin.from("motorista").update(novos).eq("id", motoristaId);
+  if (!error) return;
+  if (faltaColunaOuTabela(error)) {
+    console.warn("entrega documento (migrar fase16?):", error.message);
+  } else if (!limpo) {
+    console.error(`entrega documento: o motorista ${motoristaId} FICOU com a data/emissor do documento anterior ao lado do n.º novo — corrigir na ficha antes de um F306:`, error);
+  } else {
+    console.error(`entrega documento: o motorista ${motoristaId} ficou sem a data/emissor do documento novo:`, error);
+  }
+}
 
 export interface DanoPrevio {
   zona: string;
@@ -52,6 +98,8 @@ export interface SubmeterEntregaInput {
   doc_id_tipo?: string | null;
   doc_id_numero?: string | null;
   doc_id_validade?: string | null;
+  doc_id_emissao?: string | null;
+  doc_id_emissor?: string | null;
   doc_paths?: string[];
   carta_numero?: string | null;
   carta_categoria?: string | null;
@@ -105,7 +153,7 @@ export async function submeterVistoriaEntrega(
   // válido substituído por um typo). A carta vem do input (o cliente pré-preenche-a),
   // por isso o gate é tolerante à coluna carta_numero (fase4c) ainda não migrada.
   if (c.motorista_id) {
-    const { data: atual } = await supabaseAdmin
+    const { data: atual, error: eAtual } = await supabaseAdmin
       .from("motorista")
       .select("nif, nif_valido, doc_id_numero, doc_urls, morada_linha1")
       .eq("id", c.motorista_id)
@@ -142,7 +190,11 @@ export async function submeterVistoriaEntrega(
     if (input.morada_linha1?.trim()) upd.morada_linha1 = input.morada_linha1.trim();
     if (input.codigo_postal?.trim()) upd.codigo_postal = input.codigo_postal.trim();
     if (input.localidade?.trim()) upd.localidade = input.localidade.trim();
-    if (Object.keys(upd).length) await supabaseAdmin.from("motorista").update(upd).eq("id", c.motorista_id);
+    let eFicha = eAtual;
+    if (Object.keys(upd).length) {
+      const { error } = await supabaseAdmin.from("motorista").update(upd).eq("id", c.motorista_id);
+      eFicha ??= error;
+    }
 
     // Carta em colunas recentes (fase4c) — tolerante se ainda não migradas.
     const cartaUpd: MotoristaUpdate = {};
@@ -153,6 +205,20 @@ export async function submeterVistoriaEntrega(
     if (Object.keys(cartaUpd).length) {
       const { error } = await supabaseAdmin.from("motorista").update(cartaUpd).eq("id", c.motorista_id);
       if (error) console.warn("entrega carta (migrar fase4c?):", error.message);
+    }
+
+    // Data e emissor do documento. Sem a ficha lida ou o n.º gravado não se sabe de que
+    // documento seriam: nem se tiram os que lá estão, nem se juntam os novos.
+    if (eFicha) {
+      console.error(`entrega documento: data e emissor por gravar (motorista ${c.motorista_id}, ficha não lida ou não gravada):`, eFicha);
+    } else {
+      await gravarEmissaoDoDocumento(c.motorista_id, {
+        // Outro documento sem data ou emissor na mesma entrega: os do anterior deixam de valer.
+        outroDocumento: Boolean(input.doc_id_numero?.trim()) && !mesmoDocumento(input.doc_id_numero, atual?.doc_id_numero),
+        // Uma data que não existe conta como não indicada (e não leva a limpeza consigo).
+        emissao: dataDeDocumentoValida(input.doc_id_emissao),
+        emissor: input.doc_id_emissor?.trim() || null,
+      });
     }
   }
 

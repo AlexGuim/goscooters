@@ -132,7 +132,8 @@ export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/w
 /**
  * Documento para o bucket PRIVADO — identidade, carta, comprovativo de morada
  * (`kyc`), ou comprovativo de pagamento (`comprovativos`: um print de MB WAY ou
- * de homebanking traz nomes, IBAN e valores de terceiros).
+ * de homebanking traz nomes, IBAN e valores de terceiros), ou o F306 assinado e
+ * o comprovativo do envio à ANSR (`infracoes/f306`: identificam o condutor).
  *
  * Existe porque `enviarFotoPrivada` recusa PDF (é para fotos) e `enviarDocumento`
  * grava no bucket PÚBLICO (é para faturas, que precisam de URL partilhável). Um
@@ -141,7 +142,7 @@ export const DOC_TIPOS = ["application/pdf", "image/jpeg", "image/png", "image/w
  */
 export async function enviarDocumentoPrivado(
   ficheiro: File,
-  pasta: "kyc" | "comprovativos" = "kyc",
+  pasta: "kyc" | "comprovativos" | "infracoes/f306" = "kyc",
 ): Promise<{ success: boolean; path?: string; error?: string }> {
   if (!DOC_TIPOS.includes(ficheiro.type)) {
     return { success: false, error: "Formato não suportado. Usa PDF, JPG, PNG ou WebP." };

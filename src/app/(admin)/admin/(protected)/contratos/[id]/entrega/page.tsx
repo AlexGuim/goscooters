@@ -45,6 +45,8 @@ export default async function EntregaPage({
           doc_id_tipo: (m.doc_id_tipo as string) ?? null,
           doc_id_numero: (m.doc_id_numero as string) ?? null,
           doc_id_validade: (m.doc_id_validade as string) ?? null,
+          doc_id_emissao: (m.doc_id_emissao as string) ?? null,
+          doc_id_emissor: (m.doc_id_emissor as string) ?? null,
           doc_urls: (m.doc_urls as string[]) ?? null,
           carta_numero: (m.carta_numero as string) ?? null,
           carta_categoria: (m.carta_categoria as string) ?? null,

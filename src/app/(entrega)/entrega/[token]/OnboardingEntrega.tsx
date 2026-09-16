@@ -12,6 +12,7 @@ import {
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento } from "@/lib/documentos";
 import { nomeInicial } from "@/lib/nomeMotorista";
+import { mesmoDocumento } from "@/lib/documentoIdentidade";
 import { campo } from "@/components/ui";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 
@@ -178,6 +179,16 @@ export default function OnboardingEntrega({
   const [tipo, setTipo] = useState("cc");
   const [numero, setNumero] = useState("");
   const [validade, setValidade] = useState("");
+  // Data e emissor do documento: sem campo no ecrã; só o que a IA lê segue para a
+  // ficha (servem o F306 das coimas).
+  const [emissao, setEmissao] = useState("");
+  const [emissor, setEmissor] = useState("");
+  // O n.º no ecrã sem esperar por um render: as leituras da IA acabam por qualquer
+  // ordem e, depois dos awaits, a closure delas já tem o estado velho.
+  const numeroRef = useRef("");
+  // O n.º com que a data e o emissor escondidos foram lidos. No F306 vão ao lado do
+  // número: só seguem se o n.º enviado for o mesmo documento.
+  const numeroDaLeituraRef = useRef("");
   const [cartaNumero, setCartaNumero] = useState("");
   const [cartaCategoria, setCartaCategoria] = useState("");
   const [cartaPais, setCartaPais] = useState("");
@@ -214,19 +225,42 @@ export default function OnboardingEntrega({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Muda o n.º do documento, sem tocar na data e no emissor escondidos: escrever e
+   * apagar uma letra não os pode perder. Se o n.º enviado for outro documento, é o
+   * submeter que os deixa de fora.
+   */
+  const mudarNumero = (novo: string) => {
+    numeroRef.current = novo;
+    setNumero(novo);
+  };
+
   // Auto-preenchimento aditivo: só sobrepõe um campo quando a leitura traz valor,
   // para uma leitura falhada não apagar o que já foi lido de outra página do MESMO
   // documento (frente/verso). O onboarding é de UMA pessoa por sessão, por isso não
   // há risco de "colar" dados de outro motorista (ao contrário do admin).
   const aplicar = (c: {
     nome?: string | null; nif?: string | null; numero?: string | null; validade?: string | null; tipo?: string | null;
+    emissao?: string | null; emissor?: string | null;
     carta_numero?: string | null; carta_categoria?: string | null; carta_pais?: string | null; carta_validade?: string | null;
     morada_linha1?: string | null; codigo_postal?: string | null; localidade?: string | null;
   }) => {
     if (c.nome) setNome(c.nome);
     if (c.nif) setNif(c.nif.replace(/\D/g, ""));
-    if (c.numero) setNumero(c.numero);
+    if (c.numero) {
+      // Leu-se outro documento: a data e o emissor escondidos eram do anterior.
+      if (numeroDaLeituraRef.current && !mesmoDocumento(c.numero, numeroDaLeituraRef.current)) {
+        setEmissao("");
+        setEmissor("");
+      }
+      numeroDaLeituraRef.current = c.numero;
+      mudarNumero(c.numero);
+    }
     if (c.validade) setValidade(c.validade);
+    if (c.emissao) setEmissao(c.emissao);
+    if (c.emissor) setEmissor(c.emissor);
+    // Lidos sem n.º nesta leitura: são do documento com o n.º que está no ecrã.
+    if ((c.emissao || c.emissor) && !c.numero) numeroDaLeituraRef.current = numeroRef.current;
     if (c.tipo && ["cc", "passaporte", "titulo_residencia", "aima"].includes(c.tipo)) setTipo(c.tipo);
     if (c.carta_numero) setCartaNumero(c.carta_numero);
     if (c.carta_categoria) setCartaCategoria(c.carta_categoria);
@@ -251,7 +285,7 @@ export default function OnboardingEntrega({
       if (r.ok && r.dados) {
         const morada = { morada_linha1: r.dados.morada_linha1, codigo_postal: r.dados.codigo_postal, localidade: r.dados.localidade };
         if (grupo === "identidade") {
-          aplicar({ nome: r.dados.nome, nif: r.dados.nif, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo, ...morada });
+          aplicar({ nome: r.dados.nome, nif: r.dados.nif, numero: r.dados.doc_id_numero, validade: r.dados.doc_id_validade, tipo: r.dados.doc_id_tipo, emissao: r.dados.doc_id_emissao, emissor: r.dados.doc_id_emissor, ...morada });
           ok = !!(r.dados.nome || r.dados.nif || r.dados.doc_id_numero || r.dados.doc_id_validade);
         } else {
           aplicar({ carta_numero: r.dados.carta_numero, carta_categoria: r.dados.carta_categoria, carta_pais: r.dados.carta_pais, carta_validade: r.dados.carta_validade, ...morada });
@@ -307,6 +341,9 @@ export default function OnboardingEntrega({
       if (!ra.success || !ra.path) { setErro(t.err_assinatura); setASubmeter(false); return; }
       assinatura_path = ra.path;
     }
+    // A data e o emissor escondidos só seguem com o n.º com que foram lidos: com outro,
+    // escrito à mão, seriam de outro documento (e o servidor tira os do anterior).
+    const comLeitura = Boolean(numero.trim()) && mesmoDocumento(numero, numeroDaLeituraRef.current);
     const r = await concluirPorToken({
       token,
       nome: nome || null,
@@ -314,6 +351,8 @@ export default function OnboardingEntrega({
       doc_id_tipo: tipo,
       doc_id_numero: numero || null,
       doc_id_validade: validade || null,
+      doc_id_emissao: (comLeitura && emissao) || null,
+      doc_id_emissor: (comLeitura && emissor) || null,
       doc_paths: DOC_SLOTS.map((s) => docs[s.key]).filter(Boolean) as string[],
       assinatura_path,
       regras_versao: sessao.regras?.versao ?? null,
@@ -421,7 +460,7 @@ export default function OnboardingEntrega({
                 </label>
                 <label className="block space-y-1.5 text-sm font-medium text-slate-700">
                   <span>{t.num_doc}</span>
-                  <input className={campo} value={numero} onChange={(e) => setNumero(e.target.value)} />
+                  <input className={campo} value={numero} onChange={(e) => mudarNumero(e.target.value)} />
                 </label>
               </div>
               <label className="block space-y-1.5 text-sm font-medium text-slate-700">

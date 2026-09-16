@@ -8,6 +8,7 @@ import { lerDocumentoIA, urlAssinado } from "@/actions/fotoActions";
 import { ocrFicheiro } from "@/lib/ocr";
 import { interpretarDocumento } from "@/lib/documentos";
 import { nomeInicial } from "@/lib/nomeMotorista";
+import { dataDeDocumentoValida, mesmoDocumento } from "@/lib/documentoIdentidade";
 import AssinaturaCanvas from "@/components/AssinaturaCanvas";
 import { formatarPreco } from "@/lib/precos";
 import { hrefJornada } from "@/lib/jornada";
@@ -62,6 +63,8 @@ interface MotoristaKycInfo {
   doc_id_tipo: string | null;
   doc_id_numero: string | null;
   doc_id_validade: string | null;
+  doc_id_emissao?: string | null;
+  doc_id_emissor?: string | null;
   doc_urls: string[] | null;
   carta_numero: string | null;
   carta_categoria: string | null;
@@ -146,6 +149,12 @@ export default function CapturaEntrega({
   const [docTipo, setDocTipo] = useState(motorista?.doc_id_tipo ?? "cc");
   const [docNumero, setDocNumero] = useState(motorista?.doc_id_numero ?? "");
   const [docValidade, setDocValidade] = useState(motorista?.doc_id_validade ?? "");
+  const [docEmissao, setDocEmissao] = useState(motorista?.doc_id_emissao ?? "");
+  // O emissor não tem campo no ecrã: só o que a IA lê segue para a ficha (F306).
+  const [docEmissor, setDocEmissor] = useState("");
+  // O n.º a que a data e o emissor pertencem: o da ficha, depois o da última leitura
+  // (ou o do ecrã quando a data é escrita à mão). No F306 vão ao lado do número.
+  const numeroDaEmissaoRef = useRef(motorista?.doc_id_numero ?? "");
   const [cartaNumero, setCartaNumero] = useState(motorista?.carta_numero ?? "");
   const [cartaValidade, setCartaValidade] = useState(motorista?.carta_validade ?? "");
   const [morada, setMorada] = useState(motorista?.morada_linha1 ?? "");
@@ -162,6 +171,16 @@ export default function CapturaEntrega({
   const temIdentidade = temDocExistente || !!docsKyc.identidade;
   const temCarta = temDocExistente || !!docsKyc.carta_frente;
 
+  // Outro n.º (lido ou escrito à mão): a data e o emissor eram do documento anterior e,
+  // no F306, iam ao lado do n.º novo. Limpam-se à vista — o gestor volta a escrever a data.
+  const mudarDocNumero = (novo: string) => {
+    if (!mesmoDocumento(novo, numeroDaEmissaoRef.current)) {
+      setDocEmissao("");
+      setDocEmissor("");
+    }
+    setDocNumero(novo);
+  };
+
   // OCR (Gemini) do grupo — auto-preenche os campos, como no link do motorista.
   const analisarGrupoKyc = async (grupo: "identidade" | "carta", docs: Record<string, string>) => {
     const slots = grupo === "identidade" ? ["identidade", "identidade_verso"] : ["carta_frente", "carta_verso"];
@@ -174,8 +193,15 @@ export default function CapturaEntrega({
       if (grupo === "identidade") {
         if (c.nome) setNomeKyc((prev) => prev || c.nome!);
         if (c.nif) setNif(c.nif.replace(/\D/g, ""));
-        if (c.doc_id_numero) setDocNumero(c.doc_id_numero);
+        if (c.doc_id_numero) {
+          mudarDocNumero(c.doc_id_numero);
+          numeroDaEmissaoRef.current = c.doc_id_numero;
+        }
         if (c.doc_id_validade) setDocValidade(c.doc_id_validade);
+        // Uma data que não existe ficava invisível no input e seguia na mesma.
+        const emissaoLida = dataDeDocumentoValida(c.doc_id_emissao);
+        if (emissaoLida) setDocEmissao(emissaoLida);
+        if (c.doc_id_emissor) setDocEmissor(c.doc_id_emissor);
         if (c.doc_id_tipo && ["cc", "passaporte", "titulo_residencia", "aima"].includes(c.doc_id_tipo)) setDocTipo(c.doc_id_tipo);
       } else {
         if (c.carta_numero) setCartaNumero(c.carta_numero);
@@ -194,7 +220,10 @@ export default function CapturaEntrega({
           const textos = await Promise.all(files.map((f) => ocrFicheiro(f)));
           const d = interpretarDocumento(textos.join("\n"));
           if (d.nome) setNomeKyc((prev) => prev || d.nome!);
-          if (d.numero) setDocNumero(d.numero);
+          if (d.numero) {
+            mudarDocNumero(d.numero);
+            numeroDaEmissaoRef.current = d.numero;
+          }
           if (d.validade) setDocValidade(d.validade);
           if (d.tipo) setDocTipo(d.tipo);
         } catch (e) {
@@ -313,6 +342,8 @@ export default function CapturaEntrega({
           doc_id_tipo: docTipo,
           doc_id_numero: docNumero,
           doc_id_validade: docValidade || null,
+          doc_id_emissao: docEmissao || null,
+          doc_id_emissor: docEmissor || null,
           doc_paths: docPaths,
           carta_numero: cartaNumero,
           carta_validade: cartaValidade || null,
@@ -384,8 +415,10 @@ export default function CapturaEntrega({
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>NIF</span><input className={campo} value={nif} onChange={(e) => setNif(e.target.value)} inputMode="numeric" /></label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Tipo de documento</span><select className={campo} value={docTipo} onChange={(e) => setDocTipo(e.target.value)}>{DOC_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.r}</option>)}</select></label>
-            <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Nº do documento</span><input className={campo} value={docNumero} onChange={(e) => setDocNumero(e.target.value)} /></label>
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Nº do documento</span><input className={campo} value={docNumero} onChange={(e) => mudarDocNumero(e.target.value)} /></label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Validade do documento</span><input type="date" className={campo} value={docValidade} onChange={(e) => setDocValidade(e.target.value)} /></label>
+            {/* Escrita à mão, a data é do documento com o n.º que está no ecrã. */}
+            <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Emissão do documento</span><input type="date" className={campo} value={docEmissao} onChange={(e) => { setDocEmissao(e.target.value); numeroDaEmissaoRef.current = docNumero; }} /></label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Nº da carta</span><input className={campo} value={cartaNumero} onChange={(e) => setCartaNumero(e.target.value)} /></label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700"><span>Validade da carta</span><input type="date" className={campo} value={cartaValidade} onChange={(e) => setCartaValidade(e.target.value)} /></label>
             <label className="block space-y-1.5 text-sm font-medium text-slate-700 sm:col-span-2"><span>Morada</span><input className={campo} value={morada} onChange={(e) => setMorada(e.target.value)} /></label>

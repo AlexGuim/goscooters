@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Proprietario } from "@/types/db";
+import type { DocIdTipo, Proprietario, TipoPessoa } from "@/types/db";
 import { Botao, Badge, AcoesMenu, Modal, campo, etiqueta, type AcaoMenu } from "@/components/ui";
 import {
   criarProprietario,
@@ -210,6 +210,7 @@ function FormProprietario({
   const aEditar = Boolean(dono);
   const [ehGo, setEhGo] = useState(dono?.eh_goscooters ?? false);
   const [recebeDireto, setRecebeDireto] = useState(dono?.recebe_pagamento_direto ?? false);
+  const [tipoPessoa, setTipoPessoa] = useState<TipoPessoa>(dono?.tipo_pessoa ?? "singular");
   const [aGravar, setAGravar] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -234,7 +235,35 @@ function FormProprietario({
       tipo_parceiro: String(dados.get("tipo_parceiro") ?? "gerido") as
         | "gerido"
         | "anunciante",
+      tipo_pessoa: tipoPessoa,
+      morada: String(dados.get("morada") ?? "").trim() || null,
     };
+
+    // Documento e carta do dono singular, para o F306 das coimas (fase16). Só
+    // seguem quando mudam: assim um parceiro edita-se antes de a migração correr.
+    const singular = tipoPessoa === "singular";
+    const docNumero = singular ? String(dados.get("doc_id_numero") ?? "").trim() || null : null;
+    const docTipo = docNumero ? (String(dados.get("doc_id_tipo") ?? "cc") as DocIdTipo) : null;
+    const carta = singular ? String(dados.get("carta_numero") ?? "").trim() || null : null;
+    const identificacao: Partial<
+      Pick<
+        Proprietario,
+        "titular_nome" | "doc_id_tipo" | "doc_id_numero" | "doc_id_emissao" | "doc_id_emissor" | "carta_numero"
+      >
+    > = {};
+    // O titular também só aparece na pessoa singular. Numa sociedade o campo está
+    // escondido e não segue: esconder um campo não apaga o que está gravado.
+    if (singular) {
+      const titular = String(dados.get("titular_nome") ?? "").trim() || null;
+      if (titular !== (dono?.titular_nome ?? null)) identificacao.titular_nome = titular;
+    }
+    if (docTipo !== (dono?.doc_id_tipo ?? null)) identificacao.doc_id_tipo = docTipo;
+    if (docNumero !== (dono?.doc_id_numero ?? null)) identificacao.doc_id_numero = docNumero;
+    if (carta !== (dono?.carta_numero ?? null)) identificacao.carta_numero = carta;
+    const docEmissao = docNumero ? String(dados.get("doc_id_emissao") ?? "").trim() || null : null;
+    const docEmissor = docNumero ? String(dados.get("doc_id_emissor") ?? "").trim() || null : null;
+    if (docEmissao !== (dono?.doc_id_emissao ?? null)) identificacao.doc_id_emissao = docEmissao;
+    if (docEmissor !== (dono?.doc_id_emissor ?? null)) identificacao.doc_id_emissor = docEmissor;
 
     if (!campos.nome) {
       setErro("Nome é obrigatório.");
@@ -243,19 +272,26 @@ function FormProprietario({
     }
 
     const r = aEditar
-      ? await atualizarProprietario(dono!.id, campos)
-      : await criarProprietario(campos);
+      ? await atualizarProprietario(dono!.id, { ...campos, ...identificacao })
+      : await criarProprietario({ ...campos, ...identificacao });
     setAGravar(false);
+    const idCriado = aEditar ? undefined : (r as { id?: string }).id;
 
-    if (!r.success) {
+    // Criado sem a identificação: a ficha já existe, por isso volta à lista com o
+    // aviso — carregar outra vez em "Criar" duplicava o proprietário.
+    if (!r.success && !idCriado) {
       setErro(r.error ?? "Erro ao gravar.");
       return;
     }
+    if (!r.success) alert(r.error ?? "A identificação para as coimas não ficou gravada.");
 
     onSaved({
       ...(dono ?? ({ num_veiculos: 0 } as ProprietarioComContagem)),
       ...(campos as Partial<Proprietario>),
-      id: aEditar ? dono!.id : (r as { id?: string }).id ?? "",
+      // Outro n.º de documento sem data nem emissor novos: o servidor apagou os do anterior.
+      ...(r.success && "doc_id_numero" in identificacao ? { doc_id_emissao: null, doc_id_emissor: null } : {}),
+      ...(r.success ? identificacao : {}),
+      id: aEditar ? dono!.id : idCriado ?? "",
       comissao_modelo: "percentagem",
     } as ProprietarioComContagem);
   };
@@ -291,6 +327,84 @@ function FormProprietario({
               <input className={campo} name="iban" defaultValue={dono?.iban ?? ""} />
             </label>
           </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={etiqueta}>
+              <span>Tipo de pessoa</span>
+              <select
+                className={campo}
+                value={tipoPessoa}
+                onChange={(e) => setTipoPessoa(e.target.value as TipoPessoa)}
+              >
+                <option value="singular">Singular (particular ou ENI)</option>
+                <option value="coletiva">Coletiva (sociedade)</option>
+              </select>
+            </label>
+            <label className={etiqueta}>
+              <span>Morada</span>
+              <input className={campo} name="morada" defaultValue={dono?.morada ?? ""} />
+            </label>
+          </div>
+
+          {tipoPessoa === "singular" ? (
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">
+                Para as coimas: com a mota em nome de um particular, o F306 da ANSR leva o
+                documento de identificação e a carta de condução do titular.
+              </p>
+              <label className={etiqueta}>
+                <span>Titular no registo das motas</span>
+                <input
+                  className={campo}
+                  name="titular_nome"
+                  defaultValue={dono?.titular_nome ?? ""}
+                  placeholder="Só se não for o nome acima — ex.: o nome do dono da GoScooters"
+                />
+                <span className="text-xs text-slate-500">
+                  O NIF (acima), o documento e a carta (abaixo) têm de ser os do titular: o F306 identifica-o com o NIF desta ficha.
+                </span>
+              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={etiqueta}>
+                  <span>Documento</span>
+                  <select className={campo} name="doc_id_tipo" defaultValue={dono?.doc_id_tipo ?? "cc"}>
+                    <option value="cc">Cartão de Cidadão</option>
+                    <option value="passaporte">Passaporte</option>
+                    <option value="titulo_residencia">Título de residência</option>
+                    <option value="aima">Documento AIMA</option>
+                  </select>
+                </label>
+                <label className={etiqueta}>
+                  <span>N.º do documento</span>
+                  <input className={campo} name="doc_id_numero" defaultValue={dono?.doc_id_numero ?? ""} />
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={etiqueta}>
+                  <span>Emitido em</span>
+                  <input className={campo} type="date" name="doc_id_emissao" defaultValue={dono?.doc_id_emissao ?? ""} />
+                </label>
+                <label className={etiqueta}>
+                  <span>Emissor</span>
+                  <input
+                    className={campo}
+                    name="doc_id_emissor"
+                    defaultValue={dono?.doc_id_emissor ?? ""}
+                    placeholder="Ex.: Brasil, República Portuguesa"
+                  />
+                </label>
+              </div>
+              <label className={etiqueta}>
+                <span>N.º da carta de condução</span>
+                <input className={campo} name="carta_numero" defaultValue={dono?.carta_numero ?? ""} />
+              </label>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Numa sociedade, o F306 das coimas é assinado pelo representante legal, com a
+              identificação dele e o código da certidão permanente.
+            </p>
+          )}
 
           <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <input
