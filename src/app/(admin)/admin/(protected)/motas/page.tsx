@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdmin } from "@/lib/dal";
-import { hojeEmLisboa } from "@/lib/datas";
+import { dataDeHojeEmLisboa } from "@/lib/datas";
 import { linhasOleoDaFrota, type LinhaOleoFrota } from "@/lib/manutencao/dados";
 import type { Moto, Proprietario } from "@/types/db";
 import MotasAbas from "./MotasAbas";
@@ -26,7 +26,7 @@ async function getDados(): Promise<{
  */
 async function getOleo(motas: Moto[]): Promise<LinhaOleoFrota[] | null> {
   try {
-    return await linhasOleoDaFrota(motas, hojeEmLisboa());
+    return await linhasOleoDaFrota(motas, dataDeHojeEmLisboa());
   } catch (erro) {
     console.error("getOleo:", erro);
     return null;

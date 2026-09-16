@@ -66,13 +66,6 @@ export function dataDeHojeEmLisboa(agora: Date = new Date()): string {
 export function mesDeHojeEmLisboa(agora: Date = new Date()): string {
   return dataDeHojeEmLisboa(agora).slice(0, 7);
 
-/**
- * O mesmo que dataDeHojeEmLisboa. Fica como ponte enquanto a manutenção passa a
- * chamar a função com o nome novo; apaga-se a seguir.
- */
-export function hojeEmLisboa(agora: Date = new Date()): string {
-  return dataDeHojeEmLisboa(agora);
-}
 }
 
 /**

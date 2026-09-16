@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAdminForAction } from "@/lib/dal";
 import { criarManutencao } from "@/actions/frotaSaudeActions";
-import { dataBR, hojeEmLisboa } from "@/lib/datas";
+import { dataBR, dataDeHojeEmLisboa } from "@/lib/datas";
 import { entradaOleo, lerDadosOleo } from "@/lib/manutencao/dados";
 import {
   avaliarOleo,
@@ -53,7 +53,7 @@ export async function registarOleoTrocado(input: OleoTrocadoInput): Promise<Oleo
   if (!UUID.test(motoId)) return { success: false, error: "Mota inválida." };
 
   const data = String(input.data ?? "").slice(0, 10);
-  const hoje = hojeEmLisboa();
+  const hoje = dataDeHojeEmLisboa();
   if (!ehDataReal(data)) return { success: false, error: "Data inválida." };
   if (data > hoje) return { success: false, error: "A troca não pode ficar numa data futura." };
 

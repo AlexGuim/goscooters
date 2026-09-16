@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Botao, classesBotao, AcoesMenu, Modal, type AcaoMenu } from "@/components/ui";
-import { dataBR, hojeEmLisboa } from "@/lib/datas";
+import { dataBR, dataDeHojeEmLisboa } from "@/lib/datas";
 import {
   avisoDoKmConfirmado,
   dataDaLeituraDeRecolha,
@@ -412,7 +412,7 @@ function TerminarContratoModal({
   onClose: () => void;
   onTerminado: (dataFim: string) => void;
 }) {
-  const [hoje] = useState(() => hojeEmLisboa());
+  const [hoje] = useState(() => dataDeHojeEmLisboa());
   const [dataFim, setDataFim] = useState(hoje);
   const [kmEscrito, setKmEscrito] = useState("");
   const [ultimaLeitura, setUltimaLeitura] = useState<{ km: number; data: string } | null>(null);

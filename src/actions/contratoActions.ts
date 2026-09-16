@@ -7,7 +7,7 @@ import { notificar } from "@/lib/notificacoes";
 import { ocuparMota, libertarMota } from "@/lib/motaEstado";
 import { hrefJornada } from "@/lib/jornada";
 import { contratoAbertoDe, type ContratoAberto } from "@/lib/contratoAberto";
-import { hojeEmLisboa } from "@/lib/datas";
+import { dataDeHojeEmLisboa } from "@/lib/datas";
 import { entradaOleo, lerDadosOleo } from "@/lib/manutencao/dados";
 import {
   avaliarOleo,
@@ -449,7 +449,7 @@ export async function ultimaLeituraDaMotaDoContrato(
   if (!c?.veiculo_id) return null;
 
   try {
-    const conta = await contaKmDaMota(c.veiculo_id, hojeEmLisboa());
+    const conta = await contaKmDaMota(c.veiculo_id, dataDeHojeEmLisboa());
     return conta?.ultimaValida ?? null;
   } catch (erro) {
     console.error("ultimaLeituraDaMotaDoContrato:", erro);
@@ -510,7 +510,7 @@ export async function terminarContrato(
   // Nota de segurança: uma Server Action é um endpoint HTTP público, por isso o
   // km é validado aqui outra vez — o ecrã pode ser contornado.
   const km = opcoes?.km == null ? null : Number(opcoes.km);
-  const dataLeitura = dataDaLeituraDeRecolha(dataFim, hojeEmLisboa());
+  const dataLeitura = dataDaLeituraDeRecolha(dataFim, dataDeHojeEmLisboa());
   let porGravar: number | null = null;
   let kmGravado: number | null = null;
   if (km != null) {
@@ -519,7 +519,7 @@ export async function terminarContrato(
     }
     let decisao: DecisaoKmRecolha;
     try {
-      const conta = await contaKmDaMota(c.veiculo_id, hojeEmLisboa());
+      const conta = await contaKmDaMota(c.veiculo_id, dataDeHojeEmLisboa());
       decisao = decidirKmDaRecolha({
         km,
         data: dataLeitura,

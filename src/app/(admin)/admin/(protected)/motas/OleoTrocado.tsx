@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { registarOleoTrocado } from "@/actions/manutencaoActions";
 import { avisoDoKmConfirmado, formatarKm, lerKmEscrito, validarKmManual } from "@/lib/manutencao/oleo";
-import { dataBR, hojeEmLisboa } from "@/lib/datas";
+import { dataBR, dataDeHojeEmLisboa } from "@/lib/datas";
 import { Botao, Modal, campo, etiqueta } from "@/components/ui";
 
 /**
@@ -30,7 +30,7 @@ export function OleoTrocadoCartao({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [hoje] = useState(() => hojeEmLisboa());
+  const [hoje] = useState(() => dataDeHojeEmLisboa());
   const [data, setData] = useState(hoje);
   const [kmEscrito, setKmEscrito] = useState("");
   const [confirmo, setConfirmo] = useState(false);

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/dal";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { dataBR, hojeEmLisboa } from "@/lib/datas";
+import { dataBR, dataDeHojeEmLisboa } from "@/lib/datas";
 import { documentoDoDetalhe } from "@/lib/documentoDespesa";
 import { urlsDocumentosParaAdmin } from "@/lib/documentoDespesaServidor";
 import { entradaOleo, lerDadosOleo } from "@/lib/manutencao/dados";
@@ -65,7 +65,7 @@ export default async function MotaPage({
 
   const erroManutencao = dadosDaFrota === null;
   const dados = dadosDaFrota?.get(id);
-  const entrada = entradaOleo(moto, dados, hojeEmLisboa());
+  const entrada = entradaOleo(moto, dados, dataDeHojeEmLisboa());
   const oleo = avaliarOleo(entrada);
   // Da mais recente para a mais antiga: o que interessa ver primeiro é o último
   // serviço. A ordem do cálculo (por km e data) mantém-se, só invertida.
