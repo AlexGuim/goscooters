@@ -40,15 +40,8 @@ export default async function BlocoNumeros() {
     { rotulo: "Contratos ativos", n: n.ativos, href: "/admin/contratos", cor: "text-slate-950" },
   ];
 
-  const partes: string[] = [];
-  if (n.por_resolver)
-    partes.push(`${n.por_resolver} ${n.por_resolver === 1 ? "ação por resolver" : "ações por resolver"}`);
-  if (n.em_atraso) partes.push(`${n.em_atraso} em atraso`);
-  const resumo = partes.length ? partes.join(" · ") : "Sem pendências — está tudo em dia.";
-
   return (
     <Bloco titulo="Números">
-      <p className="mb-3 text-sm text-slate-600">{resumo}</p>
       <div className={GRELHA}>
         {cartoes.map((c) => (
           <Link
@@ -68,7 +61,6 @@ export default async function BlocoNumeros() {
 export function EsqueletoNumeros() {
   return (
     <Bloco titulo="Números">
-      <Barra className="mb-3 h-5 w-56" />
       <div className={GRELHA}>
         {[0, 1, 2, 3, 4].map((i) => (
           <CartaoVazio key={i} altura={ALTURA_CARTAO}>

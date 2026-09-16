@@ -91,7 +91,12 @@ export interface NumerosDoInicio {
  * rascunhos, que é o filtro `preenchimento` de ContratosList. Antes dizia
  * «Pré-contratos» e contava só metade — clicava-se no 3 e apareciam 5.
  */
-export async function lerNumeros(): Promise<NumerosDoInicio> {
+/**
+ * Com o `cache` do React, a frase da faixa do topo e o bloco Números partilham
+ * esta leitura dentro do mesmo pedido, em vez de a fazerem duas vezes
+ * (guia do Next 16: 01-getting-started/06-fetching-data.md).
+ */
+export const lerNumeros = cache(async (): Promise<NumerosDoInicio> => {
   const contarContratos = (estados: ContratoEstado[]) =>
     supabaseAdmin.from("contrato_aluguer").select("id", { count: "exact", head: true }).in("estado", estados);
 
@@ -113,7 +118,7 @@ export async function lerNumeros(): Promise<NumerosDoInicio> {
     por_recolher: contagem("os contratos por recolher", porRecolher),
     ativos: contagem("os contratos ativos", ativos),
   };
-}
+});
 
 /** As notificações por resolver, as mais recentes primeiro. */
 export async function lerNotificacoes(limite = 50): Promise<Notificacao[]> {

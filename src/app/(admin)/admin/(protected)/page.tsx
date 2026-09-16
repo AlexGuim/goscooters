@@ -4,6 +4,7 @@ import { HeroMarca } from "@/components/HeroMarca";
 import { saudacaoLisboa } from "@/lib/datas";
 import { lerEscolhaDoInicio, type IdBloco } from "@/lib/inicioBlocos";
 import PersonalizarInicio from "./inicio/Personalizar";
+import ResumoDoDia from "./inicio/ResumoDoDia";
 import BlocoNumeros, { EsqueletoNumeros } from "./inicio/Numeros";
 import BlocoCobranca, { EsqueletoCobranca } from "./inicio/Cobranca";
 import BlocoResultado, { EsqueletoResultado } from "./inicio/Resultado";
@@ -47,6 +48,11 @@ export default async function AdminInicio() {
       <HeroMarca
         eyebrow={data}
         titulo={saudacao}
+        subtitulo={
+          <Suspense fallback={null}>
+            <ResumoDoDia />
+          </Suspense>
+        }
         acao={<PersonalizarInicio inicial={escolha} />}
       />
 
