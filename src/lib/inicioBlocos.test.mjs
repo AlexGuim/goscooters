@@ -4,14 +4,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BLOCOS_INICIO, MAX_BLOCOS, blocosPorOmissao } from "./inicioBlocos.ts";
 
-test("a ordem de fábrica começa nos Números e acaba na caixa de próxima ação", () => {
-  const ids = blocosPorOmissao().map((b) => b.id);
-  assert.equal(ids[0], "numeros");
-  assert.equal(ids[ids.length - 1], "acao");
+test("a ordem de fábrica é Números → Cobrança → Resultado → Caixa de próxima ação", () => {
+  assert.deepEqual(
+    blocosPorOmissao().map((b) => b.id),
+    ["numeros", "cobranca", "resultado", "acao"],
+  );
 });
 
-test("os Números e a caixa ocupam a largura toda", () => {
+test("por omissão a Cobrança e o Resultado são meias — é assim que ficam lado a lado", () => {
   const largura = Object.fromEntries(blocosPorOmissao().map((b) => [b.id, b.largura]));
+  assert.equal(largura.cobranca, "meia");
+  assert.equal(largura.resultado, "meia");
   assert.equal(largura.numeros, "toda");
   assert.equal(largura.acao, "toda");
 });

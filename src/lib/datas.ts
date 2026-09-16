@@ -43,21 +43,28 @@ export function saudacaoLisboa(agora: Date = new Date()): { saudacao: string; da
 }
 
 /**
- * O mês de hoje em Lisboa, "AAAA-MM" — é ele que decide qual é o mês «em curso».
+ * O dia de hoje em Lisboa, "AAAA-MM-DD" — a base de tudo o que tem de saber em
+ * que dia (ou mês, ou semana) estamos.
  *
- * O servidor corre em UTC: no dia 1 à meia-noite e meia de Lisboa, em UTC ainda
- * é o mês anterior, e o ecrã punha a etiqueta no mês errado. Vai buscar as
- * partes da data ao próprio Intl (`formatToParts`) em vez de partir uma string
- * formatada, cujo formato ninguém garante de versão para versão.
+ * O servidor corre em UTC: à meia-noite e meia de Lisboa, em UTC ainda é ontem,
+ * e os ecrãs punham as etiquetas no dia errado. Vai buscar as partes da data ao
+ * próprio Intl (`formatToParts`) em vez de partir uma string formatada, cujo
+ * formato ninguém garante de versão para versão.
  */
-export function mesDeHojeEmLisboa(agora: Date = new Date()): string {
+export function dataDeHojeEmLisboa(agora: Date = new Date()): string {
   const partes = new Intl.DateTimeFormat("pt-PT", {
     timeZone: "Europe/Lisbon",
     year: "numeric",
     month: "2-digit",
+    day: "2-digit",
   }).formatToParts(agora);
-  const parte = (tipo: "year" | "month") => partes.find((p) => p.type === tipo)?.value ?? "";
-  return `${parte("year")}-${parte("month")}`;
+  const parte = (tipo: "year" | "month" | "day") => partes.find((p) => p.type === tipo)?.value ?? "";
+  return `${parte("year")}-${parte("month")}-${parte("day")}`;
+}
+
+/** O mês de hoje em Lisboa, "AAAA-MM" — é ele que decide qual é o mês «em curso». */
+export function mesDeHojeEmLisboa(agora: Date = new Date()): string {
+  return dataDeHojeEmLisboa(agora).slice(0, 7);
 }
 
 /**
@@ -149,4 +156,20 @@ export function semanasDoMes(competencia: string): SemanaDoMes[] {
     });
   }
   return semanas;
+}
+
+/**
+ * A semana de calendário (domingo→sábado) em que hoje estamos, em Lisboa.
+ *
+ * É a MESMA semana da folha de conferência da Cobrança (`limitesSemana`, em
+ * CobrancasList): lá o domingo sai do relógio do browser, aqui do relógio de
+ * Lisboa — para o Início não mudar de semana só porque o servidor está em UTC.
+ */
+export function semanaDeHojeEmLisboa(agora: Date = new Date()): { de: string; ate: string } {
+  const [ano, mes, dia] = dataDeHojeEmLisboa(agora).split("-").map(Number);
+  const domingo = new Date(Date.UTC(ano, mes - 1, dia));
+  domingo.setUTCDate(domingo.getUTCDate() - domingo.getUTCDay()); // getUTCDay: 0 = domingo
+  const sabado = new Date(domingo);
+  sabado.setUTCDate(domingo.getUTCDate() + 6);
+  return { de: iso(domingo), ate: iso(sabado) };
 }

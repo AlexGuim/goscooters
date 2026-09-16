@@ -7,12 +7,13 @@
  * Início» percorre-a para oferecer uma linha por bloco.
  *
  * `toda` ocupa a largura inteira; `meia` ocupa metade no computador e a largura
- * toda no telemóvel — dois blocos meios ficam lado a lado.
+ * toda no telemóvel. Por omissão a Cobrança e o Resultado são meias — é assim
+ * que ficam lado a lado no computador.
  *
  * Pura, sem Supabase nem Next — testada em inicioBlocos.test.mjs.
  */
 
-export type IdBloco = "numeros" | "acao";
+export type IdBloco = "numeros" | "cobranca" | "resultado" | "acao";
 export type LarguraBloco = "meia" | "toda";
 
 export interface BlocoDoInicio {
@@ -23,9 +24,11 @@ export interface BlocoDoInicio {
   visivel: boolean;
 }
 
-/** O catálogo, pela ordem de fábrica. */
+/** O catálogo, pela ordem de fábrica: Números → Cobrança → Resultado → Caixa. */
 export const BLOCOS_INICIO: readonly { id: IdBloco; rotulo: string; largura: LarguraBloco }[] = [
   { id: "numeros", rotulo: "Números", largura: "toda" },
+  { id: "cobranca", rotulo: "Cobrança", largura: "meia" },
+  { id: "resultado", rotulo: "Resultado", largura: "meia" },
   { id: "acao", rotulo: "Caixa de próxima ação", largura: "toda" },
 ];
 

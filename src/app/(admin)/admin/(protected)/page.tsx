@@ -4,6 +4,8 @@ import { HeroMarca } from "@/components/HeroMarca";
 import { saudacaoLisboa } from "@/lib/datas";
 import { blocosPorOmissao, type IdBloco } from "@/lib/inicioBlocos";
 import BlocoNumeros, { EsqueletoNumeros } from "./inicio/Numeros";
+import BlocoCobranca, { EsqueletoCobranca } from "./inicio/Cobranca";
+import BlocoResultado, { EsqueletoResultado } from "./inicio/Resultado";
 import BlocoProximaAcao, { EsqueletoProximaAcao } from "./inicio/ProximaAcao";
 
 /**
@@ -22,6 +24,8 @@ import BlocoProximaAcao, { EsqueletoProximaAcao } from "./inicio/ProximaAcao";
 /** O conteúdo e o esqueleto de cada bloco do catálogo. */
 const BLOCOS: Record<IdBloco, { Conteudo: () => ReactNode | Promise<ReactNode>; Esqueleto: () => ReactNode }> = {
   numeros: { Conteudo: BlocoNumeros, Esqueleto: EsqueletoNumeros },
+  cobranca: { Conteudo: BlocoCobranca, Esqueleto: EsqueletoCobranca },
+  resultado: { Conteudo: BlocoResultado, Esqueleto: EsqueletoResultado },
   acao: { Conteudo: BlocoProximaAcao, Esqueleto: EsqueletoProximaAcao },
 };
 
