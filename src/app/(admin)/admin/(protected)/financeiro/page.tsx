@@ -51,16 +51,15 @@ export default async function FinanceiroPage({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-5">
-        <Kpi rotulo="Receita GoScooters" valor={total.receita_gs} cor="text-emerald-700" forte />
-        <Kpi rotulo="Entrou em caixa" valor={total.receita_em_caixa} cor="text-slate-900" />
-        <Kpi rotulo="Custos da frota e da empresa" valor={-total.despesas_gs} cor="text-red-600" />
-        <Kpi rotulo="Resultado" valor={total.resultado} cor={total.resultado >= 0 ? "text-emerald-700" : "text-red-600"} forte />
-        <Kpi rotulo="Turnover (renda cobrada)" valor={total.turnover} cor="text-slate-500" />
-      </div>
+      {/* A tabela em baixo já traz a receita, os custos e o resultado, com o Total no
+          rodapé: os cartões que estavam aqui repetiam-nos e somavam os dois custos
+          num número que a tabela nunca mostra. Ficam os dois números que só existem
+          aqui, em texto. */}
       <p className="text-xs text-slate-500">
-        <strong>Turnover</strong> é a renda bruta que passou pela operação (memorando) — não é
-        receita da casa. A <strong>Receita GoScooters</strong> é só a comissão + a renda da frota própria.
+        Em {ano}, <strong>{formatarPreco(total.receita_em_caixa)}</strong> da receita entraram mesmo
+        na conta da GoScooters (frota própria e renda que a casa cobrou); o resto está ganho, mas só
+        chega pelos acertos com os parceiros. O <strong>turnover</strong> — a renda bruta que passou
+        pela operação, {formatarPreco(total.turnover)} — é memorando: não é receita da casa.
       </p>
 
       <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
@@ -134,15 +133,6 @@ export default async function FinanceiroPage({
           )}
         </table>
       </div>
-    </div>
-  );
-}
-
-function Kpi({ rotulo, valor, cor, forte }: { rotulo: string; valor: number; cor: string; forte?: boolean }) {
-  return (
-    <div className={`rounded-3xl bg-white p-5 shadow-sm ${forte ? "ring-1 ring-emerald-100" : ""}`}>
-      <p className="text-xs text-slate-500">{rotulo}</p>
-      <p className={`mt-1 ${forte ? "text-2xl" : "text-xl"} font-bold ${cor}`}>{formatarPreco(valor)}</p>
     </div>
   );
 }
