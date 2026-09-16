@@ -21,6 +21,7 @@ import { Badge, Cartao } from "@/components/ui";
 import BadgeOleo from "../BadgeOleo";
 import { BotaoOleoTrocado } from "../OleoTrocado";
 import ApagarManutencao from "./ApagarManutencao";
+import RegistarServico from "./RegistarServico";
 
 /**
  * A página de uma mota: o km, o estado do óleo e tudo o que já se lhe fez.
@@ -148,7 +149,12 @@ export default async function MotaPage({
           </div>
 
           <Cartao>
-            <h2 className="text-lg font-semibold text-slate-950">Histórico</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-950">Histórico</h2>
+              <RegistarServico
+                mota={{ id: moto.id, matricula: moto.matricula, modelo: moto.modelo, ultimaLeitura: ultima }}
+              />
+            </div>
             {historico.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">Sem manutenções registadas.</p>
             ) : (

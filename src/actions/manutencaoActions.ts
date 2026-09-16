@@ -7,11 +7,13 @@ import { criarManutencao } from "@/actions/frotaSaudeActions";
 import { dataBR, dataDeHojeEmLisboa } from "@/lib/datas";
 import { entradaOleo, lerDadosOleo } from "@/lib/manutencao/dados";
 import {
+  TIPOS_DE_SERVICO,
   avaliarOleo,
   leituraJaRegistada,
   textoAposOleoTrocado,
   validarKmManual,
 } from "@/lib/manutencao/oleo";
+import type { ManutencaoTipo } from "@/types/db";
 
 /**
  * «Óleo trocado»: a rotina do dia a dia da manutenção. Uma linha de manutenção do
@@ -137,4 +139,101 @@ export async function registarOleoTrocado(input: OleoTrocadoInput): Promise<Oleo
   revalidatePath("/admin/motas");
   revalidatePath(`/admin/motas/${motoId}`);
   return { success: true, mensagem: textoAposOleoTrocado(depois), aviso };
+}
+
+/**
+ * «Registar serviço»: a manutenção que não é óleo — pneus, travões, revisão,
+ * inspeção. O óleo tem o seu próprio botão, porque é o que gera os alertas.
+ *
+ * A fatura da oficina continua a ser o caminho normal (entra por Documentos);
+ * isto é para o que se faz e ainda não tem papel, ou não vai ter.
+ */
+
+export type ServicoInput = {
+  motoId: string;
+  tipo: ManutencaoTipo;
+  /** AAAA-MM-DD. */
+  data: string;
+  km: number | null;
+  notas?: string | null;
+  confirmoKm?: boolean;
+};
+
+export type ServicoResultado =
+  | { success: true; aviso?: string }
+  | { success: false; error: string; confirmar?: boolean };
+
+export async function registarServico(input: ServicoInput): Promise<ServicoResultado> {
+  const auth = await requireAdminForAction();
+  if (!auth.ok) return { success: false, error: auth.error };
+
+  const motoId = String(input.motoId ?? "");
+  if (!UUID.test(motoId)) return { success: false, error: "Mota inválida." };
+
+  const tipo = input.tipo;
+  if (!TIPOS_DE_SERVICO.includes(tipo)) {
+    return { success: false, error: "Serviço inválido. O óleo regista-se em «Óleo trocado»." };
+  }
+
+  const data = String(input.data ?? "").slice(0, 10);
+  const hoje = dataDeHojeEmLisboa();
+  if (!ehDataReal(data)) return { success: false, error: "Data inválida." };
+  if (data > hoje) return { success: false, error: "O serviço não pode ficar numa data futura." };
+
+  const km = input.km == null ? null : Number(input.km);
+  const notas = (input.notas ?? "").trim().slice(0, 500) || null;
+
+  const { data: moto, error: erroMoto } = await supabaseAdmin
+    .from("moto")
+    .select("id, matricula, modelo, estado_operacional")
+    .eq("id", motoId)
+    .maybeSingle();
+  if (erroMoto) {
+    console.error("registarServico moto:", erroMoto);
+    return { success: false, error: "Erro ao ler a mota." };
+  }
+  if (!moto) return { success: false, error: "Mota não encontrada." };
+
+  let dados;
+  try {
+    dados = (await lerDadosOleo(motoId)).get(motoId);
+  } catch (erro) {
+    console.error("registarServico dados:", erro);
+    return { success: false, error: "Erro ao ler a manutenção desta mota." };
+  }
+  const entrada = entradaOleo(moto, dados, hoje);
+  const antes = avaliarOleo(entrada);
+
+  if (km != null) {
+    const validacao = validarKmManual(km, data, antes.km.ultimaValida);
+    if (validacao.resultado === "invalido") return { success: false, error: validacao.motivo };
+    if (validacao.resultado === "precisa_confirmacao" && !input.confirmoKm) {
+      return { success: false, error: validacao.motivo, confirmar: true };
+    }
+  }
+
+  const criada = await criarManutencao({
+    veiculo_id: motoId,
+    tipo,
+    data,
+    km,
+    observacoes: notas,
+    origem: "manual",
+  });
+  if (!criada.success) return { success: false, error: criada.error ?? "Erro ao gravar o serviço." };
+
+  let aviso: string | undefined;
+  if (km != null && !leituraJaRegistada(entrada.leituras, km, data)) {
+    const { error } = await supabaseAdmin
+      .from("km_registo")
+      .insert({ veiculo_id: motoId, km, data, fonte: "manutencao" });
+    if (error) {
+      console.error("registarServico km_registo:", error);
+      aviso = "O serviço ficou registado, mas não consegui gravar a leitura de km.";
+    }
+  }
+
+  revalidatePath("/admin/motas");
+  revalidatePath(`/admin/motas/${motoId}`);
+  return { success: true, aviso };
 }

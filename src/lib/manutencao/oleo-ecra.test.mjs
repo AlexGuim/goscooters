@@ -9,6 +9,8 @@ import {
   avisoDoKmConfirmado,
   lerKmEscrito,
   leituraJaRegistada,
+  ROTULO_TIPO,
+  TIPOS_DE_SERVICO,
   rotuloEstadoOleo,
   textoAposOleoTrocado,
   textoEstadoOleo,
@@ -237,4 +239,10 @@ test("sem regra ou com a mota inativa, diz-se porque não há próxima", () => {
     manutencoes: [troca(0, 41000)],
   });
   assert.equal(textoAposOleoTrocado(inativa), "Sem próxima troca prevista enquanto a mota estiver inativa");
+});
+
+test("os serviços que se registam à mão não incluem o óleo", () => {
+  assert.equal(TIPOS_DE_SERVICO.includes("oleo"), false, "o óleo tem o seu botão");
+  assert.ok(TIPOS_DE_SERVICO.length >= 6);
+  for (const tipo of TIPOS_DE_SERVICO) assert.ok(ROTULO_TIPO[tipo], tipo);
 });

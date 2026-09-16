@@ -501,7 +501,7 @@ export type LinhaHistorico = {
   kmRegistadoSuspeito: number | null;
 };
 
-const ROTULO_TIPO: Record<ManutencaoTipo, string> = {
+export const ROTULO_TIPO: Record<ManutencaoTipo, string> = {
   revisao: "Revisão",
   oleo: "Óleo do motor",
   pneu_frente: "Pneu (frente)",
@@ -512,6 +512,18 @@ const ROTULO_TIPO: Record<ManutencaoTipo, string> = {
   inspecao: "Inspeção",
   outro: "Outro",
 };
+
+/** Os serviços que se registam à mão na ficha da mota. O óleo tem o seu botão. */
+export const TIPOS_DE_SERVICO: readonly ManutencaoTipo[] = [
+  "revisao",
+  "pneu_frente",
+  "pneu_tras",
+  "pneus",
+  "travoes",
+  "corrente",
+  "inspecao",
+  "outro",
+];
 
 function servicoDe(tipo: ManutencaoTipo, trocaDeOleo: boolean): string {
   if (trocaDeOleo && (tipo === "oleo" || tipo === "outro")) return "Óleo do motor";
