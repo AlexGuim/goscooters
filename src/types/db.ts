@@ -191,6 +191,16 @@ export type Proprietario = {
   telefone_e164: string | null;
   iban: string | null;
   morada: string | null;
+  // Identificação do dono para o F306 das coimas (fase16) — documento e carta como no motorista.
+  /** Nome do titular no registo das motas, quando não é o `nome` (a frota própria → o nome do dono). */
+  titular_nome: string | null;
+  doc_id_tipo: DocIdTipo | null;
+  doc_id_numero: string | null;
+  doc_id_validade: string | null;
+  doc_id_emissao: string | null;
+  doc_id_emissor: string | null;
+  carta_numero: string | null;
+  carta_validade: string | null;
   /** Frota própria do GoScooters: não gera acerto com terceiros. */
   eh_goscooters: boolean;
   /** true = a renda é paga direto na conta do parceiro (inverte o acerto). */
@@ -595,6 +605,10 @@ export type Motorista = {
   doc_id_tipo: DocIdTipo | null;
   doc_id_numero: string | null;
   doc_id_validade: string | null;
+  /** Data de emissão do documento (F306: CE art. 171.º, n.º 1, al. c)) — fase16. */
+  doc_id_emissao: string | null;
+  /** Serviço emissor do documento, como impresso — fase16. */
+  doc_id_emissor: string | null;
   doc_urls: string[] | null;
   carta_numero: string | null;
   carta_categoria: string | null;
@@ -622,6 +636,9 @@ export type Avaliacao = {
   data_aluguer: string | null;
   created_at: string;
 };
+
+// Processo do F306 de cada coima (fase16): o tipo e os rótulos vivem em ./infracao.ts.
+type Infracao = import("./infracao").Infracao;
 
 export interface Database {
   public: {
@@ -976,6 +993,20 @@ export interface Database {
         Update: Partial<Omit<EntregaSessao, "id" | "created_at">> & {
           id?: string;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      infracao: {
+        Row: Infracao;
+        Insert: Partial<Omit<Infracao, "id" | "created_at" | "updated_at">> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<Infracao, "id" | "created_at" | "updated_at">> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
