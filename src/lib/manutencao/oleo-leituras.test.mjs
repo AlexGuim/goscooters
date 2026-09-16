@@ -46,6 +46,25 @@ test("leitura anómala de 250.655 km como última: conta a anterior e fica «km 
   assert.equal(km.porConfirmar, true);
 });
 
+test("um engano para baixo no fim: o km que sobra fica «por confirmar»", () => {
+  // Nada em que apoiar o 4.123: as duas leituras anteriores caíram com o recuo.
+  const leituras = [l("2026-08-16", 41000), l("2026-09-10", 41230), l("2026-09-14", 4123)];
+  assert.deepEqual(motivos(leituras), [[41000, "recuo"], [41230, "recuo"], [4123, null]]);
+  assert.deepEqual(kmDeHoje(leituras), {
+    ultimaValida: { km: 4123, data: "2026-09-14", fonte: "manual" },
+    porConfirmar: true,
+  });
+  // Com só duas leituras é o mesmo: não se sabe qual delas está errada.
+  assert.equal(kmDeHoje([l("2026-09-01", 41230), l("2026-09-10", 100)]).porConfirmar, true);
+});
+
+test("com uma leitura válida antes, o recuo é só a gralha alta e o km de hoje mantém-se", () => {
+  // 38.000 → 250.655 → 39.900: a série continua a fazer sentido sem a do meio.
+  const leituras = [l("2026-08-01", 38000), l("2026-08-10", 250655), l("2026-08-20", 39900)];
+  assert.equal(kmDeHoje(leituras).porConfirmar, false);
+  assert.equal(kmDeHoje(leituras).ultimaValida.km, 39900);
+});
+
 test("salto: 300 km por dia desde a anterior ainda passa; 1 km a mais é suspeito", () => {
   assert.deepEqual(motivos([l("2026-09-01", 40000), l("2026-09-11", 43000)]), [[40000, null], [43000, null]]);
   assert.deepEqual(motivos([l("2026-09-01", 40000), l("2026-09-11", 43001)]), [[40000, null], [43001, "salto"]]);

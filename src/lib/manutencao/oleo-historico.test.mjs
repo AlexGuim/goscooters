@@ -126,6 +126,30 @@ test("um km suspeito (412.300) dá lugar à leitura válida do mesmo dia", () =>
   assert.equal(linha.km, 41230);
 });
 
+test("um km posto de lado por suspeito fica guardado, para a linha não ficar sem km", () => {
+  const h = historico([
+    m("a", "2026-08-01", "oleo", 30000),
+    m("b", "2026-08-20", "oleo", 35000), // não bate certo com a de 01/09
+    m("c", "2026-09-01", "oleo", 32000),
+  ]);
+  assert.deepEqual(
+    h.map((x) => [x.manutencaoId, x.km, x.kmRegistadoSuspeito]),
+    [
+      ["a", 30000, null],
+      ["b", null, 35000],
+      ["c", 32000, null],
+    ],
+  );
+});
+
+test("um km aproveitado não fica marcado como suspeito", () => {
+  const [linha] = historico([m("x", "2026-09-10", "oleo", 41230)], {
+    leituras: [{ data: "2026-09-10", km: 41230, fonte: "manutencao" }],
+  });
+  assert.equal(linha.km, 41230);
+  assert.equal(linha.kmRegistadoSuspeito, null);
+});
+
 test("uma troca a 1 dia da anterior diz «1 dia»", () => {
   const h = historico([m("a", "2026-09-01", "oleo", 40000), m("b", "2026-09-02", "oleo", 40100)]);
   assert.equal(h[1].desdeAnterior, "+100 km / 1 dia desde a anterior");

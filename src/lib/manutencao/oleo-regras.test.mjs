@@ -57,12 +57,30 @@ test("conta como troca: um sinónimo inequívoco do óleo do motor, com ou sem a
   }
 });
 
+test("conta como troca: a escrita curta da oficina, sem preposição nem acentos", () => {
+  for (const texto of [
+    "TROCA OLEO",
+    "MUDANCA OLEO",
+    "MUDANÇA ÓLEO",
+    "SUBSTITUICAO OLEO",
+    "Muda óleo",
+    "Revisão + mudança óleo",
+    "TROCA OLEO E FILTRO",
+  ]) {
+    assert.equal(origemTrocaDeOleo({ tipo: "outro", textos: [texto] }), "texto", texto);
+  }
+});
+
 test("não conta: óleo da transmissão, dos travões, o nível do óleo, ou «óleo» sozinho", () => {
   for (const texto of [
     "Óleo da transmissão",
     "Troca de óleo da transmissão",
     "Substituição do óleo da transmissão",
     "Mudança de óleo dos travões",
+    // A mesma escrita curta, mas de outra peça: continua a não contar.
+    "TROCA OLEO TRANSMISSAO",
+    "TROCA OLEO TRAVOES",
+    "MUDANCA OLEO DA TRANSMISSAO",
     "óleo travões",
     "Verificação do nível do óleo do motor",
     "Revisão geral (óleo, filtros e velas)",
@@ -75,6 +93,11 @@ test("não conta: óleo da transmissão, dos travões, o nível do óleo, ou «�
 });
 
 test("com vários sinónimos ganha o mais comprido", () => {
+  // Sem preposição a invariante mantém-se: o da transmissão é sempre mais comprido.
+  assert.deepEqual(termosDeOleo("Troca óleo transmissão"), [
+    { termo: "troca oleo transmissao", motor: false },
+  ]);
+  assert.deepEqual(termosDeOleo("Troca óleo"), [{ termo: "troca oleo", motor: true }]);
   assert.deepEqual(termosDeOleo("Troca de óleo da transmissão"), [
     { termo: "troca de oleo da transmissao", motor: false },
   ]);

@@ -200,17 +200,30 @@ export function classificarLeituras(leituras: readonly LeituraKm[]): LeituraClas
 export type KmDaMota = {
   /** A última leitura válida: é o km de hoje. Null sem leituras válidas. */
   ultimaValida: LeituraKm | null;
-  /** A última leitura é suspeita: a mota só se avalia por tempo e mostra «km por confirmar». */
+  /** O km de hoje não é de confiança: a mota só se avalia por tempo e mostra «km por confirmar». */
   porConfirmar: boolean;
 };
 
 function resumirKm(classificadas: readonly LeituraClassificada[]): KmDaMota {
   let valida: LeituraClassificada | null = null;
-  for (const l of classificadas) if (!l.suspeita) valida = l;
+  let indice = -1;
+  for (let i = 0; i < classificadas.length; i += 1) {
+    if (!classificadas[i].suspeita) {
+      valida = classificadas[i];
+      indice = i;
+    }
+  }
   const ultima = classificadas.length > 0 ? classificadas[classificadas.length - 1] : null;
+  // Um engano PARA BAIXO torna suspeitas as leituras altas que vêm antes dele, e
+  // a regra do recuo culpa sempre a alta. Quando não sobra nenhuma leitura válida
+  // antes da que ficou, não há em que apoiar esse km: tanto pode ser o engano
+  // agora como leituras a mais antes. Diz-se «km por confirmar», como na gralha
+  // para cima, em vez de dar um km baixo por certo.
+  const antes = indice > 0 ? classificadas.slice(0, indice) : [];
+  const recuoSemApoio = antes.some((l) => l.motivo === "recuo") && antes.every((l) => l.suspeita);
   return {
     ultimaValida: valida ? { km: valida.km, data: valida.data, fonte: valida.fonte ?? null } : null,
-    porConfirmar: ultima?.suspeita === true,
+    porConfirmar: ultima?.suspeita === true || recuoSemApoio,
   };
 }
 
@@ -230,9 +243,13 @@ export type ManutencaoParaOleo = {
   textos?: readonly (string | null | undefined)[];
 };
 
-/** Como se escreve a troca: «mudança de óleo», «troca do óleo», «trocar o óleo»… */
+/**
+ * Como se escreve a troca: «mudança de óleo», «troca do óleo», «trocar o óleo»…
+ * e também a escrita curta das oficinas, sem preposição («TROCA OLEO»), que é
+ * como a maior parte das faturas o diz.
+ */
 const VERBOS_TROCA = [
-  ...["mudanca", "muda", "troca", "substituicao"].flatMap((v) => [`${v} de`, `${v} do`]),
+  ...["mudanca", "muda", "troca", "substituicao"].flatMap((v) => [v, `${v} de`, `${v} do`]),
   ...["mudar", "trocar", "substituir"].flatMap((v) => [v, `${v} o`]),
 ];
 
@@ -404,6 +421,8 @@ export type AvaliacaoOleo = {
   faltaKm: number | null;
   /** Dias até à próxima troca (negativo: vencida). Null quando não há troca avaliada. */
   faltaDias: number | null;
+  /** A troca já passou (de data ou de km). Numa mota parada isso não é «Vencida», mas também não é «OK». */
+  passou: boolean;
 };
 
 /**
@@ -422,7 +441,7 @@ export function avaliarOleo(e: EntradaOleo): AvaliacaoOleo {
   const trocas = trocasDeOleo(e.manutencoes, classificadas);
   const ultimaTroca = trocas.length > 0 ? trocas[trocas.length - 1] : null;
   const regra = regraOleoDoModelo(e.modelo);
-  const semContas = { regra, km, ultimaTroca, proxima: null, faltaKm: null, faltaDias: null };
+  const semContas = { regra, km, ultimaTroca, proxima: null, faltaKm: null, faltaDias: null, passou: false };
 
   if (!regra) return { estado: "sem_regra", ...semContas };
   if (e.estadoOperacional === "inativo" && !regra.avaliaInativa) return { estado: "sem_dados", ...semContas };
@@ -441,7 +460,17 @@ export function avaliarOleo(e: EntradaOleo): AvaliacaoOleo {
       estado = "a_aproximar";
     }
   }
-  return { estado, regra, km, ultimaTroca, proxima, faltaKm, faltaDias };
+  const passou = faltaDias < 0 || (faltaKm != null && faltaKm <= 0);
+  return { estado, regra, km, ultimaTroca, proxima, faltaKm, faltaDias, passou };
+}
+
+/**
+ * O que se lê no selo do estado. Uma mota parada nunca fica «Vencida» — é a regra
+ * —, mas também não pode ficar verde a dizer «OK» com um «passou há 24 dias» ao
+ * lado: fica «Parada», e o selo perde o verde (BadgeOleo).
+ */
+export function rotuloEstadoOleo(a: Pick<AvaliacaoOleo, "estado" | "passou">): string {
+  return a.estado === "ok" && a.passou ? "Parada" : ROTULO_ESTADO_OLEO[a.estado];
 }
 
 // ── 5. Histórico ────────────────────────────────────────────────────────────
@@ -462,6 +491,8 @@ export type LinhaHistorico = {
   foraDoIntervalo: boolean;
   /** Há outra troca de óleo da mesma mota a 3 dias ou menos. */
   repetida: boolean;
+  /** O km que ficou gravado na manutenção quando foi posto de lado por suspeito. */
+  kmRegistadoSuspeito: number | null;
 };
 
 const ROTULO_TIPO: Record<ManutencaoTipo, string> = {
@@ -515,10 +546,14 @@ export function historicoManutencao(e: Pick<EntradaOleo, "modelo" | "leituras" |
   for (const m of e.manutencoes) {
     if (!ehDataIso(m.data)) continue;
     const trocaDeOleo = origemTrocaDeOleo(m) !== null;
+    const km = kmDaManutencao(m, classificadas);
     linhas.push({
       manutencaoId: m.id,
       data: m.data.slice(0, 10),
-      km: kmDaManutencao(m, classificadas),
+      km,
+      // Sem isto a linha ficava só com a data e parecia que o km nunca tinha sido
+      // registado, quando na verdade foi deitado fora por não bater certo.
+      kmRegistadoSuspeito: kmValido(m.km) && km !== m.km ? m.km : null,
       servico: servicoDe(m.tipo, trocaDeOleo),
       trocaDeOleo,
       kmDesdeAnterior: null,
@@ -591,6 +626,23 @@ export function validarKmManual(
 }
 
 /**
+ * O que acontece ao km da mota quando se confirma um km escrito à mão. O gatilho
+ * fn_km_atual só mexe na mota quando a leitura é a mais recente (new.data >=
+ * km_atual_em): registar hoje uma troca ou uma recolha de dias atrás deixa o km
+ * atual como está. Sem isto, a caixa de confirmação prometia uma coisa que não
+ * acontecia.
+ */
+export function avisoDoKmConfirmado(
+  data: string,
+  ultimaValida: Pick<LeituraKm, "km" | "data"> | null,
+): string {
+  if (ultimaValida && ehDataIso(data) && ehDataIso(ultimaValida.data) && data < ultimaValida.data) {
+    return "Fica no histórico da mota, mas não muda o km atual (há leituras mais recentes).";
+  }
+  return "Ao gravar, passa a ser o km da mota.";
+}
+
+/**
  * O km como se escreve num campo: «41230», «41.230» ou «41 230» dão 41230. Campo
  * vazio: null (fica sem km). Outra coisa qualquer («41,5», «abc»): NaN, que o
  * `validarKmManual` recusa com a mesma mensagem de sempre.
@@ -631,7 +683,9 @@ function textoDias(dias: number, vencida: boolean): string {
 
 /** «+640 km» quando já passou do km da troca; «faltam 180 km» quando ainda falta. */
 function textoKm(km: number): string {
-  return km <= 0 ? `+${formatarKm(-km)} km` : `${km === 1 ? "falta" : "faltam"} ${formatarKm(km)} km`;
+  // No zero certo, «+0 km» lia-se como se nada tivesse acontecido: acabou de chegar.
+  if (km === 0) return "chegou ao km";
+  return km < 0 ? `+${formatarKm(-km)} km` : `${km === 1 ? "falta" : "faltam"} ${formatarKm(km)} km`;
 }
 
 /** A próxima troca: «aos 43.430 km ou a 07/10», ou só «a 07/10» sem km fiável. */

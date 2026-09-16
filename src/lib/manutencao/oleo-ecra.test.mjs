@@ -6,8 +6,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   avaliarOleo,
+  avisoDoKmConfirmado,
   lerKmEscrito,
   leituraJaRegistada,
+  rotuloEstadoOleo,
   textoAposOleoTrocado,
   textoEstadoOleo,
   textoProximaTroca,
@@ -94,6 +96,13 @@ test("vencida pelos dois: o tempo e o km, um ao lado do outro", () => {
   );
 });
 
+test("chegar ao km certo não é «+0 km»: diz-se que chegou", () => {
+  assert.equal(
+    estadoDe({ manutencoes: [troca(10, 40000)], leituras: [leitura(0, 42200)] }),
+    "chegou ao km",
+  );
+});
+
 test("a aproximar por km: «faltam 180 km»", () => {
   assert.equal(
     estadoDe({ manutencoes: [troca(10, 40000)], leituras: [leitura(0, 42020)] }),
@@ -130,6 +139,52 @@ test("mota parada com a data passada: «passou há 9 dias», e não «vencida»"
       leituras: [leitura(0, 41000)],
     }),
     "passou há 9 dias",
+  );
+});
+
+// ── O selo do estado ────────────────────────────────────────────────────────
+
+test("mota parada com o óleo já passado: «Parada», e não um «OK» verde", () => {
+  const parada = avaliar({
+    estadoOperacional: "disponivel",
+    manutencoes: [troca(30, 40000)],
+    leituras: [leitura(0, 41000)],
+  });
+  assert.equal(parada.estado, "ok");
+  assert.equal(parada.passou, true);
+  assert.equal(rotuloEstadoOleo(parada), "Parada");
+});
+
+test("com a troca ainda longe, a mota parada continua «OK»", () => {
+  const parada = avaliar({
+    estadoOperacional: "disponivel",
+    manutencoes: [troca(5, 40000)],
+    leituras: [leitura(0, 41000)],
+  });
+  assert.equal(parada.passou, false);
+  assert.equal(rotuloEstadoOleo(parada), "OK");
+});
+
+test("numa mota ocupada, o rótulo é o estado de sempre", () => {
+  const vencida = avaliar({ manutencoes: [troca(30, 40000)], leituras: [leitura(0, 41000)] });
+  assert.equal(rotuloEstadoOleo(vencida), "Vencida");
+  assert.equal(rotuloEstadoOleo(avaliar({})), "Vencida");
+  assert.equal(rotuloEstadoOleo(avaliar({ estadoOperacional: "disponivel" })), "Sem dados");
+});
+
+// ── O aviso da caixa «Confirmo este km» ─────────────────────────────────────
+
+test("o km confirmado passa a ser o da mota quando é a leitura mais recente", () => {
+  const frase = "Ao gravar, passa a ser o km da mota.";
+  assert.equal(avisoDoKmConfirmado(HOJE, { km: 41230, data: antes(3) }), frase);
+  assert.equal(avisoDoKmConfirmado(HOJE, { km: 41230, data: HOJE }), frase, "no mesmo dia ainda manda");
+  assert.equal(avisoDoKmConfirmado(HOJE, null), frase);
+});
+
+test("numa data antiga, o km fica no histórico e não muda o km atual", () => {
+  assert.equal(
+    avisoDoKmConfirmado(antes(7), { km: 41230, data: antes(2) }),
+    "Fica no histórico da mota, mas não muda o km atual (há leituras mais recentes).",
   );
 });
 
