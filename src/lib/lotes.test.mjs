@@ -1,9 +1,8 @@
-// Testes de src/lib/lotes.ts (os ids das consultas .in() vão aos bocados, e as
-// leituras grandes vão página a página).
+// Testes de src/lib/lotes.ts (os ids das consultas .in() vão aos bocados).
 // Correr: node --test src/lib/*.test.mjs scripts/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { partirEmLotes, intervaloDaPagina } from "./lotes.ts";
+import { partirEmLotes } from "./lotes.ts";
 
 const ids = (n) => Array.from({ length: n }, (_, i) => `id-${i}`);
 
@@ -43,27 +42,5 @@ test("não altera a lista original", () => {
 test("tamanho inválido recusa-se em vez de entrar em ciclo infinito", () => {
   for (const t of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.throws(() => partirEmLotes(ids(3), t), RangeError, String(t));
-  }
-});
-
-test("a 1.ª página começa na linha 0 e o fim é inclusivo, como o .range() do Supabase", () => {
-  assert.deepEqual(intervaloDaPagina(0, 1000), { de: 0, ate: 999 });
-});
-
-test("as páginas seguintes encaixam sem saltar nem repetir nenhuma linha", () => {
-  const p0 = intervaloDaPagina(0, 1000);
-  const p1 = intervaloDaPagina(1, 1000);
-  const p2 = intervaloDaPagina(2, 1000);
-  assert.equal(p1.de, p0.ate + 1);
-  assert.equal(p2.de, p1.ate + 1);
-  assert.deepEqual(p2, { de: 2000, ate: 2999 });
-});
-
-test("página ou tamanho inválidos recusam-se em vez de ler o intervalo errado", () => {
-  for (const t of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.throws(() => intervaloDaPagina(0, t), RangeError, `tamanho ${t}`);
-  }
-  for (const i of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.throws(() => intervaloDaPagina(i, 1000), RangeError, `página ${i}`);
   }
 });

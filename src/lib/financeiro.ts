@@ -3,7 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mesDaSemana } from "@/lib/datas";
 import { documentoDoDetalhe } from "@/lib/documentoDespesa";
-import { partirEmLotes, intervaloDaPagina } from "@/lib/lotes";
+import { partirEmLotes } from "@/lib/lotes";
 import { CAT_ROTULO } from "@/lib/despesasMeta";
 import { rubricaDoDetalhe } from "@/lib/custos";
 import { catalogoDeMotas, parteDaCasa, receitaDaCasa, type CatalogoDeMotas } from "@/lib/receitaCasa";
@@ -29,7 +29,7 @@ const LOTE_IDS = 100;
 /** Quantos desses pedidos vão ao mesmo tempo, para não atropelar o gateway. */
 const PEDIDOS_EM_PARALELO = 4;
 
-/** Linhas por pedido: é o máximo que o PostgREST devolve de uma vez. */
+/** Linhas que se pedem de cada vez. O PostgREST pode devolver menos, se o projeto tiver um limite mais baixo. */
 const PAGINA = 1000;
 
 /**
@@ -39,13 +39,19 @@ const PAGINA = 1000;
  */
 const PAGINAS_MAX = 100;
 
+/** Um erro da base como o supabase-js o devolve: mensagem e, quando há, o código. */
+interface ErroDaBase {
+  message: string;
+  code?: string;
+}
+
 /**
  * Uma consulta que falha NÃO pode virar zeros. O supabase-js não lança: devolve
  * `{ data: null, error }`, e com `data ?? []` o Resultado mostrava 0 € de receita
  * como se fosse verdade. Cada consulta daqui verifica o `error` e lança com
  * contexto — melhor uma página de erro do que um número errado com ar de certo.
  */
-function erroDeLeitura(oQue: string, error: { message: string }): Error {
+function erroDeLeitura(oQue: string, error: ErroDaBase): Error {
   return new Error(`Resultado: não foi possível ler ${oQue}: ${error.message}`);
 }
 
@@ -56,25 +62,37 @@ function erroDeLeitura(oQue: string, error: { message: string }): Error {
  * máximo 1000 linhas por pedido e deita o resto fora SEM erro. Com a frota de
  * hoje não chega lá; numa instância com ~60 motas, um ano de rendas passa das
  * 3000 e a receita do ano aparecia a menos, calada. Aqui pede-se página a
- * página até vir uma página incompleta — e cada página verifica o seu erro.
+ * página — e cada página verifica o seu erro.
+ *
+ * Avança pelo que VEIO, não pelo tamanho que se pediu, e só pára numa página
+ * vazia. O limite de linhas por pedido é uma definição do projeto Supabase e
+ * pode ser baixada sem ninguém tocar no código: a parar na primeira página
+ * incompleta, um limite de 500 devolvia as primeiras 500 linhas e calava-se —
+ * outra vez receita a menos com ar de certo. Custa um pedido vazio no fim.
  *
  * Cada consulta tem de trazer uma ordem FIXA (o `id` chega), senão a base pode
  * devolver a mesma linha em duas páginas e saltar outra.
  */
 async function lerTudo<T>(
   oQue: string,
-  pedir: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  pedir: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: ErroDaBase | null }>,
 ): Promise<T[]> {
   const linhas: T[] = [];
+  let de = 0;
   for (let pagina = 0; pagina < PAGINAS_MAX; pagina++) {
-    const { de, ate } = intervaloDaPagina(pagina, PAGINA);
-    const { data, error } = await pedir(de, ate);
-    if (error) throw erroDeLeitura(oQue, error);
+    const { data, error } = await pedir(de, de + PAGINA - 1);
+    if (error) {
+      // Pedir um intervalo já fora da tabela é o fim da leitura, não uma avaria:
+      // há instalações que respondem 416 (PGRST103) em vez de uma lista vazia.
+      if (de > 0 && error.code === "PGRST103") return linhas;
+      throw erroDeLeitura(oQue, error);
+    }
     const desta = data ?? [];
     linhas.push(...desta);
-    if (desta.length < PAGINA) return linhas;
+    if (desta.length === 0) return linhas;
+    de += desta.length;
   }
-  throw new Error(`Resultado: ${oQue} deu mais de ${PAGINAS_MAX * PAGINA} linhas — a leitura foi interrompida.`);
+  throw new Error(`Resultado: ${oQue} não acabou ao fim de ${PAGINAS_MAX} páginas — a leitura foi interrompida.`);
 }
 
 /**
@@ -435,7 +453,7 @@ export async function financeiroMes(ano: number, mes: number): Promise<MesDetalh
   const catalogo = catalogoDeMotas(motos, donos);
 
   // Semanas QUE PERTENCEM a este mês (regra da quarta-feira), e pagas.
-  const cobs = await lerTudo(`as cobranças de ${competencia}`, (dePagina, atePagina) =>
+  const cobs = await lerTudo(`as cobranças de ${competenciaAnterior} e ${competencia}`, (dePagina, atePagina) =>
     supabaseAdmin
       .from("cobranca")
       .select("id, veiculo_id, valor_pago, data_vencimento")
