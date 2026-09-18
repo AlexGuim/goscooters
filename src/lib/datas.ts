@@ -69,6 +69,22 @@ export function mesDeHojeEmLisboa(agora: Date = new Date()): string {
 }
 
 /**
+ * Uma data a mais de `meses` de hoje, para um lado ou para o outro. Serve para
+ * desconfiar de um ano mal lido: em 2026-09 a IA leu duas faturas de «2026» como
+ * «2024» (na data e no n.º do processo), e a despesa foi parar dois anos atrás,
+ * ao fim da lista. Compara meses, não dias: o que interessa é a ordem de
+ * grandeza, não um dia a mais ou a menos.
+ */
+export function dataLongeDeHoje(data: string, hoje: string, meses = 13): boolean {
+  const ISO = /^(\d{4})-(\d{2})-\d{2}$/;
+  const d = ISO.exec(data);
+  const h = ISO.exec(hoje);
+  if (!d || !h) return false;
+  const emMeses = (m: RegExpExecArray) => Number(m[1]) * 12 + Number(m[2]);
+  return Math.abs(emMeses(d) - emMeses(h)) > meses;
+}
+
+/**
  * Rótulo "Semana N de <mês>" da semana de calendário (domingo→sábado) que contém
  * `iso`. A semana pertence ao mês onde está a MAIORIA dos seus dias — que, numa
  * semana domingo→sábado, é sempre o mês da quarta-feira (o 4.º dia). N é a posição

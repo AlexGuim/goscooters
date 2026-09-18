@@ -41,7 +41,7 @@ import { criarSeguro, criarManutencao, garantirManutencaoDeDespesa } from "@/act
 import { prepararComunicacao, type ComunicacaoPreparada } from "@/actions/comunicacaoActions";
 import { executarProcedimentos } from "@/actions/procedimentoActions";
 import type { ProcedimentoGatilho } from "@/types/db";
-import { dataBR } from "@/lib/datas";
+import { dataBR, dataDeHojeEmLisboa, dataLongeDeHoje } from "@/lib/datas";
 import { hojeEmLisboa } from "@/lib/diasUteis";
 import { IDIOMAS } from "@/lib/lembretes";
 
@@ -215,6 +215,7 @@ export default function IntakeDocumento({
   const [categoria, setCategoria] = useState<DespesaCategoria>("outro");
   const [descricao, setDescricao] = useState("");
   const [valor, setValor] = useState("");
+  const [hoje] = useState(() => dataDeHojeEmLisboa());
   const [data, setData] = useState("");
   const [dataVencimento, setDataVencimento] = useState("");
   const [imputarA, setImputarA] = useState<ImputarA>("goscooters");
@@ -1007,7 +1008,8 @@ export default function IntakeDocumento({
               {res.aviso && <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">{res.aviso}</p>}
               {res.duplicado && (
                 <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
-                  ⚠ Já existe uma despesa com o mesmo fornecedor, referência e valor — pode ser duplicado.
+                  ⚠ Já existe uma despesa com o mesmo fornecedor, referência e valor
+                  {res.duplicado_em ? `, de ${dataBR(res.duplicado_em)}` : ""} — pode ser duplicado.
                 </p>
               )}
 
@@ -1116,6 +1118,11 @@ export default function IntakeDocumento({
                           void procurarMotorista(veiculoId, e.target.value);
                         }}
                       />
+                      {dataLongeDeHoje(data, hoje) && (
+                        <span className="text-xs font-normal text-amber-700">
+                          Confere o ano: esta data está a mais de um ano de hoje.
+                        </span>
+                      )}
                     </label>
                     <label className={etiqueta}>
                       <span>Fornecedor / entidade</span>

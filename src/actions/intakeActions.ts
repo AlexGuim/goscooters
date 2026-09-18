@@ -51,6 +51,8 @@ export interface IntakeResultado {
   motorista: { id: string; nome: string; telefone_e164: string | null } | null;
   imputar_a_sugerido: ImputarA;
   duplicado: boolean;
+  /** A data da despesa parecida, para o aviso dizer de quando é. */
+  duplicado_em: string | null;
   aviso: string | null;
 }
 
@@ -188,16 +190,18 @@ async function enriquecer(
 
   // Deduplicação: já existe despesa com o mesmo fornecedor + referência + valor?
   let duplicado = false;
+  let duplicadoEm: string | null = null;
   if (doc.fornecedor && doc.referencia && doc.valor) {
     const { data: ja } = await supabaseAdmin
       .from("despesa")
-      .select("id")
+      .select("id, data_despesa")
       .eq("fornecedor", doc.fornecedor.trim())
       .eq("referencia_externa", doc.referencia.trim())
       .eq("valor", doc.valor)
       .limit(1)
       .maybeSingle();
     duplicado = !!ja;
+    duplicadoEm = ja?.data_despesa ?? null;
   }
 
   return {
@@ -208,6 +212,7 @@ async function enriquecer(
     proprietario,
     motorista,
     imputar_a_sugerido,
+    duplicado_em: duplicadoEm,
     duplicado,
     aviso,
   };

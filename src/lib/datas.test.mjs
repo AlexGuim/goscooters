@@ -2,7 +2,7 @@
 // Correr: node --test src/lib/*.test.mjs scripts/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mesDeHojeEmLisboa, dataDeHojeEmLisboa, semanaDeHojeEmLisboa, mesDaSemana } from "./datas.ts";
+import { mesDeHojeEmLisboa, dataDeHojeEmLisboa, semanaDeHojeEmLisboa, mesDaSemana, dataLongeDeHoje } from "./datas.ts";
 
 test("um dia qualquer: o mês de Lisboa, com dois dígitos", () => {
   assert.equal(mesDeHojeEmLisboa(new Date("2026-09-15T12:00:00Z")), "2026-09");
@@ -83,4 +83,17 @@ test("a semana é a de Lisboa: no verão, as 23:30 de sábado já são a semana 
     de: "2026-09-20",
     ate: "2026-09-26",
   });
+});
+
+test("uma data a mais de um ano de hoje é para conferir (o ano mal lido)", () => {
+  // O caso real: a IA leu 2026 como 2024 e a despesa foi parar dois anos atrás.
+  assert.equal(dataLongeDeHoje("2024-09-17", "2026-09-18"), true);
+  assert.equal(dataLongeDeHoje("2026-09-17", "2026-09-18"), false);
+  // O limite são 13 meses, para os dois lados.
+  assert.equal(dataLongeDeHoje("2025-07-01", "2026-09-18"), true, "14 meses");
+  assert.equal(dataLongeDeHoje("2025-08-01", "2026-09-18"), false, "13 meses ainda passa");
+  assert.equal(dataLongeDeHoje("2027-11-01", "2026-09-18"), true);
+  assert.equal(dataLongeDeHoje("2027-10-01", "2026-09-18"), false);
+  // Sem data, ou com lixo, não se inventa aviso nenhum.
+  for (const d of ["", "17/09/2026", "2026-9-1", "hoje"]) assert.equal(dataLongeDeHoje(d, "2026-09-18"), false, d);
 });
