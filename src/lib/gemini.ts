@@ -1,5 +1,7 @@
 import "server-only";
 
+import { dataDeHojeEmLisboa } from "@/lib/datas";
+
 /**
  * Leitura de documentos com o Gemini 2.5 Flash (visão). Recebe uma ou mais
  * imagens (documento de identidade frente/verso, carta de condução) e devolve
@@ -426,10 +428,26 @@ export async function lerDocumentoGemini(
  * Classifica um documento qualquer (fatura, seguro, manutenção, portagem, coima,
  * KYC…) e extrai os campos relevantes. Base do intake inteligente.
  */
+/**
+ * As regras que valem para qualquer documento com datas e referências.
+ *
+ * Sem isto, o modelo "corrige" o ano para um que lhe parece mais provável: em
+ * setembro de 2026 leu duas faturas de 2026 como sendo de 2024, tanto na data
+ * como no n.º do processo. A despesa ficava gravada dois anos atrás — ou seja,
+ * fora da vista — e ao carregar o mesmo papel outra vez dizia «duplicado».
+ */
+function comRegrasDeLeitura(prompt: string): string {
+  return `${prompt}
+
+HOJE é ${dataDeHojeEmLisboa()} (Europe/Lisbon) e estes documentos são quase sempre dos últimos meses.
+NUNCA corrijas nem ajustes um ano: copia o que está escrito, mesmo que te pareça estranho.
+Números de documento, de processo e de referência copiam-se tal como estão impressos, carácter a carácter.`;
+}
+
 export async function classificarDocumentoGemini(
   imagens: { mime: string; base64: string }[],
 ): Promise<DocClassificado | null> {
-  const r = await gerarJson(imagens, PROMPT_CLASSIFICAR);
+  const r = await gerarJson(imagens, comRegrasDeLeitura(PROMPT_CLASSIFICAR));
   return r && typeof r === "object" ? (r as DocClassificado) : null;
 }
 
@@ -479,7 +497,7 @@ export interface CamposComprovativo {
 export async function lerComprovativoGemini(
   imagens: { mime: string; base64: string }[],
 ): Promise<CamposComprovativo | null> {
-  const r = await gerarJson(imagens, PROMPT_COMPROVATIVO);
+  const r = await gerarJson(imagens, comRegrasDeLeitura(PROMPT_COMPROVATIVO));
   return r && typeof r === "object" ? (r as CamposComprovativo) : null;
 }
 
@@ -515,7 +533,7 @@ export interface CamposAuto {
 export async function lerAutoGemini(
   imagens: { mime: string; base64: string }[],
 ): Promise<CamposAuto | null> {
-  const r = await gerarJson(imagens, PROMPT_AUTO);
+  const r = await gerarJson(imagens, comRegrasDeLeitura(PROMPT_AUTO));
   return r && typeof r === "object" ? (r as CamposAuto) : null;
 }
 
